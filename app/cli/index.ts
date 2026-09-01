@@ -7,6 +7,7 @@ import {
   changeTransitionCommand,
 } from '../commands/change.js';
 import { dashboardCommand } from '../commands/dashboard.js';
+import { evalCommand } from '../commands/eval.js';
 import {
   evolveProposeCommand,
   evolveRollbackCommand,
@@ -105,6 +106,13 @@ program
   .description('Show CometFlow project status')
   .action(async (targetPath = '.') => {
     await statusCommand(targetPath);
+  });
+
+program
+  .command('eval [path]')
+  .description('Run local evaluation tasks from .cometflow/eval.yaml')
+  .action(async (targetPath = '.') => {
+    await evalCommand(targetPath);
   });
 
 program
