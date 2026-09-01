@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
 import { agentCheckCommand, agentListCommand } from '../commands/agent.js';
+import { daemonStartCommand } from '../commands/daemon.js';
 import { goalSyncCommand } from '../commands/goal.js';
 import { initCommand } from '../commands/init.js';
 import { runCommand } from '../commands/run.js';
@@ -57,6 +58,21 @@ agent
   .description('Check whether an agent adapter is available')
   .action(async (agentId) => {
     await agentCheckCommand(agentId);
+  });
+
+const daemon = program.command('daemon').description('Scheduler daemon commands');
+
+daemon
+  .command('start [path]')
+  .description('Start the CometFlow scheduler daemon')
+  .option('--mode <mode>', 'always | idle | schedule | manual', 'always')
+  .option('--budget <ms>', 'Total daemon budget in milliseconds', (value) => Number.parseInt(value, 10))
+  .option('--interval <ms>', 'Iteration interval in milliseconds', (value) => Number.parseInt(value, 10))
+  .option('--agent <agent>', 'Agent id: opencode or claude-code')
+  .option('--model <model>', 'Model override')
+  .option('--cpu-threshold <value>', 'Idle-mode CPU threshold', (value) => Number.parseFloat(value))
+  .action(async (targetPath = '.', options) => {
+    await daemonStartCommand(targetPath, options);
   });
 
 const goal = program.command('goal').description('Goal commands');
