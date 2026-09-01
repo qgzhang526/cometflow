@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>2048 · CometFlow</title>
+  <style>
+    :root {
+      --bg: #faf8ef;
+      --cell-bg: #cdc1b4;
+      --board-bg: #bbada0;
+      --text: #776e65;
+      --accent: #8f7a66;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    #app { width: min(92vw, 420px); }
+    header { display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 10px; }
+    h1 { margin: 0; font-size: 44px; line-height: 1; }
+    .scores { display: flex; gap: 8px; }
+    .score-box {
+      background: var(--board-bg);
+      color: #fff;
+      border-radius: 6px;
+      padding: 6px 14px;
+      text-align: center;
+      min-width: 76px;
+    }
+    .score-box .label { font-size: 11px; opacity: 0.85; display: block; }
+    .score-box span:last-child { font-size: 20px; font-weight: 700; }
+    #status {
+      min-height: 22px;
+      margin: 4px 0 10px;
+      font-size: 14px;
+      color: var(--accent);
+    }
+    #board {
+      position: relative;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+      padding: 10px;
+      background: var(--board-bg);
+      border-radius: 8px;
+      touch-action: none;
+    }
+    .cell {
+      aspect-ratio: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--cell-bg);
+      border-radius: 6px;
+      font-size: 30px;
+      font-weight: 700;
+      color: var(--text);
+      transition: background 0.12s ease, transform 0.1s ease;
+    }
+    .cell-2    { background: #eee4da; }
+    .cell-4    { background: #ede0c8; }
+    .cell-8    { background: #f2b179; color: #fff; }
+    .cell-16   { background: #f59563; color: #fff; }
+    .cell-32   { background: #f67c5f; color: #fff; }
+    .cell-64   { background: #f65e3b; color: #fff; }
+    .cell-128  { background: #edcf72; color: #fff; font-size: 26px; }
+    .cell-256  { background: #edcc61; color: #fff; font-size: 26px; }
+    .cell-512  { background: #edc850; color: #fff; font-size: 26px; }
+    .cell-1024 { background: #edc53f; color: #fff; font-size: 22px; }
+    .cell-2048 { background: #edc22e; color: #fff; font-size: 22px; }
+    .controls { display: flex; gap: 10px; margin-top: 14px; }
+    button {
+      flex: 1;
+      padding: 10px 0;
+      border: none;
+      border-radius: 6px;
+      background: var(--accent);
+      color: #fff;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button:hover { filter: brightness(1.08); }
+    footer { margin-top: 16px; font-size: 12px; color: #a49a8f; text-align: center; }
+    #overlay {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(238, 228, 218, 0.73);
+      z-index: 10;
+    }
+    #overlay.hidden { display: none; }
+    #overlay-box {
+      background: #fff;
+      border-radius: 10px;
+      padding: 28px 36px;
+      text-align: center;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+    }
+    #overlay-box h2 { margin: 0 0 8px; font-size: 28px; }
+    #overlay-box p { margin: 0 0 18px; }
+    #overlay-restart { flex: none; padding: 10px 28px; }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <header>
+      <h1>2048</h1>
+      <div class="scores">
+        <div class="score-box"><span class="label">SCORE</span><span id="score">0</span></div>
+        <div class="score-box"><span class="label">BEST</span><span id="best">0</span></div>
+      </div>
+    </header>
+    <div id="status"></div>
+    <div id="board"></div>
+    <div class="controls">
+      <button id="hint">AI 提示</button>
+      <button id="restart">重新开始</button>
+    </div>
+    <footer>由 CometFlow 自举实验生成 · 与终端版共用同一引擎 · 高分保存在本机浏览器</footer>
+  </div>
+  <div id="overlay" class="hidden">
+    <div id="overlay-box">
+      <h2 id="overlay-title">Game Over</h2>
+      <p id="overlay-text"></p>
+      <button id="overlay-restart">再来一局</button>
+    </div>
+  </div>
+  <script src="2048.js"></script>
+</body>
+</html>

@@ -9,6 +9,8 @@
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
     "play": "node ../../node_modules/tsx/dist/cli.mjs src/cli/bin.ts",
-    "benchmark": "node ../../node_modules/tsx/dist/cli.mjs src/cli/bin.ts benchmark"
+    "benchmark": "node ../../node_modules/tsx/dist/cli.mjs src/cli/bin.ts benchmark",
+    "build:web": "node scripts/build-web.mjs",
+    "typecheck:web": "tsc -p tsconfig.web.json --noEmit"
   }
 }

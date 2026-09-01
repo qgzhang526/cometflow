@@ -1,3 +1,16 @@
+## 网页版
+
+浏览器直接玩（与终端版共用同一 TS 引擎 + AI）：
+
+```bash
+node scripts/build-web.mjs                 # 重新打包 web/2048.js（esbuild 从 pnpm store 自动定位）
+# 然后双击 web/index.html 即可（纯 IIFE 单文件，无模块依赖，file:// 可直接打开）
+```
+
+- 操作：WASD / 方向键 / 触屏滑动；R 或按钮重开；「AI 提示」给出建议方向（复用 src/ai 的 expectimax）。
+- 高分存 localStorage（`cometflow2048.best`）。
+- 构建产物 web/2048.js 已提交，改动引擎后记得重新构建。
+
 # 实验：终端 2048 + AI 玩家（CometFlow 自举验证）
 
 ## 实验定位
