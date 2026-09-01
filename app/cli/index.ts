@@ -6,6 +6,13 @@ import {
   changeStatusCommand,
   changeTransitionCommand,
 } from '../commands/change.js';
+import {
+  evolveProposeCommand,
+  evolveRollbackCommand,
+  evolveStatusCommand,
+  evolveSubmitCommand,
+  evolveVerifyCommand,
+} from '../commands/evolve.js';
 import { daemonStartCommand } from '../commands/daemon.js';
 import { goalSyncCommand } from '../commands/goal.js';
 import { initCommand } from '../commands/init.js';
@@ -89,6 +96,46 @@ change
   .description('Apply a change transition: confirm-acceptance | submit-candidate | verify-pass | archive-complete')
   .action(async (name, event, targetPath = '.') => {
     await changeTransitionCommand(name, event, targetPath);
+  });
+
+const evolve = program.command('evolve').description('Evolution commands');
+
+evolve
+  .command('propose <name>')
+  .description('Create an evolution proposal')
+  .requiredOption('--summary <text>', 'Proposal summary')
+  .option('--risk <text>', 'Risk and gate plan')
+  .option('--path <path>', 'Project root')
+  .action(async (name, options) => {
+    await evolveProposeCommand(name, options);
+  });
+
+evolve
+  .command('verify <name> [path]')
+  .description('Run evolution verification gates')
+  .action(async (name, targetPath = '.') => {
+    await evolveVerifyCommand(name, targetPath);
+  });
+
+evolve
+  .command('submit <name> [path]')
+  .description('Submit a verified evolution for human review')
+  .action(async (name, targetPath = '.') => {
+    await evolveSubmitCommand(name, targetPath);
+  });
+
+evolve
+  .command('status <name> [path]')
+  .description('Show evolution proposal status')
+  .action(async (name, targetPath = '.') => {
+    await evolveStatusCommand(name, targetPath);
+  });
+
+evolve
+  .command('rollback <name> [path]')
+  .description('Print rollback guidance for an evolution')
+  .action(async (name, targetPath = '.') => {
+    await evolveRollbackCommand(name, targetPath);
   });
 
 const daemon = program.command('daemon').description('Scheduler daemon commands');
