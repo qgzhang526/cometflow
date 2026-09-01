@@ -1,0 +1,17 @@
+schema: cometflow.change.v1
+name: g5-report-content
+goal: G5
+task: T1
+phase: archive
+status: done
+spec_ref: specs/report/spec.md
+spec_anchor: FR-REPORT-001 报告内容
+acceptance_ids:
+  - A401
+  - A402
+  - A403
+  - A404
+spec_version: 1
+spec_hash: f7b83af5afea47548c022ee93e2446c9b288449bc3114b1e3168aa999b2eeb79
+created_at: 2026-09-01T09:31:25.467Z
+archived: true

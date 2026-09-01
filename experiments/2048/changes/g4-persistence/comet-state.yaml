@@ -1,0 +1,16 @@
+schema: cometflow.change.v1
+name: g4-persistence
+goal: G4
+task: T1
+phase: archive
+status: done
+spec_ref: specs/persistence/spec.md
+spec_anchor: FR-PERSIST-001 高分存取
+acceptance_ids:
+  - A301
+  - A302
+  - A303
+spec_version: 1
+spec_hash: 46c426e4c0ad23d25b859bc820e1db2e3c162da80caf809257d251e46b437503
+created_at: 2026-09-01T09:25:06.582Z
+archived: true

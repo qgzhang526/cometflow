@@ -1,0 +1,32 @@
+schema: cometflow.evolution.v1
+name: ai-heuristic-weight
+summary: 调整 AI 启发式权重（空位/单调性/平滑度），目标是提升 benchmark 胜率
+risk_plan: 仅改 src/ai/ai.ts 启发式系数；若胜率下降可回滚
+gates:
+  - name: typecheck
+    command: node
+    args:
+      - ../../node_modules/typescript/bin/tsc
+      - -p
+      - tsconfig.json
+      - --noEmit
+  - name: tests
+    command: node
+    args:
+      - ../../node_modules/vitest/vitest.mjs
+      - run
+  - name: benchmark
+    command: node
+    args:
+      - ../../node_modules/tsx/dist/cli.mjs
+      - src/cli/bin.ts
+      - benchmark
+      - --n
+      - "20"
+      - --seed
+      - "1"
+      - --depth
+      - "0"
+status: verified
+created_at: 2026-09-01T09:25:52.218Z
+updated_at: 2026-09-01T09:48:19.766Z

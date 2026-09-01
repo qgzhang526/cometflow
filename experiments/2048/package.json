@@ -1,0 +1,14 @@
+{
+  "name": "cometflow-2048",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Terminal 2048 game + AI player, built to bootstrap-validate CometFlow",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "play": "node ../../node_modules/tsx/dist/cli.mjs src/cli/bin.ts",
+    "benchmark": "node ../../node_modules/tsx/dist/cli.mjs src/cli/bin.ts benchmark"
+  }
+}
