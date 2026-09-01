@@ -6,6 +6,7 @@ import {
   changeStatusCommand,
   changeTransitionCommand,
 } from '../commands/change.js';
+import { dashboardCommand } from '../commands/dashboard.js';
 import {
   evolveProposeCommand,
   evolveRollbackCommand,
@@ -13,6 +14,7 @@ import {
   evolveSubmitCommand,
   evolveVerifyCommand,
 } from '../commands/evolve.js';
+import { statusCommand } from '../commands/status.js';
 import { daemonStartCommand } from '../commands/daemon.js';
 import { goalSyncCommand } from '../commands/goal.js';
 import { initCommand } from '../commands/init.js';
@@ -96,6 +98,21 @@ change
   .description('Apply a change transition: confirm-acceptance | submit-candidate | verify-pass | archive-complete')
   .action(async (name, event, targetPath = '.') => {
     await changeTransitionCommand(name, event, targetPath);
+  });
+
+program
+  .command('status [path]')
+  .description('Show CometFlow project status')
+  .action(async (targetPath = '.') => {
+    await statusCommand(targetPath);
+  });
+
+program
+  .command('dashboard [path]')
+  .description('Start the local CometFlow dashboard')
+  .option('--port <port>', 'HTTP port', (value) => Number.parseInt(value, 10))
+  .action(async (targetPath = '.', options) => {
+    await dashboardCommand(targetPath, options);
   });
 
 const evolve = program.command('evolve').description('Evolution commands');
