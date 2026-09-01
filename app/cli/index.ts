@@ -1,8 +1,21 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
 import { goalSyncCommand } from '../commands/goal.js';
-import { specAnchorsCommand, specValidateCommand } from '../commands/spec.js';
-import { planFreezeCommand, planGenerateCommand, planTraceCommand, planValidateCommand } from '../commands/plan.js';
+import { initCommand } from '../commands/init.js';
+import {
+  specAnchorsCommand,
+  specDiffCommand,
+  specLockCommand,
+  specValidateCommand,
+} from '../commands/spec.js';
+import {
+  planApproveCommand,
+  planFreezeCommand,
+  planGenerateCommand,
+  planReviewCommand,
+  planTraceCommand,
+  planValidateCommand,
+} from '../commands/plan.js';
 
 const program = new Command();
 
@@ -10,6 +23,13 @@ program
   .name('cometflow')
   .description('Full-time autonomous agent development platform')
   .version('0.1.0');
+
+program
+  .command('init [path]')
+  .description('Initialize a CometFlow project')
+  .action(async (targetPath = '.') => {
+    await initCommand(targetPath);
+  });
 
 const goal = program.command('goal').description('Goal commands');
 
@@ -36,6 +56,20 @@ spec
     await specAnchorsCommand(targetPath);
   });
 
+spec
+  .command('lock [path]')
+  .description('Snapshot spec hashes to .cometflow/spec-lock.json')
+  .action(async (targetPath = '.') => {
+    await specLockCommand(targetPath);
+  });
+
+spec
+  .command('diff [path]')
+  .description('Diff current specs against the spec lock')
+  .action(async (targetPath = '.') => {
+    await specDiffCommand(targetPath);
+  });
+
 const plan = program.command('plan').description('Task plan commands');
 
 plan
@@ -50,6 +84,20 @@ plan
   .description('Validate a task plan')
   .action(async (goal, targetPath = '.') => {
     await planValidateCommand(goal, targetPath);
+  });
+
+plan
+  .command('review <goal> [path]')
+  .description('Mark a task plan as reviewed')
+  .action(async (goal, targetPath = '.') => {
+    await planReviewCommand(goal, targetPath);
+  });
+
+plan
+  .command('approve <goal> [path]')
+  .description('Approve a task plan')
+  .action(async (goal, targetPath = '.') => {
+    await planApproveCommand(goal, targetPath);
   });
 
 plan

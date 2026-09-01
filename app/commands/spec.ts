@@ -2,6 +2,7 @@ import path from 'node:path';
 import { validateSpecs } from '../../domains/spec/spec-validate.js';
 import { parseSpecFile } from '../../domains/spec/spec-parse.js';
 import { listSpecFiles } from '../../domains/spec/spec-index.js';
+import { computeSpecLock, diffSpecs, writeSpecLock } from '../../domains/spec/spec-lock.js';
 
 export async function specValidateCommand(targetPath: string): Promise<void> {
   const projectRoot = path.resolve(targetPath);
@@ -10,6 +11,25 @@ export async function specValidateCommand(targetPath: string): Promise<void> {
     console.log([finding.severity.toUpperCase(), finding.code, finding.path, finding.message].join(' '));
   }
   console.log(result.valid ? 'spec validate: OK' : 'spec validate: FAILED');
+}
+
+export async function specLockCommand(targetPath: string): Promise<void> {
+  const projectRoot = path.resolve(targetPath);
+  const lock = await computeSpecLock(projectRoot);
+  const filePath = await writeSpecLock(projectRoot, lock);
+  console.log('wrote ' + filePath);
+}
+
+export async function specDiffCommand(targetPath: string): Promise<void> {
+  const projectRoot = path.resolve(targetPath);
+  const diff = await diffSpecs(projectRoot);
+  console.log('added: ' + diff.added.length);
+  console.log('modified: ' + diff.modified.length);
+  console.log('removed: ' + diff.removed.length);
+  console.log('unchanged: ' + diff.unchanged.length);
+  for (const entry of [...diff.added, ...diff.modified, ...diff.removed]) {
+    console.log(entry.path + ' ' + (diff.added.includes(entry) ? 'added' : diff.modified.includes(entry) ? 'modified' : 'removed'));
+  }
 }
 
 export async function specAnchorsCommand(targetPath: string): Promise<void> {

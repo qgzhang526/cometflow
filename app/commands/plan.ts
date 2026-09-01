@@ -3,7 +3,12 @@ import { generateTaskPlan } from '../../domains/task-plan/task-plan-generate.js'
 import { validateTaskPlan } from '../../domains/task-plan/task-plan-validate.js';
 import { freezeTaskPlan } from '../../domains/task-plan/task-plan-freeze.js';
 import { traceTaskPlan } from '../../domains/task-plan/task-plan-trace.js';
-import { readTaskPlan, writeTaskPlan } from '../../domains/task-plan/task-plan-store.js';
+import {
+  markTaskPlanApproved,
+  markTaskPlanReviewed,
+  readTaskPlan,
+  writeTaskPlan,
+} from '../../domains/task-plan/task-plan-store.js';
 
 function projectRoot(targetPath: string): string {
   return path.resolve(targetPath);
@@ -12,6 +17,20 @@ function projectRoot(targetPath: string): string {
 export async function planGenerateCommand(goalId: string, targetPath: string): Promise<void> {
   const root = projectRoot(targetPath);
   const plan = await generateTaskPlan(root, goalId);
+  const filePath = await writeTaskPlan(root, plan);
+  console.log('wrote ' + filePath);
+}
+
+export async function planReviewCommand(goalId: string, targetPath: string): Promise<void> {
+  const root = projectRoot(targetPath);
+  const plan = markTaskPlanReviewed(await readTaskPlan(root, goalId));
+  const filePath = await writeTaskPlan(root, plan);
+  console.log('wrote ' + filePath);
+}
+
+export async function planApproveCommand(goalId: string, targetPath: string): Promise<void> {
+  const root = projectRoot(targetPath);
+  const plan = markTaskPlanApproved(await readTaskPlan(root, goalId));
   const filePath = await writeTaskPlan(root, plan);
   console.log('wrote ' + filePath);
 }

@@ -20,7 +20,7 @@ export interface TaskRecord {
 export interface TaskPlan {
   schema: 'cometflow.task-plan.v1';
   goal: string;
-  status: 'draft' | 'frozen';
+  status: 'draft' | 'validated' | 'approved' | 'frozen';
   tasks: TaskRecord[];
 }
 

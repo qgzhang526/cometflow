@@ -19,3 +19,17 @@ export async function writeTaskPlan(projectRoot: string, plan: TaskPlan): Promis
   await fs.writeFile(filePath, stringify(plan));
   return filePath;
 }
+
+export function markTaskPlanReviewed(plan: TaskPlan): TaskPlan {
+  if (plan.status !== 'draft') {
+    throw new Error('Only draft task plans can be reviewed');
+  }
+  return { ...plan, status: 'validated' };
+}
+
+export function markTaskPlanApproved(plan: TaskPlan): TaskPlan {
+  if (plan.status !== 'validated' && plan.status !== 'draft') {
+    throw new Error('Only draft or validated task plans can be approved');
+  }
+  return { ...plan, status: 'approved' };
+}
