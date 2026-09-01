@@ -1,6 +1,11 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
 import { agentCheckCommand, agentListCommand } from '../commands/agent.js';
+import {
+  changeNewCommand,
+  changeStatusCommand,
+  changeTransitionCommand,
+} from '../commands/change.js';
 import { daemonStartCommand } from '../commands/daemon.js';
 import { goalSyncCommand } from '../commands/goal.js';
 import { initCommand } from '../commands/init.js';
@@ -58,6 +63,32 @@ agent
   .description('Check whether an agent adapter is available')
   .action(async (agentId) => {
     await agentCheckCommand(agentId);
+  });
+
+const change = program.command('change').description('Workflow change commands');
+
+change
+  .command('new <name>')
+  .description('Create a change from a frozen task')
+  .requiredOption('--goal <goal>', 'Goal id')
+  .requiredOption('--task <task>', 'Frozen task id')
+  .option('--path <path>', 'Project root')
+  .action(async (name, options) => {
+    await changeNewCommand(name, options);
+  });
+
+change
+  .command('status <name> [path]')
+  .description('Show a change state')
+  .action(async (name, targetPath = '.') => {
+    await changeStatusCommand(name, targetPath);
+  });
+
+change
+  .command('transition <name> <event> [path]')
+  .description('Apply a change transition: confirm-acceptance | submit-candidate | verify-pass | archive-complete')
+  .action(async (name, event, targetPath = '.') => {
+    await changeTransitionCommand(name, event, targetPath);
   });
 
 const daemon = program.command('daemon').description('Scheduler daemon commands');
