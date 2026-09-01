@@ -1,0 +1,15 @@
+schema: cometflow.change.v1
+name: web-task-4
+goal: G6
+task: T4
+phase: archive
+status: done
+spec_ref: specs/web/spec.md
+spec_anchor: FR-WEB-004 引擎一致性
+acceptance_ids:
+  - A530
+  - A531
+spec_version: 1
+spec_hash: 9e90a9f7964489dc6b65269f284333a62b7259deb3ea98daa70060c9783cee55
+created_at: 2026-09-01T10:23:39.793Z
+archived: true

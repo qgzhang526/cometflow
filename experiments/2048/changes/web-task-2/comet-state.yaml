@@ -1,0 +1,15 @@
+schema: cometflow.change.v1
+name: web-task-2
+goal: G6
+task: T2
+phase: archive
+status: done
+spec_ref: specs/web/spec.md
+spec_anchor: FR-WEB-002 计分与持久化
+acceptance_ids:
+  - A510
+  - A511
+spec_version: 1
+spec_hash: 9e90a9f7964489dc6b65269f284333a62b7259deb3ea98daa70060c9783cee55
+created_at: 2026-09-01T10:23:30.418Z
+archived: true

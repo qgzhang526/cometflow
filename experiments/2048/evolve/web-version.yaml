@@ -1,0 +1,37 @@
+schema: cometflow.evolution.v1
+name: web-version
+summary: 新增网页版（G6）：与终端版共用引擎/AI，web/index.html 双击可玩，含 AI 提示与 localStorage 最高分
+risk_plan: 仅新增 src/web/ui.ts 视图层与构建脚本，不改动 core/ai；已过
+  typecheck/tests/benchmark/web-build 四道门禁
+gates:
+  - name: typecheck
+    command: node
+    args:
+      - ../../node_modules/typescript/bin/tsc
+      - -p
+      - tsconfig.json
+      - --noEmit
+  - name: tests
+    command: node
+    args:
+      - ../../node_modules/vitest/vitest.mjs
+      - run
+  - name: benchmark
+    command: node
+    args:
+      - ../../node_modules/tsx/dist/cli.mjs
+      - src/cli/bin.ts
+      - benchmark
+      - --n
+      - "20"
+      - --seed
+      - "1"
+      - --depth
+      - "0"
+  - name: web-build
+    command: node
+    args:
+      - scripts/build-web.mjs
+status: ready-for-review
+created_at: 2026-09-01T10:25:17.499Z
+updated_at: 2026-09-01T10:25:40.999Z
