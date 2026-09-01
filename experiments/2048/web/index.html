@@ -56,6 +56,21 @@
       touch-action: none;
     }
     .cell {
+      transition: transform 0.1s ease, background 0.12s ease;
+      will-change: transform;
+    }
+    .cell-pop { animation: pop 0.18s ease; }
+    .cell-spawn { animation: spawn 0.15s ease; }
+    @keyframes pop {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.18); }
+      100% { transform: scale(1); }
+    }
+    @keyframes spawn {
+      0% { transform: scale(0.2); opacity: 0; }
+      100% { transform: scale(1); opacity: 1; }
+    }
+    .cell {
       aspect-ratio: 1;
       display: flex;
       align-items: center;

@@ -1,0 +1,15 @@
+schema: cometflow.change.v1
+name: web-anim-task-4
+goal: G7
+task: T4
+phase: archive
+status: done
+spec_ref: specs/web-anim/spec.md
+spec_anchor: FR-ANIM-004 可构建可测试
+acceptance_ids:
+  - A630
+  - A631
+spec_version: 1
+spec_hash: 996ad41c36bddac07489cd8e2d0f6cabb5b41c614e8d9f3db4d72ee31a4b50ba
+created_at: 2026-09-01T10:31:02.340Z
+archived: true

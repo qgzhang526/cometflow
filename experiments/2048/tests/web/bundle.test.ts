@@ -10,6 +10,8 @@ interface FakeElement {
   id: string;
   textContent: string;
   className: string;
+  style: { transform: string };
+  offsetWidth: number;
   children: FakeElement[];
   listeners: Record<string, Array<(arg: unknown) => void>>;
   addEventListener: (type: string, fn: (arg: unknown) => void) => void;
@@ -23,6 +25,8 @@ function makeEl(id: string): FakeElement {
     id,
     textContent: '',
     className: '',
+    style: { transform: '' },
+    offsetWidth: 0,
     children: [],
     listeners,
     addEventListener(type: string, fn: (arg: unknown) => void) {
@@ -55,6 +59,10 @@ function runBundleWithStubs(): { els: Record<string, FakeElement>; keydown: (key
       return 0;
     },
     clearTimeout() {},
+    requestAnimationFrame(cb: () => void) {
+      cb();
+      return 0;
+    },
   };
   const store: Record<string, string> = {};
   const ls = {
@@ -89,6 +97,18 @@ describe('web bundle (G6)', () => {
     keydown('r');
     expect(els['overlay'].classList).toBeDefined();
     expect(els['score'].textContent).toBe('0');
+  });
+
+  it('A620/A621: 动画路径不抛异常且 transform 归位', () => {
+    const { els, keydown } = runBundleWithStubs();
+    keydown('ArrowLeft');
+    keydown('ArrowDown');
+    keydown('ArrowRight');
+    keydown('ArrowUp');
+    for (const cell of els['board'].children) {
+      expect(cell.style.transform).toBe('');
+    }
+    expect(typeof els['score'].textContent).toBe('string');
   });
 
   it('A511: 最高分展示更新', () => {

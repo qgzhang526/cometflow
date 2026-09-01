@@ -1,6 +1,6 @@
 import { Game, WIN_TILE } from '../core/game.js';
 import { chooseMove } from '../ai/ai.js';
-import type { Direction } from '../core/types.js';
+import type { Direction, Grid } from '../core/types.js';
 
 const BEST_SCORE_KEY = 'cometflow2048.best';
 
@@ -110,6 +110,7 @@ export class Web2048 {
       this.setStatus('游戏结束，点击「重新开始」再玩一局');
       return;
     }
+    const prevGrid = this.game.grid;
     const outcome = this.game.move(direction);
     if (!outcome.moved) {
       this.setStatus('无效移动，棋盘不变');
@@ -124,6 +125,7 @@ export class Web2048 {
       this.recordOver();
     }
     this.render();
+    this.animateMove(prevGrid, this.game.grid);
   }
 
   private recordOver(): void {
@@ -174,6 +176,100 @@ export class Web2048 {
       cell.className = 'cell' + (value === 0 ? '' : ' cell-' + value);
     }
     if (this.hintText) this.statusEl.textContent = this.hintText;
+  }
+
+  private cellPitch(): number {
+    const width = this.cells[0].offsetWidth || 0;
+    return width + 10; // 与 CSS gap 一致
+  }
+
+  private findSlideSource(prev: Grid, used: Set<number>, value: number): { r: number; c: number } | null {
+    for (let r = 0; r < 4; r++) {
+      for (let c = 0; c < 4; c++) {
+        const idx = r * 4 + c;
+        if (used.has(idx)) continue;
+        if (prev[r][c] === value) return { r, c };
+      }
+    }
+    return null;
+  }
+
+  private findMergeSource(prev: Grid, used: Set<number>, value: number): Array<{ r: number; c: number; idx: number }> | null {
+    // 同行或同列、未被使用的两格旧值之和等于新值 → 视为合并
+    for (let line = 0; line < 4; line++) {
+      for (const isRow of [true, false]) {
+        const candidates: Array<{ r: number; c: number; idx: number; v: number }> = [];
+        for (let k = 0; k < 4; k++) {
+          const r = isRow ? line : k;
+          const c = isRow ? k : line;
+          const idx = r * 4 + c;
+          if (used.has(idx)) continue;
+          const v = prev[r][c];
+          if (v !== 0 && v < value) candidates.push({ r, c, idx, v });
+        }
+        for (let i = 0; i < candidates.length; i++) {
+          for (let j = i + 1; j < candidates.length; j++) {
+            if (candidates[i].v + candidates[j].v === value) {
+              return [candidates[i], candidates[j]];
+            }
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  /** 视觉动画：滑动（transform 过渡）、合并（pop）、生成（spawn）。只动样式，不改游戏状态。 */
+  private animateMove(prev: Grid, next: Grid): void {
+    const pitch = this.cellPitch();
+    const used = new Set<number>();
+    const slide = new Map<number, { dr: number; dc: number }>();
+    const merge = new Set<number>();
+    const spawn = new Set<number>();
+
+    for (let r = 0; r < 4; r++) {
+      for (let c = 0; c < 4; c++) {
+        const value = next[r][c];
+        const idx = r * 4 + c;
+        if (value === 0) continue;
+        const pair = this.findMergeSource(prev, used, value);
+        if (pair) {
+          merge.add(idx);
+          for (const p of pair) used.add(p.idx);
+          continue;
+        }
+        const source = this.findSlideSource(prev, used, value);
+        if (source) {
+          used.add(source.r * 4 + source.c);
+          slide.set(idx, { dr: source.r - r, dc: source.c - c });
+        } else {
+          spawn.add(idx);
+        }
+      }
+    }
+
+    for (const [idx, delta] of slide) {
+      this.cells[idx].style.transform = `translate(${delta.dc * pitch}px, ${delta.dr * pitch}px)`;
+    }
+
+    const settle = (): void => {
+      for (const idx of slide.keys()) {
+        this.cells[idx].style.transform = '';
+      }
+      for (const idx of merge) {
+        const el = this.cells[idx];
+        el.classList.add('cell-pop');
+        window.setTimeout(() => el.classList.remove('cell-pop'), 180);
+      }
+      for (const idx of spawn) {
+        this.cells[idx].classList.add('cell-spawn');
+      }
+    };
+    if (typeof window.requestAnimationFrame === 'function') {
+      window.requestAnimationFrame(() => window.requestAnimationFrame(settle));
+    } else {
+      settle();
+    }
   }
 }
 

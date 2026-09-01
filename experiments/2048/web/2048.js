@@ -422,6 +422,7 @@
         this.setStatus("\u6E38\u620F\u7ED3\u675F\uFF0C\u70B9\u51FB\u300C\u91CD\u65B0\u5F00\u59CB\u300D\u518D\u73A9\u4E00\u5C40");
         return;
       }
+      const prevGrid = this.game.grid;
       const outcome = this.game.move(direction);
       if (!outcome.moved) {
         this.setStatus("\u65E0\u6548\u79FB\u52A8\uFF0C\u68CB\u76D8\u4E0D\u53D8");
@@ -436,6 +437,7 @@
         this.recordOver();
       }
       this.render();
+      this.animateMove(prevGrid, this.game.grid);
     }
     recordOver() {
       if (this.overRecorded) return;
@@ -481,6 +483,92 @@
         cell.className = "cell" + (value === 0 ? "" : " cell-" + value);
       }
       if (this.hintText) this.statusEl.textContent = this.hintText;
+    }
+    cellPitch() {
+      const width = this.cells[0].offsetWidth || 0;
+      return width + 10;
+    }
+    findSlideSource(prev, used, value) {
+      for (let r = 0; r < 4; r++) {
+        for (let c = 0; c < 4; c++) {
+          const idx = r * 4 + c;
+          if (used.has(idx)) continue;
+          if (prev[r][c] === value) return { r, c };
+        }
+      }
+      return null;
+    }
+    findMergeSource(prev, used, value) {
+      for (let line = 0; line < 4; line++) {
+        for (const isRow of [true, false]) {
+          const candidates = [];
+          for (let k = 0; k < 4; k++) {
+            const r = isRow ? line : k;
+            const c = isRow ? k : line;
+            const idx = r * 4 + c;
+            if (used.has(idx)) continue;
+            const v = prev[r][c];
+            if (v !== 0 && v < value) candidates.push({ r, c, idx, v });
+          }
+          for (let i = 0; i < candidates.length; i++) {
+            for (let j = i + 1; j < candidates.length; j++) {
+              if (candidates[i].v + candidates[j].v === value) {
+                return [candidates[i], candidates[j]];
+              }
+            }
+          }
+        }
+      }
+      return null;
+    }
+    /** 视觉动画：滑动（transform 过渡）、合并（pop）、生成（spawn）。只动样式，不改游戏状态。 */
+    animateMove(prev, next) {
+      const pitch = this.cellPitch();
+      const used = /* @__PURE__ */ new Set();
+      const slide = /* @__PURE__ */ new Map();
+      const merge = /* @__PURE__ */ new Set();
+      const spawn = /* @__PURE__ */ new Set();
+      for (let r = 0; r < 4; r++) {
+        for (let c = 0; c < 4; c++) {
+          const value = next[r][c];
+          const idx = r * 4 + c;
+          if (value === 0) continue;
+          const pair = this.findMergeSource(prev, used, value);
+          if (pair) {
+            merge.add(idx);
+            for (const p of pair) used.add(p.idx);
+            continue;
+          }
+          const source = this.findSlideSource(prev, used, value);
+          if (source) {
+            used.add(source.r * 4 + source.c);
+            slide.set(idx, { dr: source.r - r, dc: source.c - c });
+          } else {
+            spawn.add(idx);
+          }
+        }
+      }
+      for (const [idx, delta] of slide) {
+        this.cells[idx].style.transform = `translate(${delta.dc * pitch}px, ${delta.dr * pitch}px)`;
+      }
+      const settle = () => {
+        for (const idx of slide.keys()) {
+          this.cells[idx].style.transform = "";
+        }
+        for (const idx of merge) {
+          const el = this.cells[idx];
+          el.classList.add("cell-pop");
+          window.setTimeout(() => el.classList.remove("cell-pop"), 180);
+        }
+        for (const idx of spawn) {
+          this.cells[idx].classList.add("cell-spawn");
+        }
+      };
+      if (typeof window.requestAnimationFrame === "function") {
+        window.requestAnimationFrame(() => window.requestAnimationFrame(settle));
+      } else {
+        settle();
+      }
     }
   };
   new Web2048();
