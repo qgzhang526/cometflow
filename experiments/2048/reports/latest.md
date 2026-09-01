@@ -3,7 +3,52 @@
 日期：2026-09-01
 范围：experiments/2048（终端 2048 + AI 玩家，CometFlow 自举验证）
 
-## 本轮：无人值守终态复核（2026-09-01 复核会话 3）
+## 本轮：全量门禁复核（2026-09-01 复核会话 5）
+
+无人值守终态复核：全部冻结计划无未实现任务，重跑全部门禁与数据复核，未改动任何
+冻结计划内代码：
+
+| 检查项 | 命令 | 结果 |
+|---|---|---|
+| 类型检查 | `tsc -p tsconfig.json --noEmit` | PASS (exit 0) |
+| 单测 | `vitest run` | 9 文件 55 用例全通过 |
+| eval 门禁 | `cometflow eval .` | typecheck/tests/benchmark-smoke 三 PASS |
+| spec 结构 | `cometflow spec validate .` | OK |
+| spec lock | `cometflow spec diff .` | 0 added / 0 modified / 0 removed / 5 unchanged |
+| 计划 trace | `cometflow plan trace G5 .` | T1/T2 均 frozen，A401~A411 acceptance_ids 完整 |
+| acceptance 覆盖 | tests/ 全量 grep | 38 条 acceptance（A001~A411）全部有测试锚点 |
+| 快照输出 | `bin.ts --snapshot` | 非 TTY 输出固定格式棋盘快照（A102），无 ANSI 转义 |
+| benchmark 复现 | `benchmark --n 100 --seed 1 --depth 1` | win_rate=0.01、max tile avg=698.88、avg score=9560.64、avg moves=608.48，与报告基线完全一致 |
+| 报告文件 | `reports/self-bootstrap-report.md` | 存在，H1~H4 逐条有数据与判定，含平台缺陷清单（A410），位置可被 spec trace 引用（A411） |
+
+**复核结论：** G1~G5 全部 12 个冻结任务满足定义完成标准，无新增缺陷或阻断项；
+报告数据与代码现状完全一致。既有提示保持不变：`ai-heuristic-weight` status=verified
+（待人工评审放行，平台外动作）；H4 样本量偏小；平台侧已实现未提交的改进待平台处理。
+
+## 上一轮：全量门禁复核（2026-09-01 复核会话 4）
+
+无人值守终态复核：全部冻结计划无未实现任务，重跑全部门禁与数据复核，未改动任何
+冻结计划内代码：
+
+| 检查项 | 命令 | 结果 |
+|---|---|---|
+| 类型检查 | `tsc -p tsconfig.json --noEmit` | PASS (exit 0) |
+| 单测 | `vitest run` | 9 文件 55 用例全通过 |
+| eval 门禁 | `cometflow eval .` | typecheck/tests/benchmark-smoke 三 PASS |
+| spec 结构 | `cometflow spec validate .` | OK |
+| spec lock | `cometflow spec diff .` | 0 added / 0 modified / 0 removed / 5 unchanged |
+| 计划 trace | `cometflow plan trace G1~G5 .` | 5 goals 12 tasks 全部 frozen，acceptance_ids 完整 |
+| 状态总览 | `cometflow status .` | 5 goals、5 frozen plans（12 tasks）、4 changes archived、1 evolution verified |
+| acceptance 覆盖 | tests/ 全量 grep | 38 条 acceptance（G1:10 G2:9 G3:7 G4:6 G5:6）全部有测试锚点 |
+| 快照输出 | `bin.ts --snapshot` | 非 TTY 输出固定格式棋盘快照（A102），无 ANSI 转义 |
+| benchmark 复现 | `benchmark --n 100 --seed 1 --depth 1` | win_rate=0.01、max tile avg=698.88、avg score=9560.64、avg moves=608.48，与报告基线完全一致 |
+| evolve 状态 | `evolve status ai-heuristic-weight .` | status=verified，门禁为真实 tsc+vitest+benchmark |
+
+**复核结论：** G1~G5 全部 12 个冻结任务满足定义完成标准，无新增缺陷或阻断项；
+报告数据与代码现状完全一致。既有提示保持不变：`ai-heuristic-weight` status=verified
+（待人工评审放行，平台外动作）；H4 样本量偏小；平台侧已实现未提交的改进待平台处理。
+
+## 上一轮：无人值守终态复核（2026-09-01 复核会话 3）
 
 无人值守续作：重新执行全部门禁与数据复核，确认 G1~G5 冻结计划全部满足定义完成标准，
 未改动任何冻结计划内代码：
