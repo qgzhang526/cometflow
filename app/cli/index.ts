@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
+import { agentCheckCommand, agentListCommand } from '../commands/agent.js';
 import { goalSyncCommand } from '../commands/goal.js';
 import { initCommand } from '../commands/init.js';
+import { runCommand } from '../commands/run.js';
 import {
   specAnchorsCommand,
   specDiffCommand,
@@ -29,6 +31,32 @@ program
   .description('Initialize a CometFlow project')
   .action(async (targetPath = '.') => {
     await initCommand(targetPath);
+  });
+
+program
+  .command('run [path]')
+  .description('Run one CometFlow agent session')
+  .option('--agent <agent>', 'Agent id: opencode or claude-code')
+  .option('--model <model>', 'Model override')
+  .option('--timeout <ms>', 'Timeout in milliseconds', (value) => Number.parseInt(value, 10))
+  .action(async (targetPath = '.', options) => {
+    await runCommand(targetPath, options);
+  });
+
+const agent = program.command('agent').description('Agent adapter commands');
+
+agent
+  .command('list')
+  .description('List built-in agent adapters and availability')
+  .action(async () => {
+    await agentListCommand();
+  });
+
+agent
+  .command('check <agent>')
+  .description('Check whether an agent adapter is available')
+  .action(async (agentId) => {
+    await agentCheckCommand(agentId);
   });
 
 const goal = program.command('goal').description('Goal commands');
