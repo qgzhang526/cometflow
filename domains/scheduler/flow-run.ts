@@ -43,6 +43,7 @@ export async function buildFlowPrompt(projectRoot: string): Promise<string> {
     "",
     "## Instructions",
     "- Use specs/ as the source of truth.",
+    "- If frozen task plans exist at .cometflow/plans/, read them and implement only their tasks.",
     "- Implement only work that has a frozen task plan or explicit spec acceptance.",
     "- Record decisions and unresolved blockers in reports/latest.md.",
   ].join("\n");

@@ -22,4 +22,9 @@ export async function runCommand(targetPath: string, options: { agent?: string; 
   if (outcome.result.exitCode !== 0) {
     process.exitCode = outcome.result.exitCode;
   }
+  console.error(
+    'cometflow run: agent=' + outcome.agentId +
+    ' exit=' + outcome.result.exitCode +
+    (outcome.result.timedOut ? ' (timed out)' : ''),
+  );
 }

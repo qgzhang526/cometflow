@@ -11,7 +11,8 @@ describe('agent adapters', () => {
       model: 'gpt-5',
     });
     expect(command.command).toBe('opencode');
-    expect(command.args).toEqual(['run', 'hello', '--dir', '/repo', '--model', 'gpt-5']);
+    expect(command.args).toEqual(['run', 'hello', '--model', 'gpt-5']);
+    expect(command.cwd).toBe('/repo');
   });
 
   it('builds claude code non-interactive command', () => {

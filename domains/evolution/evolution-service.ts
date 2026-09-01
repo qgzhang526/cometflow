@@ -1,27 +1,49 @@
+import { createRequire } from 'node:module';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
+import { parse } from 'yaml';
 import { runCommand } from '../../platform/process/spawn-command.js';
 import { evolutionDir, readEvolution, writeEvolution } from './evolution-store.js';
 import type { EvolutionGate, EvolutionProposal } from './types.js';
 
+const require = createRequire(import.meta.url);
+
+// 默认真实门禁：解析到 cometflow 自身 node_modules 里的 tsc / vitest（绝对路径，cwd 无关）
+const TSC = require.resolve('typescript/bin/tsc');
+const VITEST = path.join(path.dirname(require.resolve('vitest/package.json')), 'vitest.mjs');
+
 const DEFAULT_GATES: EvolutionGate[] = [
-  { name: "typecheck", command: process.execPath, args: ["-e", "process.exit(0)"] },
-  { name: "tests", command: process.execPath, args: ["-e", "process.exit(0)"] },
+  { name: 'typecheck', command: process.execPath, args: [TSC, '-p', 'tsconfig.json', '--noEmit'] },
+  { name: 'tests', command: process.execPath, args: [VITEST, 'run'] },
 ];
+
+async function readGateManifest(projectRoot: string): Promise<EvolutionGate[] | null> {
+  const manifestPath = path.join(projectRoot, '.cometflow', 'evolve.yaml');
+  try {
+    const source = await fs.readFile(manifestPath, 'utf8');
+    const manifest = parse(source) as { gates?: EvolutionGate[] };
+    return manifest.gates ?? null;
+  } catch {
+    return null;
+  }
+}
 
 export async function proposeEvolution(options: {
   projectRoot: string;
   name: string;
   summary: string;
   riskPlan?: string;
+  gates?: EvolutionGate[];
 }): Promise<EvolutionProposal> {
   const now = new Date().toISOString();
+  const manifestGates = await readGateManifest(options.projectRoot);
+  const gates = options.gates ?? manifestGates ?? DEFAULT_GATES;
   const proposal: EvolutionProposal = {
     schema: 'cometflow.evolution.v1',
     name: options.name,
     summary: options.summary,
     risk_plan: options.riskPlan ?? '待补充',
-    gates: DEFAULT_GATES,
+    gates,
     status: 'draft',
     created_at: now,
     updated_at: now,
