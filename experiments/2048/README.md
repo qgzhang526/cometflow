@@ -66,6 +66,21 @@ cometflow spec trace G1 .
 > 运行 cometflow CLI 时请直接使用：`node ./node_modules/tsx/dist/cli.mjs app/cli/index.ts <cmd>`
 > （在仓库根目录执行），或先 `pnpm approve-builds`。
 
+
+## 游玩方式
+
+```bash
+cd experiments/2048
+node ../../node_modules/tsx/dist/cli.mjs src/cli/bin.ts            # 实时交互（TTY）
+node ../../node_modules/tsx/dist/cli.mjs src/cli/bin.ts --seed 1   # 固定种子
+printf 'w\na\nq\n' | node ../../node_modules/tsx/dist/cli.mjs src/cli/bin.ts --seed 1  # 脚本回放
+node ../../node_modules/tsx/dist/cli.mjs src/cli/bin.ts benchmark --n 5 --seed 1 --depth 1  # AI benchmark
+```
+
+- **实时模式（TTY）**：WASD/方向键移动，按一下立即重绘；r 重开、q 退出、Ctrl+C 退出。
+- **非 TTY / 管道**：整局回放（先输入按键，Ctrl+Z+Enter（PowerShell）/ Ctrl+D（Unix）结束输入后回放）。
+- 高分存储：`~/.cometflow-2048/highscore.json`（可用 `--highscore-dir` 覆盖）。
+
 ## 已知平台发现（实验起点，G5 需复核）
 
 - **（已修复）Windows shim 兼容**：`platform/process/spawn-command.ts` 现可解析
