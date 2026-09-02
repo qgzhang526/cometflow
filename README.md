@@ -4,7 +4,7 @@
 
 CometFlow 融合 Nightshift 的持续调度/无人值守能力与 Comet 的可恢复工作流、Skill 生态、科学评估能力。
 
-当前阶段：**MVP 开发中**。
+当前阶段：**MVP 已覆盖 Phase 1–6 核心能力，进入持续完善**。
 
 ## 已实现能力
 
@@ -13,13 +13,19 @@ cometflow init [path]
 cometflow goal sync [path]
 cometflow spec validate|anchors|lock|diff|drift [path]
 cometflow plan generate|validate|review|approve|freeze|regenerate|trace <goal> [path] [--preserve-approved]
-cometflow change new|list|status|resume|transition <...>
+cometflow change new|list|status|resume|transition|run|verify|archive <...>
 cometflow run [path] --agent opencode|claude-code
-cometflow daemon start [path] --mode always|idle|schedule|manual
+cometflow daemon start [path] --mode always|idle|schedule|manual [--start HH:MM --end HH:MM] [--safety-bundle]
 cometflow evolve propose|verify(--eval)|submit|status|approve|reject|review-list|rollback <name> [path]
 cometflow eval [path]   # .cometflow/eval.yaml（sampling/断言/rubric，Pass@k/Pass^k）
+cometflow skill add|show|list|import <...>
+cometflow bundle create|compile|distribute <...>
 cometflow status [path]
 cometflow dashboard [path] --port <port>
+cometflow doctor [path] [--json]
+cometflow project migrate [path]
+cometflow update
+cometflow uninstall [path] --force
 cometflow agent list|check <agent>
 ```
 
@@ -30,6 +36,7 @@ pnpm install
 pnpm typecheck
 pnpm test
 pnpm build
+pnpm package-e2e
 ```
 
 ## 设计文档

@@ -23,7 +23,10 @@ import {
   skillShowCommand,
 } from '../commands/skill.js';
 import { dashboardCommand } from '../commands/dashboard.js';
+import { doctorCommand } from '../commands/doctor.js';
 import { evalCommand } from '../commands/eval.js';
+import { projectMigrateCommand } from '../commands/migrate.js';
+import { uninstallCommand, updateCommand } from '../commands/ops.js';
 import {
   evolveApproveCommand,
   evolveProposeCommand,
@@ -232,6 +235,36 @@ program
   .description('Run local evaluation tasks from .cometflow/eval.yaml')
   .action(async (targetPath = '.') => {
     await evalCommand(targetPath);
+  });
+
+program
+  .command('doctor [path]')
+  .description('Diagnose CometFlow project health')
+  .option('--json', 'Output as JSON')
+  .action(async (targetPath = '.', options) => {
+    await doctorCommand(targetPath, options);
+  });
+
+program
+  .command('project migrate [path]')
+  .description('Migrate legacy NIGHTSHIFT/.nightshift project to CometFlow')
+  .action(async (targetPath = '.') => {
+    await projectMigrateCommand(targetPath);
+  });
+
+program
+  .command('update')
+  .description('Update CometFlow (MVP stub)')
+  .action(async () => {
+    await updateCommand();
+  });
+
+program
+  .command('uninstall [path]')
+  .description('Uninstall CometFlow project state')
+  .option('--force', 'Confirm removal of .cometflow/')
+  .action(async (targetPath = '.', options) => {
+    await uninstallCommand(targetPath, options);
   });
 
 program
