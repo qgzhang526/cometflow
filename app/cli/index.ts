@@ -8,6 +8,17 @@ import {
   changeStatusCommand,
   changeTransitionCommand,
 } from '../commands/change.js';
+import {
+  bundleCompileCommand,
+  bundleCreateCommand,
+  bundleDistributeCommand,
+} from '../commands/bundle.js';
+import {
+  skillAddCommand,
+  skillImportCommand,
+  skillListCommand,
+  skillShowCommand,
+} from '../commands/skill.js';
 import { dashboardCommand } from '../commands/dashboard.js';
 import { evalCommand } from '../commands/eval.js';
 import {
@@ -123,6 +134,65 @@ change
   .description('Apply a change transition: confirm-acceptance | submit-candidate | verify-pass | archive-complete')
   .action(async (name, event, targetPath = '.') => {
     await changeTransitionCommand(name, event, targetPath);
+  });
+
+const skill = program.command('skill').description('Skill package commands');
+
+skill
+  .command('add <source>')
+  .description('Install a local Skill package')
+  .option('--project <dir>', 'Project root')
+  .option('--overwrite', 'Replace existing Skill')
+  .action(async (source, options) => {
+    await skillAddCommand(source, options);
+  });
+
+skill
+  .command('show <skill>')
+  .description('Show installed Skill metadata')
+  .option('--project <dir>', 'Project root')
+  .action(async (name, options) => {
+    await skillShowCommand(name, options);
+  });
+
+skill
+  .command('list')
+  .description('List installed Skills')
+  .option('--project <dir>', 'Project root')
+  .action(async (options) => {
+    await skillListCommand(options);
+  });
+
+skill
+  .command('import <source> <name>')
+  .description('Import an external Skill with risk scan')
+  .option('--project <dir>', 'Project root')
+  .action(async (source, name, options) => {
+    await skillImportCommand(source, name, options);
+  });
+
+const bundle = program.command('bundle').description('Skill bundle commands');
+
+bundle
+  .command('create <name> [path]')
+  .description('Create a bundle manifest')
+  .action(async (name, targetPath = '.') => {
+    await bundleCreateCommand(name, targetPath);
+  });
+
+bundle
+  .command('compile [path]')
+  .description('Compile a bundle and print its file list')
+  .action(async (targetPath = '.') => {
+    await bundleCompileCommand(targetPath);
+  });
+
+bundle
+  .command('distribute [path]')
+  .description('Distribute a bundle to a platform')
+  .requiredOption('--platform <platform>', 'opencode or claude-code')
+  .action(async (targetPath = '.', options) => {
+    await bundleDistributeCommand(targetPath, options);
   });
 
 program
