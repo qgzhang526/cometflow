@@ -63,3 +63,14 @@
 - G9（撤销一步）真实 agent 实验：26 个冻结任务 validate 0 缺陷；spec 歧义点由 Agent 决策日志消解
   （撤销上限默认 10、快照重建不侵入引擎）；68 测试全绿；commit 9270aa6。
 - H2 判定由「部分成立」升级为「成立（条件成立）」。
+## 更新：Phase1/2 新功能针对性验证（2026-09-02）
+
+- T1 change list/resume：新建 resume-demo 用 resume 逐阶段引导（confirm-acceptance→submit-candidate→verify-pass→archive-complete）
+  直至归档；change list active 为空、--all 共 19 个（H4 断点恢复可操作化）。
+- T2 spec drift：基线 26 任务 0 漂移；注入 specs/web 变更 → 检出 G6 T1~T4 漂移 4 条；还原后归零。
+  **发现并修复平台缺陷**：Windows autocrlf 下 git checkout 会把 spec 转 CRLF 导致漂移误报——
+  spec-drift/spec-lock/freeze 三处 sha256 现统一归一化行尾（CRLF→LF），强制 CRLF 下 drift=0。
+- T3 plan regenerate --preserve-approved：G9 再生后 T1~T3 保留 frozen（仅计划头变 draft），validate OK，已恢复冻结。
+- T4 科学评估：eval.yaml 升级（sampling=2、断言、rubric），eval 全 PASS，pass@k=1.00(k=1)/pass^k=1.00(k=2)，
+  rubric R-BENCH/R-SNAP passRate=1.00（断言 benchmark JSON 与快照无 ANSI）。
+- T5 evolve verify --eval：sci-eval-demo 提案过 4 门禁 + 科学评估（pass@k/pass^k=1.00）→ verified，提案记录 eval 字段。
