@@ -1,14 +1,14 @@
 # CometFlow 执行计划
 
 状态：规划中，随实现滚动更新。
-当前完成度：约 55%–60%。
+当前完成度：约 70%（Phase 1/2 完成，evolve 评审闭环落地）。
 
 ## 阶段总览
 
 | 阶段 | 目标 | 状态 | 详细文档 |
 |---|---|---|---|
-| Phase 1 | 补强 Workflow / Spec 闭环 | 待开始 | [phase-1-workflow-spec-closure.md](./phase-1-workflow-spec-closure.md) |
-| Phase 2 | 科学评估 MVP（Rubric / Pass@k / Pass^k） | 待开始 | 进入阶段时补文档 |
+| Phase 1 | 补强 Workflow / Spec 闭环（change list/resume、spec drift、plan regenerate） | **已完成**（d59d1af，平台测试 40） | [phase-1-workflow-spec-closure.md](./phase-1-workflow-spec-closure.md) |
+| Phase 2 | 科学评估 MVP（Rubric / Pass@k / Pass^k）+ evolve 评审终态 | **已完成**（d65ca70 + c66ec5a，平台测试 43） | [007-evolution-review-workflow.md](../design/007-evolution-review-workflow.md) |
 | Phase 3 | 调度器健壮性 | 待开始 | 进入阶段时补文档 |
 | Phase 4 | Skill / Bundle 平台 | 待开始 | 进入阶段时补文档 |
 | Phase 5 | 完整 Native 工作流 | 待开始 | 进入阶段时补文档 |

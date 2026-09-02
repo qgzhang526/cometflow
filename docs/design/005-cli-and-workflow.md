@@ -51,6 +51,11 @@ cometflow decisions [path] --last 10
 ### 工作流
 
 ```bash
+cometflow change new <name> --goal <goal> --task <task> --path <path>
+cometflow change list [path] [--all] [--json]
+cometflow change status <name> [path]
+cometflow change resume <name> [path] [--json]   # 下一步动作指引（断点恢复）
+cometflow change transition <name> <event> [path]
 cometflow workflow resolve [path]
 cometflow native [args...]
 cometflow classic [args...]
@@ -61,8 +66,11 @@ cometflow change revise <change>
 
 ```bash
 cometflow skill add|show|run|continue|check|import
-cometflow evolve propose|verify|submit|status|rollback
-cometflow evolve verify --eval
+cometflow evolve propose|verify|submit|status|rollback <name> [path]
+cometflow evolve verify --eval                     # 叠加本地科学评估门禁
+cometflow evolve approve <name> [path] --note <text> [--commits <csv>]   # 终态
+cometflow evolve reject <name> [path] --reason <text>                    # 终态
+cometflow evolve review-list [path] [--json]
 cometflow eval [target] [--suite local|langsmith|langfuse]
 ```
 

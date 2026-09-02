@@ -11,12 +11,13 @@ CometFlow 融合 Nightshift 的持续调度/无人值守能力与 Comet 的可�
 ```text
 cometflow init [path]
 cometflow goal sync [path]
-cometflow spec validate|anchors|lock|diff [path]
-cometflow plan generate|validate|review|approve|freeze|trace <goal> [path]
-cometflow change new|status|transition <...>
+cometflow spec validate|anchors|lock|diff|drift [path]
+cometflow plan generate|validate|review|approve|freeze|regenerate|trace <goal> [path] [--preserve-approved]
+cometflow change new|list|status|resume|transition <...>
 cometflow run [path] --agent opencode|claude-code
 cometflow daemon start [path] --mode always|idle|schedule|manual
-cometflow evolve propose|verify|submit|status|rollback <name> [path]
+cometflow evolve propose|verify(--eval)|submit|status|approve|reject|review-list|rollback <name> [path]
+cometflow eval [path]   # .cometflow/eval.yaml（sampling/断言/rubric，Pass@k/Pass^k）
 cometflow status [path]
 cometflow dashboard [path] --port <port>
 cometflow agent list|check <agent>
