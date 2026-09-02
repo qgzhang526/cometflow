@@ -14,7 +14,7 @@ const SPAWN_PROBS: ReadonlyArray<readonly [number, number]> = [
   [4, 0.1],
 ];
 
-const EMPTY_WEIGHT = 270.0;
+const EMPTY_WEIGHT = 320.0;
 const SMOOTH_WEIGHT = 0.1;
 const MONO_WEIGHT = 100.0;
 const CORNER_WEIGHT = 500.0;

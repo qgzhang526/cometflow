@@ -15,12 +15,12 @@
 
 | # | 提案 | 状态 | 关联 Goal | 代码落地 | 门禁/eval 证据 | 建议 | 决策（批准/拒绝/退回） | 备注 |
 |---|---|---|---|---|---|---|---|---|
-| 1 | web-version | ready-for-review | G6 网页版 | ✅ 已合入（b25e70d 实现 + 69ce0ff 正规化） | 4 门禁 OK | **批准**（确认一致后回填 commit） | | |
-| 2 | web-animations | ready-for-review | G7 动画 | ✅ 已合入（51614d8） | 4 门禁 OK | **批准** | | |
-| 3 | web-ai-demo | ready-for-review | G8 AI 演示 | ✅ 已合入（985267d） | 4 门禁 OK | **批准** | | |
-| 4 | web-undo | ready-for-review | G9 撤销 | ✅ 已合入（9270aa6，agent 提交） | 4 门禁 OK + spec lock 归零 | **批准** | | |
-| 5 | ai-heuristic-weight | verified | G3 AI 权重 | ❌ 未落地（src/ai/ai.ts 未改） | 4 门禁 OK（仅验证提案本身） | **需落地实测后决策**：改权重→100 局对比 win_rate | | |
-| 6 | sci-eval-demo | verified | 平台 Phase 2 | 无代码改动 | 4 门禁 OK + eval pass@k/pass^k=1.00 | **批准=记录** | | |
+| 1 | web-version | ready-for-review | G6 网页版 | ✅ 已合入（b25e70d 实现 + 69ce0ff 正规化） | 4 门禁 OK | **批准**（确认一致后回填 commit） | ✅ 批准 | 待 evolve approve 正式归档 |
+| 2 | web-animations | ready-for-review | G7 动画 | ✅ 已合入（51614d8） | 4 门禁 OK | **批准** | ✅ 批准 | 待 evolve approve 正式归档 |
+| 3 | web-ai-demo | ready-for-review | G8 AI 演示 | ✅ 已合入（985267d） | 4 门禁 OK | **批准** | ✅ 批准 | 待 evolve approve 正式归档 |
+| 4 | web-undo | ready-for-review | G9 撤销 | ✅ 已合入（9270aa6，agent 提交） | 4 门禁 OK + spec lock 归零 | **批准** | ✅ 批准 | 待 evolve approve 正式归档 |
+| 5 | ai-heuristic-weight | verified | G3 AI 权重 | ❌ 未落地（src/ai/ai.ts 未改） | 4 门禁 OK（仅验证提案本身） | **需落地实测后决策**：改权重→100 局对比 win_rate | 落地对比中 | 结果决定 approve/reject（H3 判据 ≥10pp） |
+| 6 | sci-eval-demo | verified | 平台 Phase 2 | 无代码改动 | 4 门禁 OK + eval pass@k/pass^k=1.00 | **批准=记录** | ✅ 批准 | 待 evolve approve 正式归档 |
 
 ## 批准后的落地动作
 

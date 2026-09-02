@@ -1,0 +1,7 @@
+baseline 270/0.1/100/500
+baseline {"win_rate":0.01,"score_avg":9560.64,"max_tile_avg":698.88,"moves_avg":608.48}
+c1-empty320 {"win_rate":0.03,"score_avg":10064.64,"max_tile_avg":714.24,"moves_avg":634.12}
+c2-mono160 {"win_rate":0,"score_avg":6924.2,"max_tile_avg":532.48,"moves_avg":469.76}
+c3-corner800 {"win_rate":0,"score_avg":9381.48,"max_tile_avg":683.52,"moves_avg":604.09}
+c4-combo {"win_rate":0.01,"score_avg":7472.44,"max_tile_avg":574.72,"moves_avg":499.06}
+DONE

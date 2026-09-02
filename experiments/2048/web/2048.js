@@ -204,7 +204,7 @@
     [2, 0.9],
     [4, 0.1]
   ];
-  var EMPTY_WEIGHT = 270;
+  var EMPTY_WEIGHT = 320;
   var SMOOTH_WEIGHT = 0.1;
   var MONO_WEIGHT = 100;
   var CORNER_WEIGHT = 500;

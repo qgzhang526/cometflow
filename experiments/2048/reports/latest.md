@@ -215,3 +215,9 @@ ai-heuristic-weight` 通过真实 tsc/vitest/benchmark 门禁（status=verified�
   submit 完成、100 局基线已记录）；
 - 补充 G4/G5 之外的跨会话断点恢复样本以强化 H4 结论；
 - 平台侧提交工作树中已就绪的改进项，并在后续报告中引用 A410 清单逐条销项。
+## 决策记录：evolve 提案评审（2026-09-02）
+
+- 人工评审结论（清单：reports/evolve-review-checklist.md）：
+  - 批准：web-version（G6）、web-animations（G7）、web-ai-demo（G8）、web-undo（G9）、sci-eval-demo（代码均已合入或无代码）；
+  - ai-heuristic-weight：落地 100 局对比后决策（H3 判据 win_rate ≥10pp）。
+- 平台暂缺 evolve approve/reject 终态命令，待增强后正式归档（见后续提交）。
