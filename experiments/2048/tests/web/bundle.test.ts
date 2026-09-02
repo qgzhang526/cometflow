@@ -40,9 +40,10 @@ function makeEl(id: string): FakeElement {
   };
 }
 
-function runBundleWithStubs(): { els: Record<string, FakeElement>; keydown: (key: string) => void } {
+function runBundleWithStubs(): { els: Record<string, FakeElement>; keydown: (key: string) => void; intervals: Array<(() => void) | undefined> } {
   const els: Record<string, FakeElement> = {};
   const winListeners: Record<string, Array<(arg: unknown) => void>> = {};
+  const intervals: Array<(() => void) | undefined> = [];
   const doc = {
     getElementById(id: string) {
       return (els[id] ??= makeEl(id));
@@ -63,6 +64,13 @@ function runBundleWithStubs(): { els: Record<string, FakeElement>; keydown: (key
       cb();
       return 0;
     },
+    setInterval(cb: () => void) {
+      intervals.push(cb);
+      return intervals.length;
+    },
+    clearInterval(id: number) {
+      intervals[id - 1] = undefined;
+    },
   };
   const store: Record<string, string> = {};
   const ls = {
@@ -80,6 +88,7 @@ function runBundleWithStubs(): { els: Record<string, FakeElement>; keydown: (key
   return {
     els,
     keydown: (key: string) => keydown({ key, preventDefault() {} }),
+    intervals,
   };
 }
 
@@ -109,6 +118,20 @@ describe('web bundle (G6)', () => {
       expect(cell.style.transform).toBe('');
     }
     expect(typeof els['score'].textContent).toBe('string');
+  });
+
+  it('A701/A710/A720: AI 演示启动、步进、停止', () => {
+    const { els, intervals } = runBundleWithStubs();
+    const click = els['ai-demo'].listeners.click?.[0] as (() => void) | undefined;
+    expect(click).toBeDefined();
+    click?.();
+    expect(intervals.length).toBeGreaterThan(0);
+    expect(els['ai-demo'].textContent).toBe('停止演示');
+    const step = intervals[intervals.length - 1];
+    step?.();
+    expect(typeof els['score'].textContent).toBe('string');
+    click?.();
+    expect(els['ai-demo'].textContent).toBe('AI 演示');
   });
 
   it('A511: 最高分展示更新', () => {

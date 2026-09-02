@@ -50,6 +50,9 @@ export class Web2048 {
   private hintText = '';
   private hintTimer: number | null = null;
   private touchStart: { x: number; y: number } | null = null;
+  private demoOn = false;
+  private demoInterval: number | null = null;
+  private readonly demoButton = byId<HTMLButtonElement>('ai-demo');
 
   private readonly scoreEl = byId<HTMLElement>('score');
   private readonly bestEl = byId<HTMLElement>('best');
@@ -70,6 +73,7 @@ export class Web2048 {
     byId('restart').addEventListener('click', () => this.restart());
     byId('overlay-restart').addEventListener('click', () => this.restart());
     byId('hint').addEventListener('click', () => this.showHint());
+    this.demoButton.addEventListener('click', () => this.toggleDemo());
 
     window.addEventListener('keydown', (event) => {
       if (event.key === 'r' || event.key === 'R') {
@@ -78,6 +82,7 @@ export class Web2048 {
       }
       const direction = directionFromKey(event);
       if (direction) {
+        this.stopDemo();
         event.preventDefault();
         this.move(direction);
       }
@@ -92,6 +97,7 @@ export class Web2048 {
       const start = this.touchStart;
       this.touchStart = null;
       if (!start) return;
+      this.stopDemo();
       const touch = event.changedTouches[0];
       const dx = touch.clientX - start.x;
       const dy = touch.clientY - start.y;
@@ -123,6 +129,7 @@ export class Web2048 {
     }
     if (this.game.over) {
       this.recordOver();
+      if (this.demoOn) this.stopDemo();
     }
     this.render();
     this.animateMove(prevGrid, this.game.grid);
@@ -141,6 +148,7 @@ export class Web2048 {
   }
 
   private restart(): void {
+    this.stopDemo();
     this.game = new Game();
     this.winShown = false;
     this.overRecorded = false;
@@ -150,6 +158,7 @@ export class Web2048 {
   }
 
   private showHint(): void {
+    this.stopDemo();
     if (this.game.over) return;
     const direction = chooseMove(this.game.grid, { depth: 1, timeoutMs: 200 });
     this.hintText = `AI 建议：${DIRECTION_ARROW[direction]}`;
@@ -163,6 +172,39 @@ export class Web2048 {
 
   private setStatus(text: string): void {
     this.statusEl.textContent = text;
+  }
+
+  private toggleDemo(): void {
+    if (this.demoOn) this.stopDemo();
+    else this.startDemo();
+  }
+
+  private startDemo(): void {
+    if (this.game.over) return;
+    this.stopDemo();
+    this.demoOn = true;
+    this.demoButton.textContent = '停止演示';
+    this.demoInterval = window.setInterval(() => this.demoStep(), 150);
+    this.demoStep();
+  }
+
+  private stopDemo(): void {
+    this.demoOn = false;
+    if (this.demoInterval !== null) {
+      window.clearInterval(this.demoInterval);
+      this.demoInterval = null;
+    }
+    this.demoButton.textContent = 'AI 演示';
+  }
+
+  private demoStep(): void {
+    if (this.game.over) {
+      this.stopDemo();
+      this.setStatus('AI 演示结束');
+      return;
+    }
+    const direction = chooseMove(this.game.grid, { depth: 1, timeoutMs: 200 });
+    this.move(direction);
   }
 
   private render(): void {

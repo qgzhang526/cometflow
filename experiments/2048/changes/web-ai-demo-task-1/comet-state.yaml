@@ -1,0 +1,16 @@
+schema: cometflow.change.v1
+name: web-ai-demo-task-1
+goal: G8
+task: T1
+phase: archive
+status: done
+spec_ref: specs/web-ai-demo/spec.md
+spec_anchor: FR-AI-DEMO-001 自动演示
+acceptance_ids:
+  - A701
+  - A702
+  - A703
+spec_version: 1
+spec_hash: 86657b9b040b6af2abb5b6f789b2cad4bf3468b3eb2f5fadd7a0b60cdff328d7
+created_at: 2026-09-02T02:29:11.377Z
+archived: true

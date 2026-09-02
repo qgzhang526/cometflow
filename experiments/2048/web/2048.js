@@ -370,6 +370,9 @@
       __publicField(this, "hintText", "");
       __publicField(this, "hintTimer", null);
       __publicField(this, "touchStart", null);
+      __publicField(this, "demoOn", false);
+      __publicField(this, "demoInterval", null);
+      __publicField(this, "demoButton", byId("ai-demo"));
       __publicField(this, "scoreEl", byId("score"));
       __publicField(this, "bestEl", byId("best"));
       __publicField(this, "statusEl", byId("status"));
@@ -387,6 +390,7 @@
       byId("restart").addEventListener("click", () => this.restart());
       byId("overlay-restart").addEventListener("click", () => this.restart());
       byId("hint").addEventListener("click", () => this.showHint());
+      this.demoButton.addEventListener("click", () => this.toggleDemo());
       window.addEventListener("keydown", (event) => {
         if (event.key === "r" || event.key === "R") {
           this.restart();
@@ -394,6 +398,7 @@
         }
         const direction = directionFromKey(event);
         if (direction) {
+          this.stopDemo();
           event.preventDefault();
           this.move(direction);
         }
@@ -406,6 +411,7 @@
         const start = this.touchStart;
         this.touchStart = null;
         if (!start) return;
+        this.stopDemo();
         const touch = event.changedTouches[0];
         const dx = touch.clientX - start.x;
         const dy = touch.clientY - start.y;
@@ -435,6 +441,7 @@
       }
       if (this.game.over) {
         this.recordOver();
+        if (this.demoOn) this.stopDemo();
       }
       this.render();
       this.animateMove(prevGrid, this.game.grid);
@@ -451,6 +458,7 @@
       this.overlayEl.classList.remove("hidden");
     }
     restart() {
+      this.stopDemo();
       this.game = new Game();
       this.winShown = false;
       this.overRecorded = false;
@@ -459,6 +467,7 @@
       this.render();
     }
     showHint() {
+      this.stopDemo();
       if (this.game.over) return;
       const direction = chooseMove(this.game.grid, { depth: 1, timeoutMs: 200 });
       this.hintText = `AI \u5EFA\u8BAE\uFF1A${DIRECTION_ARROW[direction]}`;
@@ -471,6 +480,35 @@
     }
     setStatus(text) {
       this.statusEl.textContent = text;
+    }
+    toggleDemo() {
+      if (this.demoOn) this.stopDemo();
+      else this.startDemo();
+    }
+    startDemo() {
+      if (this.game.over) return;
+      this.stopDemo();
+      this.demoOn = true;
+      this.demoButton.textContent = "\u505C\u6B62\u6F14\u793A";
+      this.demoInterval = window.setInterval(() => this.demoStep(), 150);
+      this.demoStep();
+    }
+    stopDemo() {
+      this.demoOn = false;
+      if (this.demoInterval !== null) {
+        window.clearInterval(this.demoInterval);
+        this.demoInterval = null;
+      }
+      this.demoButton.textContent = "AI \u6F14\u793A";
+    }
+    demoStep() {
+      if (this.game.over) {
+        this.stopDemo();
+        this.setStatus("AI \u6F14\u793A\u7ED3\u675F");
+        return;
+      }
+      const direction = chooseMove(this.game.grid, { depth: 1, timeoutMs: 200 });
+      this.move(direction);
     }
     render() {
       this.scoreEl.textContent = String(this.game.score);
