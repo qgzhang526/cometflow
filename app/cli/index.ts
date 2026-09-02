@@ -224,6 +224,9 @@ daemon
   .option('--agent <agent>', 'Agent id: opencode or claude-code')
   .option('--model <model>', 'Model override')
   .option('--cpu-threshold <value>', 'Idle-mode CPU threshold', (value) => Number.parseFloat(value))
+  .option('--start <HH:MM>', 'Schedule window start (schedule mode)')
+  .option('--end <HH:MM>', 'Schedule window end (schedule mode)')
+  .option('--safety-bundle', 'Create a git bundle snapshot before running')
   .action(async (targetPath = '.', options) => {
     await daemonStartCommand(targetPath, options);
   });
