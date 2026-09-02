@@ -3,6 +3,7 @@ import { generateTaskPlan } from '../../domains/task-plan/task-plan-generate.js'
 import { validateTaskPlan } from '../../domains/task-plan/task-plan-validate.js';
 import { freezeTaskPlan } from '../../domains/task-plan/task-plan-freeze.js';
 import { traceTaskPlan } from '../../domains/task-plan/task-plan-trace.js';
+import { regenerateTaskPlan } from '../../domains/task-plan/task-plan-regenerate.js';
 import {
   markTaskPlanApproved,
   markTaskPlanReviewed,
@@ -17,6 +18,20 @@ function projectRoot(targetPath: string): string {
 export async function planGenerateCommand(goalId: string, targetPath: string): Promise<void> {
   const root = projectRoot(targetPath);
   const plan = await generateTaskPlan(root, goalId);
+  const filePath = await writeTaskPlan(root, plan);
+  console.log('wrote ' + filePath);
+}
+
+export async function planRegenerateCommand(
+  goalId: string,
+  targetPath: string,
+  options: { preserveApproved?: boolean },
+): Promise<void> {
+  const root = projectRoot(targetPath);
+  const previous = await readTaskPlan(root, goalId);
+  const plan = await regenerateTaskPlan(root, goalId, previous, {
+    preserveApproved: options.preserveApproved === true,
+  });
   const filePath = await writeTaskPlan(root, plan);
   console.log('wrote ' + filePath);
 }

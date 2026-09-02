@@ -3,6 +3,7 @@ import { validateSpecs } from '../../domains/spec/spec-validate.js';
 import { parseSpecFile } from '../../domains/spec/spec-parse.js';
 import { listSpecFiles } from '../../domains/spec/spec-index.js';
 import { computeSpecLock, diffSpecs, writeSpecLock } from '../../domains/spec/spec-lock.js';
+import { collectSpecDrift } from '../../domains/spec/spec-drift.js';
 
 export async function specValidateCommand(targetPath: string): Promise<void> {
   const projectRoot = path.resolve(targetPath);
@@ -29,6 +30,20 @@ export async function specDiffCommand(targetPath: string): Promise<void> {
   console.log('unchanged: ' + diff.unchanged.length);
   for (const entry of [...diff.added, ...diff.modified, ...diff.removed]) {
     console.log(entry.path + ' ' + (diff.added.includes(entry) ? 'added' : diff.modified.includes(entry) ? 'modified' : 'removed'));
+  }
+}
+
+export async function specDriftCommand(targetPath: string, options: { json?: boolean }): Promise<void> {
+  const projectRoot = path.resolve(targetPath);
+  const report = await collectSpecDrift(projectRoot);
+  if (options.json) {
+    console.log(JSON.stringify(report, null, 2));
+    return;
+  }
+  console.log('scannedTasks: ' + report.scannedTasks);
+  console.log('drift: ' + report.drift.length);
+  for (const entry of report.drift) {
+    console.log([entry.goal, entry.task, entry.spec_ref, entry.frozen_hash.slice(0, 8) + ' -> ' + entry.current_hash.slice(0, 8)].join(' '));
   }
 }
 

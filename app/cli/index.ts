@@ -2,7 +2,9 @@
 import { Command } from 'commander';
 import { agentCheckCommand, agentListCommand } from '../commands/agent.js';
 import {
+  changeListCommand,
   changeNewCommand,
+  changeResumeCommand,
   changeStatusCommand,
   changeTransitionCommand,
 } from '../commands/change.js';
@@ -23,6 +25,7 @@ import { runCommand } from '../commands/run.js';
 import {
   specAnchorsCommand,
   specDiffCommand,
+  specDriftCommand,
   specLockCommand,
   specValidateCommand,
 } from '../commands/spec.js';
@@ -30,6 +33,7 @@ import {
   planApproveCommand,
   planFreezeCommand,
   planGenerateCommand,
+  planRegenerateCommand,
   planReviewCommand,
   planTraceCommand,
   planValidateCommand,
@@ -85,6 +89,23 @@ change
   .option('--path <path>', 'Project root')
   .action(async (name, options) => {
     await changeNewCommand(name, options);
+  });
+
+change
+  .command('list [path]')
+  .description('List changes')
+  .option('--all', 'Include archived changes')
+  .option('--json', 'Output as JSON')
+  .action(async (targetPath = '.', options) => {
+    await changeListCommand(targetPath, options);
+  });
+
+change
+  .command('resume <name> [path]')
+  .description('Show the next action to resume a change')
+  .option('--json', 'Output as JSON')
+  .action(async (name, targetPath = '.', options) => {
+    await changeResumeCommand(name, targetPath, options);
   });
 
 change
@@ -217,6 +238,14 @@ spec
     await specDiffCommand(targetPath);
   });
 
+spec
+  .command('drift [path]')
+  .description('Find frozen tasks whose spec content has drifted')
+  .option('--json', 'Output as JSON')
+  .action(async (targetPath = '.', options) => {
+    await specDriftCommand(targetPath, options);
+  });
+
 const plan = program.command('plan').description('Task plan commands');
 
 plan
@@ -224,6 +253,14 @@ plan
   .description('Generate a task plan from a goal')
   .action(async (goal, targetPath = '.') => {
     await planGenerateCommand(goal, targetPath);
+  });
+
+plan
+  .command('regenerate <goal> [path]')
+  .description('Regenerate a task plan, optionally preserving approved tasks')
+  .option('--preserve-approved', 'Preserve unaffected approved/frozen tasks')
+  .action(async (goal, targetPath = '.', options) => {
+    await planRegenerateCommand(goal, targetPath, options);
   });
 
 plan
