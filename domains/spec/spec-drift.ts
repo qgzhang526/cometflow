@@ -20,7 +20,8 @@ export interface SpecDriftReport {
 }
 
 function sha256(text: string): string {
-  return createHash('sha256').update(text).digest('hex');
+  // 归一化行尾：git autocrlf 会把 checkout 出的文件转成 CRLF，冻结哈希基于 LF 内容计算
+  return createHash('sha256').update(text.replace(/\r\n/g, '\n')).digest('hex');
 }
 
 async function listPlanFiles(projectRoot: string): Promise<string[]> {

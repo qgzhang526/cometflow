@@ -22,7 +22,7 @@ export interface SpecDiff {
 }
 
 function sha256(text: string): string {
-  return createHash('sha256').update(text).digest('hex');
+  return createHash('sha256').update(text.replace(/\r\n/g, '\n')).digest('hex');
 }
 
 export function specLockPath(projectRoot: string): string {

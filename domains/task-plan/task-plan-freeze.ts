@@ -5,7 +5,7 @@ import { readTextFile } from '../../platform/fs/read-file.js';
 import type { TaskPlan, TaskRecord } from './types.js';
 
 function sha256(text: string): string {
-  return createHash('sha256').update(text).digest('hex');
+  return createHash('sha256').update(text.replace(/\r\n/g, '\n')).digest('hex');
 }
 
 export async function freezeTaskPlan(projectRoot: string, plan: TaskPlan): Promise<TaskPlan> {
