@@ -327,6 +327,42 @@
     return bestDirection;
   }
 
+  // src/web/undo.ts
+  var DEFAULT_UNDO_LIMIT = 10;
+  function cloneGrid2(grid) {
+    return grid.map((row) => [...row]);
+  }
+  function cloneSnapshot(snapshot) {
+    return { grid: cloneGrid2(snapshot.grid), score: snapshot.score, won: snapshot.won, over: snapshot.over };
+  }
+  var UndoHistory = class {
+    constructor(limit = DEFAULT_UNDO_LIMIT) {
+      __publicField(this, "max");
+      __publicField(this, "stack", []);
+      this.max = Math.max(0, Math.floor(limit));
+    }
+    get limit() {
+      return this.max;
+    }
+    get remaining() {
+      return this.stack.length;
+    }
+    get canUndo() {
+      return this.stack.length > 0;
+    }
+    push(snapshot) {
+      this.stack.push(cloneSnapshot(snapshot));
+      while (this.stack.length > this.max) this.stack.shift();
+    }
+    pop() {
+      const top = this.stack.pop();
+      return top ? cloneSnapshot(top) : null;
+    }
+    clear() {
+      this.stack.length = 0;
+    }
+  };
+
   // src/web/ui.ts
   var BEST_SCORE_KEY = "cometflow2048.best";
   function byId(id) {
@@ -372,7 +408,9 @@
       __publicField(this, "touchStart", null);
       __publicField(this, "demoOn", false);
       __publicField(this, "demoInterval", null);
+      __publicField(this, "undoHistory", new UndoHistory());
       __publicField(this, "demoButton", byId("ai-demo"));
+      __publicField(this, "undoButton", byId("undo"));
       __publicField(this, "scoreEl", byId("score"));
       __publicField(this, "bestEl", byId("best"));
       __publicField(this, "statusEl", byId("status"));
@@ -391,9 +429,14 @@
       byId("overlay-restart").addEventListener("click", () => this.restart());
       byId("hint").addEventListener("click", () => this.showHint());
       this.demoButton.addEventListener("click", () => this.toggleDemo());
+      this.undoButton.addEventListener("click", () => this.undo());
       window.addEventListener("keydown", (event) => {
         if (event.key === "r" || event.key === "R") {
           this.restart();
+          return;
+        }
+        if (event.key === "u" || event.key === "U") {
+          this.undo();
           return;
         }
         const direction = directionFromKey(event);
@@ -421,13 +464,17 @@
         else this.move(dy > 0 ? "down" : "up");
       }, { passive: true });
       this.render();
-      this.setStatus("WASD / \u65B9\u5411\u952E / \u6ED1\u52A8\u79FB\u52A8 \xB7 R \u91CD\u5F00");
+      this.setStatus("WASD / \u65B9\u5411\u952E / \u6ED1\u52A8\u79FB\u52A8 \xB7 R \u91CD\u5F00 \xB7 U \u64A4\u9500");
+    }
+    captureSnapshot() {
+      return { grid: this.game.grid, score: this.game.score, won: this.game.won, over: this.game.over };
     }
     move(direction) {
       if (this.game.over) {
         this.setStatus("\u6E38\u620F\u7ED3\u675F\uFF0C\u70B9\u51FB\u300C\u91CD\u65B0\u5F00\u59CB\u300D\u518D\u73A9\u4E00\u5C40");
         return;
       }
+      const before = this.captureSnapshot();
       const prevGrid = this.game.grid;
       const outcome = this.game.move(direction);
       if (!outcome.moved) {
@@ -435,6 +482,7 @@
         this.render();
         return;
       }
+      this.undoHistory.push(before);
       if (this.game.won && !this.winShown) {
         this.winShown = true;
         this.setStatus(`\u8FBE\u6210 ${WIN_TILE}\uFF01\u7EE7\u7EED\u6311\u6218\u66F4\u9AD8\u5206 \u{1F389}`);
@@ -463,7 +511,27 @@
       this.winShown = false;
       this.overRecorded = false;
       this.overlayEl.classList.add("hidden");
+      this.undoHistory.clear();
       this.setStatus("\u65B0\u7684\u4E00\u5C40\uFF0C\u795D\u597D\u8FD0\uFF01");
+      this.render();
+    }
+    undo() {
+      this.stopDemo();
+      const snapshot = this.undoHistory.pop();
+      if (!snapshot) {
+        this.setStatus("\u6CA1\u6709\u53EF\u64A4\u9500\u7684\u5386\u53F2");
+        return;
+      }
+      this.game = new Game({
+        grid: snapshot.grid,
+        score: snapshot.score,
+        won: snapshot.won,
+        over: snapshot.over
+      });
+      this.winShown = snapshot.won;
+      this.overRecorded = false;
+      this.overlayEl.classList.add("hidden");
+      this.setStatus(`\u5DF2\u64A4\u9500\uFF08\u5269\u4F59 ${this.undoHistory.remaining} \u6B65\uFF09`);
       this.render();
     }
     showHint() {

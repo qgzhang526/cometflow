@@ -1,6 +1,7 @@
 import { Game, WIN_TILE } from '../core/game.js';
 import { chooseMove } from '../ai/ai.js';
 import type { Direction, Grid } from '../core/types.js';
+import { UndoHistory } from './undo.js';
 
 const BEST_SCORE_KEY = 'cometflow2048.best';
 
@@ -52,7 +53,9 @@ export class Web2048 {
   private touchStart: { x: number; y: number } | null = null;
   private demoOn = false;
   private demoInterval: number | null = null;
+  private readonly undoHistory = new UndoHistory();
   private readonly demoButton = byId<HTMLButtonElement>('ai-demo');
+  private readonly undoButton = byId<HTMLButtonElement>('undo');
 
   private readonly scoreEl = byId<HTMLElement>('score');
   private readonly bestEl = byId<HTMLElement>('best');
@@ -74,10 +77,15 @@ export class Web2048 {
     byId('overlay-restart').addEventListener('click', () => this.restart());
     byId('hint').addEventListener('click', () => this.showHint());
     this.demoButton.addEventListener('click', () => this.toggleDemo());
+    this.undoButton.addEventListener('click', () => this.undo());
 
     window.addEventListener('keydown', (event) => {
       if (event.key === 'r' || event.key === 'R') {
         this.restart();
+        return;
+      }
+      if (event.key === 'u' || event.key === 'U') {
+        this.undo();
         return;
       }
       const direction = directionFromKey(event);
@@ -108,7 +116,11 @@ export class Web2048 {
     }, { passive: true });
 
     this.render();
-    this.setStatus('WASD / 方向键 / 滑动移动 · R 重开');
+    this.setStatus('WASD / 方向键 / 滑动移动 · R 重开 · U 撤销');
+  }
+
+  private captureSnapshot() {
+    return { grid: this.game.grid, score: this.game.score, won: this.game.won, over: this.game.over };
   }
 
   private move(direction: Direction): void {
@@ -116,6 +128,7 @@ export class Web2048 {
       this.setStatus('游戏结束，点击「重新开始」再玩一局');
       return;
     }
+    const before = this.captureSnapshot();
     const prevGrid = this.game.grid;
     const outcome = this.game.move(direction);
     if (!outcome.moved) {
@@ -123,6 +136,7 @@ export class Web2048 {
       this.render();
       return;
     }
+    this.undoHistory.push(before);
     if (this.game.won && !this.winShown) {
       this.winShown = true;
       this.setStatus(`达成 ${WIN_TILE}！继续挑战更高分 🎉`);
@@ -153,7 +167,28 @@ export class Web2048 {
     this.winShown = false;
     this.overRecorded = false;
     this.overlayEl.classList.add('hidden');
+    this.undoHistory.clear();
     this.setStatus('新的一局，祝好运！');
+    this.render();
+  }
+
+  private undo(): void {
+    this.stopDemo();
+    const snapshot = this.undoHistory.pop();
+    if (!snapshot) {
+      this.setStatus('没有可撤销的历史');
+      return;
+    }
+    this.game = new Game({
+      grid: snapshot.grid,
+      score: snapshot.score,
+      won: snapshot.won,
+      over: snapshot.over,
+    });
+    this.winShown = snapshot.won;
+    this.overRecorded = false;
+    this.overlayEl.classList.add('hidden');
+    this.setStatus(`已撤销（剩余 ${this.undoHistory.remaining} 步）`);
     this.render();
   }
 

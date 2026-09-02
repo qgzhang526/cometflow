@@ -1,0 +1,16 @@
+schema: cometflow.change.v1
+name: web-undo-task-1
+goal: G9
+task: T1
+phase: archive
+status: done
+spec_ref: specs/web-undo/spec.md
+spec_anchor: FR-UNDO-001 撤销语义
+acceptance_ids:
+  - A801
+  - A802
+  - A803
+spec_version: 1
+spec_hash: 0a6c8ec0964d3346413a996c9744c43db92e610465b864e0814b869dca7759cf
+created_at: 2026-09-02T02:46:50.837Z
+archived: true

@@ -1,9 +1,44 @@
 # 最新进展记录（latest）
 
-日期：2026-09-01
+日期：2026-09-02
 范围：experiments/2048（终端 2048 + AI 玩家，CometFlow 自举验证）
 
-## 本轮：全量门禁复核（2026-09-01 复核会话 5）
+## 本轮：G9 撤销一步（web-undo）（2026-09-02）
+
+依据冻结计划 `.cometflow/plans/G9.task-plan.yaml`（3 个任务），实现网页版「撤销一步」并完成
+change 生命周期（shape→build→verify→archive）与 evolve 闭环：
+
+| 项 | 结果 |
+|---|---|
+| 实现 | 新增 `src/web/undo.ts`（UndoHistory：值复制快照栈，上限可配置，默认 10）；`src/web/ui.ts` 接入（有效移动前入栈、U 键/撤销按钮触发、重开清栈、无历史提示、撤销后显示剩余步数）；`web/index.html` 新增「撤销」按钮 |
+| 类型检查 | `tsc -p tsconfig.json --noEmit` PASS；`tsc -p tsconfig.web.json --noEmit` PASS |
+| 单测 | `vitest run` 11 文件 68 用例全通过（新增 undo 单测 4 例 + bundle 撤销路径冒烟 4 例） |
+| eval 门禁 | `cometflow eval .` typecheck/tests/benchmark-smoke/web-build 四 PASS |
+| spec lock | `cometflow spec lock .` 后 diff 0 added / 0 modified / 0 removed / 9 unchanged（G6~G9 四份 web spec 一并纳入锁） |
+| change 归档 | web-undo-task-1/2/3 全部 archived（A801~A821 关联完整） |
+| evolve | `evolve propose web-undo` → 真实门禁 verify（typecheck/tests/benchmark/web-build 全 OK）→ `evolve submit` status=ready-for-review |
+| acceptance 覆盖 | A801/A802/A803/A810/A811/A812/A820/A821 全部有测试锚点 |
+
+**结论：** G9 三个冻结任务满足定义完成标准；撤销不侵入引擎（独立 UndoHistory 模块），
+bundle 冒烟覆盖撤销路径，既有测试保持全绿。
+
+## 关键决策（Decision Log）续
+
+4. **撤销上限默认值取 10（A802）**。理由：2048 一局通常上百步，10 步撤销足以让玩家纠正几次
+   误操作，同时把快照内存占用与状态栏文案复杂度都控制在低位；上限经构造函数参数可配置
+   （`UndoHistory(limit)`），默认常量 `DEFAULT_UNDO_LIMIT = 10`。
+5. **撤销采用「快照重建」而非侵入引擎**。在 `src/web/undo.ts` 独立实现值复制快照栈，
+   `move()` 在有效移动前入栈；撤销时用快照 `new Game({grid, score, won, over})` 重建，不改
+   `src/core` 任何代码，满足 FR-UNDO-003「不侵入引擎、可独立实现/测试」。
+6. **本轮更新 spec-lock**。G6~G9 四份 web spec 此前未纳入锁（上一轮 G8 归档时遗留），本轮
+   `cometflow spec lock` 补齐，diff 归零。
+
+## 未解决阻断项（Blockers）续
+
+4. **H4 样本量仍偏小**：跨会话断点恢复样本已由 G4 扩展至 G6~G9（web 系列四轮均跨会话续作），
+   但各样本多为同构 web 任务；更充分验证仍需异构 goal 的跨会话续作。
+
+## 上一轮：全量门禁复核（2026-09-01 复核会话 5）
 
 无人值守终态复核：全部冻结计划无未实现任务，重跑全部门禁与数据复核，未改动任何
 冻结计划内代码：

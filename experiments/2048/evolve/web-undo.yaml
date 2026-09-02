@@ -1,0 +1,36 @@
+schema: cometflow.evolution.v1
+name: web-undo
+summary: 网页版撤销一步（G9）：U 键与按钮恢复上一步棋盘/分数，可配置上限；68 测试全绿
+risk_plan: 仅新增 src/web/undo.ts 并在 src/web/ui.ts 视图层接入，不改 core/ai；撤销栈按值复制快照，不侵入引擎
+gates:
+  - name: typecheck
+    command: node
+    args:
+      - ../../node_modules/typescript/bin/tsc
+      - -p
+      - tsconfig.json
+      - --noEmit
+  - name: tests
+    command: node
+    args:
+      - ../../node_modules/vitest/vitest.mjs
+      - run
+  - name: benchmark
+    command: node
+    args:
+      - ../../node_modules/tsx/dist/cli.mjs
+      - src/cli/bin.ts
+      - benchmark
+      - --n
+      - "20"
+      - --seed
+      - "1"
+      - --depth
+      - "0"
+  - name: web-build
+    command: node
+    args:
+      - scripts/build-web.mjs
+status: ready-for-review
+created_at: 2026-09-02T02:50:33.969Z
+updated_at: 2026-09-02T02:51:04.145Z

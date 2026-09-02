@@ -40,8 +40,7 @@ function makeEl(id: string): FakeElement {
   };
 }
 
-function runBundleWithStubs(): { els: Record<string, FakeElement>; keydown: (key: string) => void; intervals: Array<(() => void) | undefined> } {
-  const els: Record<string, FakeElement> = {};
+function runBundleWithStubs(): { els: Record<string, FakeElement>; keydown: (key: string) => void; intervals: Array<(() => void) | undefined> } {  const els: Record<string, FakeElement> = {};
   const winListeners: Record<string, Array<(arg: unknown) => void>> = {};
   const intervals: Array<(() => void) | undefined> = [];
   const doc = {
@@ -92,6 +91,21 @@ function runBundleWithStubs(): { els: Record<string, FakeElement>; keydown: (key
   };
 }
 
+function makeAValidMove(els: Record<string, FakeElement>, keydown: (key: string) => void): { board: string; score: string } {
+  const cells = els['board'].children;
+  const snapshotBoard = () => cells.map((cell) => cell.textContent).join(',');
+  let boardBefore = snapshotBoard();
+  let scoreBefore = els['score'].textContent;
+  for (const key of ['ArrowLeft', 'ArrowDown', 'ArrowRight', 'ArrowUp']) {
+    keydown(key);
+    const after = snapshotBoard();
+    if (after !== boardBefore) return { board: boardBefore, score: scoreBefore };
+    boardBefore = after;
+    scoreBefore = els['score'].textContent;
+  }
+  throw new Error('no valid move found on initial board');
+}
+
 describe('web bundle (G6)', () => {
   it('A501: 单文件 IIFE，无顶层 import/export（file:// 可开）', () => {
     expect(bundle).not.toMatch(/^\s*import\s/m);
@@ -138,5 +152,39 @@ describe('web bundle (G6)', () => {
     const { els, keydown } = runBundleWithStubs();
     keydown('ArrowLeft');
     expect(els['best'].textContent.length).toBeGreaterThan(0);
+  });
+
+  it('A801/A812/A820: U 键撤销恢复上一步棋盘/分数并显示剩余步数（bundle 冒烟覆盖撤销路径）', () => {
+    const { els, keydown } = runBundleWithStubs();
+    const before = makeAValidMove(els, keydown);
+    keydown('u');
+    const cells = els['board'].children;
+    expect(cells.map((cell) => cell.textContent).join(',')).toBe(before.board);
+    expect(els['score'].textContent).toBe(before.score);
+    expect(els['status'].textContent).toContain('剩余');
+  });
+
+  it('A810: 撤销按钮触发撤销', () => {
+    const { els, keydown } = runBundleWithStubs();
+    const before = makeAValidMove(els, keydown);
+    const click = els['undo'].listeners.click?.[0] as (() => void) | undefined;
+    expect(click).toBeDefined();
+    click?.();
+    const cells = els['board'].children;
+    expect(cells.map((cell) => cell.textContent).join(',')).toBe(before.board);
+  });
+
+  it('A811: 无历史时撤销提示且不崩溃', () => {
+    const { els, keydown } = runBundleWithStubs();
+    keydown('u');
+    expect(els['status'].textContent).toContain('没有可撤销');
+  });
+
+  it('A803/A821: 重开后历史清空，撤销提示无历史（既有重开行为保持正常）', () => {
+    const { els, keydown } = runBundleWithStubs();
+    makeAValidMove(els, keydown);
+    keydown('r');
+    keydown('u');
+    expect(els['status'].textContent).toContain('没有可撤销');
   });
 });
