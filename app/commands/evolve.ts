@@ -25,8 +25,12 @@ export async function evolveProposeCommand(
   console.log('created evolution proposal ' + proposal.name + ' status=' + proposal.status);
 }
 
-export async function evolveVerifyCommand(name: string, targetPath: string): Promise<void> {
-  const proposal = await verifyEvolution(root(targetPath), name);
+export async function evolveVerifyCommand(
+  name: string,
+  targetPath: string,
+  options: { eval?: boolean },
+): Promise<void> {
+  const proposal = await verifyEvolution(root(targetPath), name, { includeEval: options.eval === true });
   console.log('evolution ' + proposal.name + ' status=' + proposal.status);
 }
 

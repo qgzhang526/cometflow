@@ -36,8 +36,7 @@ describe('phase 1: change list and resume', () => {
     const resume = resumeChange(active[0]);
     expect(resume.nextEvent).toBe('confirm-acceptance');
 
-    let state = readChangeState(tmp, 'auth-email-login').then((s) => s);
-    state = await state;
+    const state = await readChangeState(tmp, 'auth-email-login');
     const archived = await applyChangeTransition(
       await applyChangeTransition(
         await applyChangeTransition(

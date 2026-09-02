@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { parse } from 'yaml';
 import { runCommand } from '../../platform/process/spawn-command.js';
+import { runLocalEval } from '../eval/eval-service.js';
 import { evolutionDir, readEvolution, writeEvolution } from './evolution-store.js';
 import type { EvolutionGate, EvolutionProposal } from './types.js';
 
@@ -52,7 +53,11 @@ export async function proposeEvolution(options: {
   return proposal;
 }
 
-export async function verifyEvolution(projectRoot: string, name: string): Promise<EvolutionProposal> {
+export async function verifyEvolution(
+  projectRoot: string,
+  name: string,
+  options: { includeEval?: boolean } = {},
+): Promise<EvolutionProposal> {
   const proposal = await readEvolution(projectRoot, name);
   let verified = true;
   for (const gate of proposal.gates) {
@@ -60,8 +65,27 @@ export async function verifyEvolution(projectRoot: string, name: string): Promis
     console.log(gate.name + ': ' + (result.exitCode === 0 ? 'OK' : 'FAIL'));
     if (result.exitCode !== 0) verified = false;
   }
+
+  let evalSummary: EvolutionProposal['eval'];
+  if (options.includeEval) {
+    const report = await runLocalEval(projectRoot);
+    evalSummary = {
+      passed: report.passed,
+      passAtKRate: report.passAtKRate,
+      passAllKRate: report.passAllKRate,
+      sampling: report.sampling,
+    };
+    console.log(
+      'eval: ' + (report.passed ? 'PASS' : 'FAIL') +
+      ' pass@k=' + report.passAtKRate.toFixed(2) +
+      ' pass^k=' + report.passAllKRate.toFixed(2),
+    );
+    if (!report.passed) verified = false;
+  }
+
   const next: EvolutionProposal = {
     ...proposal,
+    eval: evalSummary,
     status: verified ? 'verified' : 'rejected',
     updated_at: new Date().toISOString(),
   };

@@ -6,6 +6,13 @@ export interface EvolutionGate {
   args: string[];
 }
 
+export interface EvolutionEvalSummary {
+  passed: boolean;
+  passAtKRate: number;
+  passAllKRate: number;
+  sampling: number;
+}
+
 export interface EvolutionProposal {
   schema: 'cometflow.evolution.v1';
   name: string;
@@ -13,6 +20,7 @@ export interface EvolutionProposal {
   risk_plan: string;
   gates: EvolutionGate[];
   status: EvolutionStatus;
+  eval?: EvolutionEvalSummary;
   created_at: string;
   updated_at: string;
 }

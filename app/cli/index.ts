@@ -159,8 +159,9 @@ evolve
 evolve
   .command('verify <name> [path]')
   .description('Run evolution verification gates')
-  .action(async (name, targetPath = '.') => {
-    await evolveVerifyCommand(name, targetPath);
+  .option('--eval', 'Also run local scientific eval')
+  .action(async (name, targetPath = '.', options) => {
+    await evolveVerifyCommand(name, targetPath, options);
   });
 
 evolve
