@@ -22,6 +22,7 @@ import {
   skillListCommand,
   skillShowCommand,
 } from '../commands/skill.js';
+import { contextSyncCommand } from '../commands/context.js';
 import { dashboardCommand } from '../commands/dashboard.js';
 import { doctorCommand } from '../commands/doctor.js';
 import { evalCommand } from '../commands/eval.js';
@@ -357,6 +358,13 @@ daemon
   .option('--safety-bundle', 'Create a git bundle snapshot before running')
   .action(async (targetPath = '.', options) => {
     await daemonStartCommand(targetPath, options);
+  });
+
+program
+  .command('context sync [path]')
+  .description('Sync tech stack and runtime context from COMETFLOW.md')
+  .action(async (targetPath = '.') => {
+    await contextSyncCommand(targetPath);
   });
 
 const goal = program.command('goal').description('Goal commands');

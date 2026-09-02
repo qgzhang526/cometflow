@@ -1,5 +1,6 @@
 import { parseSpecFile } from '../spec/spec-parse.js';
 import { listSpecFiles } from '../spec/spec-index.js';
+import { loadProjectContext } from '../project/context.js';
 import type { PlanFinding, PlanValidationResult, TaskPlan, TaskRecord } from './types.js';
 
 export async function validateTaskPlan(projectRoot: string, plan: TaskPlan): Promise<PlanValidationResult> {
@@ -7,6 +8,36 @@ export async function validateTaskPlan(projectRoot: string, plan: TaskPlan): Pro
   const specFiles = new Set(await listSpecFiles(projectRoot));
   const taskIds = new Set(plan.tasks.map((task) => task.id));
   const tasksBySpec = new Map<string, TaskRecord[]>();
+  const context = await loadProjectContext(projectRoot);
+  const backend = context?.tech_stack.backend?.toLowerCase() ?? '';
+
+  for (const task of plan.tasks) {
+    if (task.kind === 'implementation' && (!task.test_scope || task.definition_of_done.length === 0)) {
+      findings.push({
+        taskId: task.id,
+        severity: 'error',
+        code: 'missing-test-contract',
+        message: 'implementation task must declare test_scope and definition_of_done',
+      });
+    }
+    if (task.kind === 'implementation' && backend) {
+      const forbidden = backend.includes('go')
+        ? ['npm test', 'npm run test', 'pytest', 'pip install']
+        : backend.includes('node') || backend.includes('typescript') || backend.includes('javascript')
+          ? ['go test', 'go build', 'go vet']
+          : [];
+      for (const command of forbidden) {
+        if (task.definition_of_done.some((item) => item.includes(command))) {
+          findings.push({
+            taskId: task.id,
+            severity: 'error',
+            code: 'stack-command-mismatch',
+            message: 'definition_of_done contains forbidden command for backend ' + backend + ': ' + command,
+          });
+        }
+      }
+    }
+  }
 
   for (const task of plan.tasks) {
     if (task.kind === 'spec-authoring') continue;

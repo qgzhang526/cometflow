@@ -63,7 +63,7 @@ function task(partial: Partial<TaskRecord>): TaskRecord {
     spec_hash: null,
     depends_on: [],
     test_scope: 'internal/a',
-    definition_of_done: [],
+    definition_of_done: ['go test ./...'],
     status: 'draft',
     ...partial,
   };

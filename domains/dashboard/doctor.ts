@@ -3,6 +3,7 @@ import path from 'node:path';
 import { listSpecFiles } from '../spec/spec-index.js';
 import { validateSpecs } from '../spec/spec-validate.js';
 import { listChangeStates } from '../workflow/change-list.js';
+import { loadProjectContext, validateProjectContext } from '../project/context.js';
 import { collectProjectStatus } from './collector.js';
 
 export interface DoctorFinding {
@@ -25,6 +26,15 @@ export async function runDoctor(projectRoot: string): Promise<DoctorReport> {
 
   if (!(await exists(path.join(projectRoot, 'COMETFLOW.md')))) {
     findings.push({ severity: 'error', code: 'missing-mission', message: 'COMETFLOW.md not found' });
+  }
+
+  const context = await loadProjectContext(projectRoot);
+  if (!context) {
+    findings.push({ severity: 'error', code: 'missing-project-context', message: 'project context is missing; run cometflow context sync' });
+  } else {
+    for (const error of validateProjectContext(context)) {
+      findings.push({ severity: 'error', code: 'invalid-project-context', message: error });
+    }
   }
 
   const specFiles = await listSpecFiles(projectRoot);
