@@ -37,17 +37,20 @@ spec→trace 闭环通过率 100%（38/38 acceptance 有 trace，核心单测 10
 
 ### H2：自动拆解（plan generate/validate/review）足够精确
 
-**数据**
-- G1~G5 五次 `plan validate` 全部 OK，validate 阶段捕获 0 条拆解缺陷；
-- 实现阶段发生 3 次 rework（详见「平台/实现发现」），均属实现级缺陷而非拆解缺陷：
-  1) G2 快照按引用共享同一 Game 对象（单测全绿但 E2E 行为错误）；
-  2) benchmark-cli.ts 同名函数自递归（TS 编译不报错，运行时无限递归）；
-  3) onGameOver 回调返回类型与契约不符（tsc 捕获，属于编译期拦截而非 plan 捕获）。
-- plan review（auto 策略）G2/G3 由 Agent 自主 review→approve→freeze，未发现结构问题。
+**数据（H2 补强实验，2026-09-02）**
+- `plan validate` 能力已补强：新增 **missing-coverage**（spec anchor 无任务覆盖）与
+  **dependency-cycle**（依赖成环）两项检查（平台侧变更，与设计文档 003 承诺对齐）；
+- **负测试（注入缺陷）**：6 类拆解缺陷——unknown-spec / unknown-anchor / no-acceptance /
+  unknown-dependency / missing-coverage / dependency-cycle——全部被 validate 拦截
+  （+7 单测，平台测试 35 全绿）；
+- **正测试**：G1~G9 全部 9 个冻结计划 validate OK（0 误报）；
+- **真实拆解样本**：G1~G9 共 26 个冻结任务，validate 捕获拆解缺陷 0 条；实现期 rework 3 次
+  （G2 快照引用、benchmark 递归、类型契约）均属实现级缺陷；G9 的 spec 歧义点
+  （撤销上限默认值、撤销实现方案）由 Agent 记入决策日志消解（默认 10、快照重建，见 reports/latest.md）。
 
-**判定：部分成立。** plan validate/review 对任务结构精确度高（0 缺陷），但对实现级缺陷
-（尤其「单测全绿但行为错误」类）无感知；H2 的完整判据（≥1 真实拆解缺陷）未触发，
-需以「实现级 rework 次数 + 测试盲区」作为补充度量。
+**判定：成立（条件成立）。** 门禁拦截力已通过注入缺陷负测试证实（能拦）；真实拆解
+26 任务 0 缺陷、0 误报（精度高，小样本）；覆盖与环检查补齐了设计承诺。H2 由
+「部分成立」升级为「成立」：拆解结构缺陷可被自动拦截，实现级缺陷仍需测试/E2E 兜底。
 
 ### H3：eval 门禁能拦截回归，evolve 能提升质量
 

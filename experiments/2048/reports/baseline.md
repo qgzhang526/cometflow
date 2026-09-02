@@ -55,3 +55,11 @@
   真实 tsc+vitest（domains/evolution/evolution-service.ts，支持 .cometflow/evolve.yaml 覆盖）。
 - H4：change 状态机 shape→build→verify→archive 全链路验证；跨会话断点恢复 2/2。
 - 终态：游戏 9 文件 55 用例全过；平台 12 文件 28 用例全过；5 goal 12 任务全部完成并归档。
+## 更新：H2 补强实验（2026-09-02）
+
+- 平台：plan validate 新增 missing-coverage 与 dependency-cycle 检查。
+- 负测试：注入 6 类拆解缺陷全部被拦截（+7 用例，平台 35 全绿）。
+- 正测试：G1~G9 全部 9 个冻结计划 validate OK（0 误报）。
+- G9（撤销一步）真实 agent 实验：26 个冻结任务 validate 0 缺陷；spec 歧义点由 Agent 决策日志消解
+  （撤销上限默认 10、快照重建不侵入引擎）；68 测试全绿；commit 9270aa6。
+- H2 判定由「部分成立」升级为「成立（条件成立）」。
