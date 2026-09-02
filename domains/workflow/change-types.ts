@@ -1,6 +1,6 @@
 export type ChangePhase = 'shape' | 'build' | 'verify' | 'archive';
 export type ChangeStatus = 'active' | 'await-user' | 'blocked' | 'done';
-export type ChangeEvent = 'confirm-acceptance' | 'submit-candidate' | 'verify-pass' | 'archive-complete';
+export type ChangeEvent = 'confirm-acceptance' | 'submit-candidate' | 'verify-pass' | 'verify-fail' | 'archive-complete';
 
 export interface ChangeState {
   schema: 'cometflow.change.v1';

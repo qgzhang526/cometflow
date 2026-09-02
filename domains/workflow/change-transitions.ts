@@ -19,6 +19,11 @@ export function applyChangeTransition(state: ChangeState, event: ChangeEvent): C
     return { ...state, phase: 'archive' };
   }
 
+  if (event === 'verify-fail') {
+    if (state.phase !== 'verify') throw new Error('verify-fail requires verify phase');
+    return { ...state, phase: 'build' };
+  }
+
   if (event === 'archive-complete') {
     if (state.phase !== 'archive') throw new Error('archive-complete requires archive phase');
     return { ...state, status: 'done' as const, archived: true };

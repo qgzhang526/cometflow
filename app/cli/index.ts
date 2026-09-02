@@ -2,11 +2,14 @@
 import { Command } from 'commander';
 import { agentCheckCommand, agentListCommand } from '../commands/agent.js';
 import {
+  changeArchiveCommand,
   changeListCommand,
   changeNewCommand,
   changeResumeCommand,
+  changeRunCommand,
   changeStatusCommand,
   changeTransitionCommand,
+  changeVerifyCommand,
 } from '../commands/change.js';
 import {
   bundleCompileCommand,
@@ -131,9 +134,31 @@ change
 
 change
   .command('transition <name> <event> [path]')
-  .description('Apply a change transition: confirm-acceptance | submit-candidate | verify-pass | archive-complete')
+  .description('Apply a change transition: confirm-acceptance | submit-candidate | verify-pass | verify-fail | archive-complete')
   .action(async (name, event, targetPath = '.') => {
     await changeTransitionCommand(name, event, targetPath);
+  });
+
+change
+  .command('run <name> [path]')
+  .description('Run the Builder agent for a change in build phase')
+  .option('--agent <agent>', 'Agent id: opencode or claude-code')
+  .action(async (name, targetPath = '.', options) => {
+    await changeRunCommand(name, targetPath, options);
+  });
+
+change
+  .command('verify <name> [path]')
+  .description('Run deterministic checks and apply acceptance verdict')
+  .action(async (name, targetPath = '.') => {
+    await changeVerifyCommand(name, targetPath);
+  });
+
+change
+  .command('archive <name> [path]')
+  .description('Archive a verified change and apply proposed specs')
+  .action(async (name, targetPath = '.') => {
+    await changeArchiveCommand(name, targetPath);
   });
 
 const skill = program.command('skill').description('Skill package commands');
