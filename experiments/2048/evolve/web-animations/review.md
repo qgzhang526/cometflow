@@ -7,3 +7,8 @@
 ## Risk and gate plan
 
 仅改 src/web/ui.ts 与 web/index.html CSS，不改 core/ai；DOM stub 冒烟覆盖动画路径
+
+## Decision
+
+- APPROVED
+- note: 人工评审批准（清单#2）代码已合入

@@ -7,3 +7,8 @@
 ## Risk and gate plan
 
 仅新增 src/web/ui.ts 视图层与构建脚本，不改动 core/ai；已过 typecheck/tests/benchmark/web-build 四道门禁
+
+## Decision
+
+- APPROVED
+- note: 人工评审批准（清单#1）代码已合入

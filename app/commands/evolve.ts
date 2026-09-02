@@ -1,6 +1,9 @@
 import path from 'node:path';
 import {
+  approveEvolution,
+  listEvolutionProposals,
   proposeEvolution,
+  rejectEvolution,
   rollbackEvolution,
   statusEvolution,
   submitEvolution,
@@ -47,4 +50,40 @@ export async function evolveStatusCommand(name: string, targetPath: string): Pro
 export async function evolveRollbackCommand(name: string, targetPath: string): Promise<void> {
   const lines = await rollbackEvolution(root(targetPath), name);
   for (const line of lines) console.log(line);
+}
+
+export async function evolveApproveCommand(
+  name: string,
+  targetPath: string,
+  options: { note?: string; commits?: string },
+): Promise<void> {
+  const commits = options.commits
+    ? options.commits.split(',').map((item) => item.trim()).filter(Boolean)
+    : undefined;
+  const proposal = await approveEvolution(root(targetPath), name, { note: options.note, commits });
+  console.log('evolution ' + proposal.name + ' status=' + proposal.status);
+}
+
+export async function evolveRejectCommand(
+  name: string,
+  targetPath: string,
+  options: { reason: string },
+): Promise<void> {
+  const proposal = await rejectEvolution(root(targetPath), name, options.reason);
+  console.log('evolution ' + proposal.name + ' status=' + proposal.status);
+}
+
+export async function evolveReviewListCommand(
+  targetPath: string,
+  options: { json?: boolean },
+): Promise<void> {
+  const proposals = await listEvolutionProposals(root(targetPath));
+  if (options.json) {
+    console.log(JSON.stringify(proposals, null, 2));
+    return;
+  }
+  for (const proposal of proposals) {
+    const decision = proposal.status === 'approved' ? ' (approved)' : proposal.status === 'rejected' ? ' (rejected)' : '';
+    console.log([proposal.name, proposal.status + decision, proposal.summary].join('\t'));
+  }
 }

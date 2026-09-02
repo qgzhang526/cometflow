@@ -11,7 +11,10 @@ import {
 import { dashboardCommand } from '../commands/dashboard.js';
 import { evalCommand } from '../commands/eval.js';
 import {
+  evolveApproveCommand,
   evolveProposeCommand,
+  evolveRejectCommand,
+  evolveReviewListCommand,
   evolveRollbackCommand,
   evolveStatusCommand,
   evolveSubmitCommand,
@@ -154,6 +157,31 @@ evolve
   .option('--path <path>', 'Project root')
   .action(async (name, options) => {
     await evolveProposeCommand(name, options);
+  });
+
+evolve
+  .command('approve <name> [path]')
+  .description('Approve a verified/ready-for-review evolution (terminal state)')
+  .option('--note <text>', 'Review note')
+  .option('--commits <csv>', 'Comma-separated merged commit hashes')
+  .action(async (name, targetPath = '.', options) => {
+    await evolveApproveCommand(name, targetPath, options);
+  });
+
+evolve
+  .command('reject <name> [path]')
+  .description('Reject an evolution with a reason (terminal state)')
+  .requiredOption('--reason <text>', 'Rejection reason')
+  .action(async (name, targetPath = '.', options) => {
+    await evolveRejectCommand(name, targetPath, options);
+  });
+
+evolve
+  .command('review-list [path]')
+  .description('List all evolution proposals with review status')
+  .option('--json', 'Output as JSON')
+  .action(async (targetPath = '.', options) => {
+    await evolveReviewListCommand(targetPath, options);
   });
 
 evolve

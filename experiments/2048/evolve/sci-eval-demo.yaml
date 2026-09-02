@@ -31,11 +31,13 @@ gates:
     command: node
     args:
       - scripts/build-web.mjs
-status: verified
+status: approved
 created_at: 2026-09-02T04:47:07.842Z
-updated_at: 2026-09-02T04:48:02.853Z
+updated_at: 2026-09-02T07:51:47.878Z
 eval:
   passed: true
   passAtKRate: 1
   passAllKRate: 1
   sampling: 2
+review_note: 人工评审批准（清单#6）纯验证提案归档
+decision_at: 2026-09-02T07:51:47.878Z

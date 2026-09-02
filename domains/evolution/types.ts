@@ -1,4 +1,4 @@
-export type EvolutionStatus = 'draft' | 'verifying' | 'verified' | 'ready-for-review' | 'rejected';
+export type EvolutionStatus = 'draft' | 'verifying' | 'verified' | 'ready-for-review' | 'approved' | 'rejected';
 
 export interface EvolutionGate {
   name: string;
@@ -23,4 +23,9 @@ export interface EvolutionProposal {
   eval?: EvolutionEvalSummary;
   created_at: string;
   updated_at: string;
+  /** 评审决策字段（approve/reject 写入） */
+  review_note?: string;
+  decision_at?: string;
+  rejected_reason?: string;
+  merged_commits?: string[];
 }

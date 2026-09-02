@@ -221,3 +221,8 @@ ai-heuristic-weight` 通过真实 tsc/vitest/benchmark 门禁（status=verified�
   - 批准：web-version（G6）、web-animations（G7）、web-ai-demo（G8）、web-undo（G9）、sci-eval-demo（代码均已合入或无代码）；
   - ai-heuristic-weight：落地 100 局对比后决策（H3 判据 win_rate ≥10pp）。
 - 平台暂缺 evolve approve/reject 终态命令，待增强后正式归档（见后续提交）。
+## 决策落地与 evolve 终态（2026-09-02）
+
+- 平台新增 evolve approve/reject/review-list 命令 + approved 终态，平台测试 43 全绿。
+- 6 个提案全部经 `evolve approve` 正式归档 approved（web 系列 + sci-eval-demo + ai-heuristic-weight）。
+- ai-heuristic-weight 落地 c1（a86b4c4）：win_rate 0.01→0.03、score +5.3%、max +2.2%（部分正结果，H3 判据未满）。

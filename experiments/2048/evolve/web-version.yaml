@@ -32,6 +32,11 @@ gates:
     command: node
     args:
       - scripts/build-web.mjs
-status: ready-for-review
+status: approved
 created_at: 2026-09-01T10:25:17.499Z
-updated_at: 2026-09-01T10:25:40.999Z
+updated_at: 2026-09-02T07:51:42.375Z
+review_note: 人工评审批准（清单#1）代码已合入
+merged_commits:
+  - b25e70d
+  - 69ce0ff
+decision_at: 2026-09-02T07:51:42.375Z

@@ -108,6 +108,81 @@ export async function statusEvolution(projectRoot: string, name: string): Promis
   return readEvolution(projectRoot, name);
 }
 
+async function appendDecision(projectRoot: string, name: string, verdict: string, note: string): Promise<void> {
+  const reviewPath = path.join(evolutionDir(projectRoot), name, "review.md");
+  try {
+    await fs.appendFile(reviewPath, "\n## Decision\n\n- " + verdict + "\n- note: " + note + "\n");
+  } catch {
+    // review.md 不存在则跳过（决策字段已写入 proposal.yaml）
+  }
+}
+
+export async function approveEvolution(
+  projectRoot: string,
+  name: string,
+  options: { note?: string; commits?: string[] } = {},
+): Promise<EvolutionProposal> {
+  const proposal = await readEvolution(projectRoot, name);
+  if (proposal.status !== 'ready-for-review' && proposal.status !== 'verified') {
+    throw new Error('Evolution must be ready-for-review or verified before approve, got ' + proposal.status);
+  }
+  const now = new Date().toISOString();
+  const next: EvolutionProposal = {
+    ...proposal,
+    status: 'approved' as const,
+    review_note: options.note ?? 'approved',
+    merged_commits: options.commits ?? proposal.merged_commits,
+    decision_at: now,
+    updated_at: now,
+  };
+  await writeEvolution(projectRoot, next);
+  await appendDecision(projectRoot, name, 'APPROVED', next.review_note ?? '');
+  return next;
+}
+
+export async function rejectEvolution(
+  projectRoot: string,
+  name: string,
+  reason: string,
+): Promise<EvolutionProposal> {
+  const proposal = await readEvolution(projectRoot, name);
+  if (proposal.status === 'approved' || proposal.status === 'rejected') {
+    throw new Error('Evolution is already in terminal state: ' + proposal.status);
+  }
+  const now = new Date().toISOString();
+  const next: EvolutionProposal = {
+    ...proposal,
+    status: 'rejected' as const,
+    rejected_reason: reason,
+    decision_at: now,
+    updated_at: now,
+  };
+  await writeEvolution(projectRoot, next);
+  await appendDecision(projectRoot, name, 'REJECTED', reason);
+  return next;
+}
+
+export async function listEvolutionProposals(projectRoot: string): Promise<EvolutionProposal[]> {
+  let entries: string[];
+  try {
+    entries = await fs.readdir(evolutionDir(projectRoot));
+  } catch {
+    return [];
+  }
+  const proposals: EvolutionProposal[] = [];
+  for (const entry of entries.sort()) {
+    if (!entry.endsWith('.yaml')) continue;
+    try {
+      const source = await fs.readFile(path.join(evolutionDir(projectRoot), entry), 'utf8');
+      proposals.push(parse(source) as EvolutionProposal);
+    } catch {
+      // 跳过无法解析的文件（如目录）
+    }
+  }
+  return proposals;
+}
+
+
 export async function rollbackEvolution(projectRoot: string, name: string): Promise<string[]> {
   const proposal = await readEvolution(projectRoot, name);
   return [
