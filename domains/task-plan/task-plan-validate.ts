@@ -1,11 +1,12 @@
 import { parseSpecFile } from '../spec/spec-parse.js';
 import { listSpecFiles } from '../spec/spec-index.js';
-import type { PlanFinding, PlanValidationResult, TaskPlan } from './types.js';
+import type { PlanFinding, PlanValidationResult, TaskPlan, TaskRecord } from './types.js';
 
 export async function validateTaskPlan(projectRoot: string, plan: TaskPlan): Promise<PlanValidationResult> {
   const findings: PlanFinding[] = [];
   const specFiles = new Set(await listSpecFiles(projectRoot));
   const taskIds = new Set(plan.tasks.map((task) => task.id));
+  const tasksBySpec = new Map<string, TaskRecord[]>();
 
   for (const task of plan.tasks) {
     if (task.kind === 'spec-authoring') continue;
@@ -19,6 +20,10 @@ export async function validateTaskPlan(projectRoot: string, plan: TaskPlan): Pro
       });
       continue;
     }
+
+    const list = tasksBySpec.get(task.spec_ref) ?? [];
+    list.push(task);
+    tasksBySpec.set(task.spec_ref, list);
 
     const parsed = await parseSpecFile(projectRoot, task.spec_ref);
     const anchor = parsed.anchors.find((entry) => entry.heading === task.spec_anchor);
@@ -47,6 +52,53 @@ export async function validateTaskPlan(projectRoot: string, plan: TaskPlan): Pro
           message: '依赖任务不存在: ' + dep,
         });
       }
+    }
+  }
+
+  // 覆盖检查：计划引用的每个 spec，其全部 anchor 都应有对应任务（拆解遗漏）
+  for (const [specRef, tasks] of tasksBySpec) {
+    const parsed = await parseSpecFile(projectRoot, specRef);
+    const coveredAnchors = new Set(tasks.map((task) => task.spec_anchor));
+    for (const anchor of parsed.anchors) {
+      if (!coveredAnchors.has(anchor.heading)) {
+        findings.push({
+          taskId: tasks[0].id,
+          severity: 'error',
+          code: 'missing-coverage',
+          message: `spec ${specRef} 的 anchor 没有对应任务: ${anchor.heading}`,
+        });
+      }
+    }
+  }
+
+  // 依赖环检查：depends_on 图必须无环
+  const adjacency = new Map<string, string[]>();
+  for (const task of plan.tasks) {
+    adjacency.set(task.id, task.depends_on.filter((dep) => taskIds.has(dep)));
+  }
+  const visitState = new Map<string, 'visiting' | 'done'>();
+  const findCycleNode = (id: string): string | null => {
+    const state = visitState.get(id);
+    if (state === 'done') return null;
+    if (state === 'visiting') return id;
+    visitState.set(id, 'visiting');
+    for (const dep of adjacency.get(id) ?? []) {
+      const cycleNode = findCycleNode(dep);
+      if (cycleNode) return cycleNode;
+    }
+    visitState.set(id, 'done');
+    return null;
+  };
+  for (const id of taskIds) {
+    const cycleNode = findCycleNode(id);
+    if (cycleNode) {
+      findings.push({
+        taskId: cycleNode,
+        severity: 'error',
+        code: 'dependency-cycle',
+        message: '任务依赖存在环: ' + cycleNode,
+      });
+      break;
     }
   }
 
