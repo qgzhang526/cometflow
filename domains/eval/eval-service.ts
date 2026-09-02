@@ -28,22 +28,23 @@ function assertionsPassed(assertions: EvalAssertion[] | undefined, result: { std
   return true;
 }
 
-function passAtK(passedRuns: number): boolean {
-  return passedRuns >= 1;
-}
-
-function passAllK(passedRuns: number, runs: number): boolean {
-  return passedRuns === runs;
-}
-
-function summarizeTask(name: string, runs: number, passedRuns: number, runResults: EvalTaskResult[]): EvalTaskSummary {
+function summarizeTask(
+  name: string,
+  runs: number,
+  passedRuns: number,
+  runResults: EvalTaskResult[],
+  passAtKValue: number,
+  passAllKValue: number,
+): EvalTaskSummary {
+  const passAtKResult = runResults.slice(0, passAtKValue).some((result) => result.passed);
+  const passAllKResult = runResults.slice(0, passAllKValue).every((result) => result.passed);
   return {
     name,
-    passed: passedRuns === runs,
+    passed: passAllKResult,
     runs,
     passedRuns,
-    passAtK: passAtK(passedRuns),
-    passAllK: passAllK(passedRuns, runs),
+    passAtK: passAtKResult,
+    passAllK: passAllKResult,
     runResults,
   };
 }
@@ -75,7 +76,7 @@ export async function runLocalEval(projectRoot: string): Promise<EvalReport> {
       if (taskResult.passed) passedRuns += 1;
       runResults.push(taskResult);
     }
-    summaries.push(summarizeTask(task.name, sampling, passedRuns, runResults));
+    summaries.push(summarizeTask(task.name, sampling, passedRuns, runResults, passAtKValue, passAllKValue));
   }
 
   const passAtKRate = summaries.length === 0 ? 0 : summaries.filter((summary) => summary.passAtK).length / summaries.length;
