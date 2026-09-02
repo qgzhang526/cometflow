@@ -1,0 +1,8 @@
+schema: cometflow.evolution.v1
+name: draft-proposal
+summary: draft proposal
+risk_plan: none
+gates: []
+status: draft
+created_at: "2026-01-01T00:00:00.000Z"
+updated_at: "2026-01-01T00:00:00.000Z"

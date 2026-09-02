@@ -1,0 +1,12 @@
+schema: cometflow.project-context.v1
+tech_stack:
+  frontend: 无
+  backend: TypeScript
+  database: 无
+  cache: 无
+  test_framework: vitest
+  build_tool: tsc
+runtime:
+  os: Linux
+  deployment: 本地
+  language_version: Node 22+

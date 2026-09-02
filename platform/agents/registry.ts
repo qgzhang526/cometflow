@@ -1,9 +1,10 @@
 import { createClaudeCodeRunner } from './claude-code.js';
+import { createMockAgentRunner } from './mock.js';
 import { createOpenCodeRunner } from './opencode.js';
 import type { AgentRunner } from './types.js';
 
 export function builtInAgentRunners(): AgentRunner[] {
-  return [createOpenCodeRunner(), createClaudeCodeRunner()];
+  return [createOpenCodeRunner(), createClaudeCodeRunner(), createMockAgentRunner()];
 }
 
 export function getBuiltInAgentRunner(id: string): AgentRunner {

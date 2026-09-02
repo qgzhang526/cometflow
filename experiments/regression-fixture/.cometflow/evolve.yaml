@@ -1,0 +1,5 @@
+schema: cometflow.evolve.v1
+gates:
+  - name: smoke
+    command: node
+    args: ["-e", "process.exit(0)"]

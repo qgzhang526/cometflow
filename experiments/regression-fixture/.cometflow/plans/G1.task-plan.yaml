@@ -1,0 +1,19 @@
+schema: cometflow.task-plan.v1
+goal: G1
+status: frozen
+tasks:
+  - id: T1
+    title: 实现 core - CORE-001 add
+    kind: implementation
+    capability: core
+    spec_ref: specs/core/spec.md
+    spec_anchor: CORE-001 add
+    acceptance_ids:
+      - A1
+    spec_version: 1
+    spec_hash: "e3a6cdd98fb3777e9b797c33cc265b3f42436daf08b78253321c99a7921ea71c"
+    depends_on: []
+    test_scope: src/core
+    definition_of_done:
+      - node -e "process.exit(0)"
+    status: frozen

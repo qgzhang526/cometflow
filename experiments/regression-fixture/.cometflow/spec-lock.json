@@ -1,0 +1,17 @@
+{
+  "schema": "cometflow.spec-lock.v1",
+  "files": [
+    {
+      "path": "specs/auth/spec.md",
+      "hash": "bc058d59147325cee9d55bb5f550bb488321615d5ec4a6648224eefb3745822d"
+    },
+    {
+      "path": "specs/core/spec.md",
+      "hash": "e3a6cdd98fb3777e9b797c33cc265b3f42436daf08b78253321c99a7921ea71c"
+    },
+    {
+      "path": "specs/report/spec.md",
+      "hash": "d45c177373a8f9f93c520010a0a69c8a473de851bcca5d12738d21bd4fe46cbe"
+    }
+  ]
+}

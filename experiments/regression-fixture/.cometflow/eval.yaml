@@ -1,0 +1,12 @@
+schema: cometflow.eval.v1
+sampling: 1
+pass_at_k: 1
+pass_all_k: 1
+tasks:
+  - name: smoke
+    command: node
+    args: ["-e", "process.exit(0)"]
+rubric:
+  - id: smoke
+    description: deterministic smoke
+    task: smoke

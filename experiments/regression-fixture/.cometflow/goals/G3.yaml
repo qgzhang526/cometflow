@@ -1,0 +1,13 @@
+schema: cometflow.goal.v1
+id: G3
+title: report 能力
+summary: 实现 report 能力
+scope:
+  - report
+success_criteria:
+  - report 测试通过
+non_goals:
+  - 不做前端页面
+source: COMETFLOW.md
+source_hash: 29d05ac7d0b0fe9ae4e2d2fb0d3bb7250af6dbf494336751b6c1cd5d13a851a2
+status: active

@@ -1,0 +1,8 @@
+schema: cometflow.bundle.v1
+name: regression-bundle
+version: 0.1.0
+skills:
+  - name: safe-skill
+    path: skills/safe-skill
+  - name: risky-skill
+    path: skills/risky-skill

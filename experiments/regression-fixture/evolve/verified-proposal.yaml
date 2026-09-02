@@ -1,0 +1,11 @@
+schema: cometflow.evolution.v1
+name: verified-proposal
+summary: verified proposal
+risk_plan: none
+gates:
+  - name: smoke
+    command: node
+    args: ["-e", "process.exit(0)"]
+status: verified
+created_at: "2026-01-01T00:00:00.000Z"
+updated_at: "2026-01-01T00:00:00.000Z"

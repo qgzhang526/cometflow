@@ -1,0 +1,34 @@
+schema: cometflow.task-plan.v1
+goal: BROKEN
+status: draft
+tasks:
+  - id: T1
+    title: unknown spec task
+    kind: implementation
+    capability: nope
+    spec_ref: specs/nope/spec.md
+    spec_anchor: H1
+    acceptance_ids: []
+    spec_version: null
+    spec_hash: null
+    depends_on:
+      - T2
+    test_scope: src/nope
+    definition_of_done:
+      - node -e "process.exit(0)"
+    status: draft
+  - id: T2
+    title: cycle task
+    kind: implementation
+    capability: nope
+    spec_ref: specs/nope/spec.md
+    spec_anchor: H1
+    acceptance_ids: []
+    spec_version: null
+    spec_hash: null
+    depends_on:
+      - T1
+    test_scope: src/nope
+    definition_of_done:
+      - node -e "process.exit(0)"
+    status: draft

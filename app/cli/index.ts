@@ -360,8 +360,10 @@ daemon
     await daemonStartCommand(targetPath, options);
   });
 
-program
-  .command('context sync [path]')
+const context = program.command('context').description('Project context commands');
+
+context
+  .command('sync [path]')
   .description('Sync tech stack and runtime context from COMETFLOW.md')
   .action(async (targetPath = '.') => {
     await contextSyncCommand(targetPath);

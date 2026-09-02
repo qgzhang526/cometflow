@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createClaudeCodeRunner } from '../../platform/agents/claude-code.js';
 import { createOpenCodeRunner } from '../../platform/agents/opencode.js';
+import { createMockAgentRunner } from '../../platform/agents/mock.js';
 import { resolveAgentId, buildFlowPrompt } from '../../domains/scheduler/flow-run.js';
 
 describe('agent adapters', () => {
@@ -13,6 +14,11 @@ describe('agent adapters', () => {
     expect(command.command).toBe('opencode');
     expect(command.args).toEqual(['run', 'hello', '--model', 'gpt-5']);
     expect(command.cwd).toBe('/repo');
+  });
+
+  it('mock agent always succeeds', async () => {
+    const result = await createMockAgentRunner().run({ prompt: 'x', cwd: process.cwd() });
+    expect(result.exitCode).toBe(0);
   });
 
   it('builds claude code non-interactive command', () => {

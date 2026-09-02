@@ -1,0 +1,4 @@
+schema: cometflow.project.v1
+default_workflow: native
+plan_review: auto
+agent: mock
