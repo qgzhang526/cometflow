@@ -1,0 +1,8 @@
+schema: cometflow.classic.v1
+name: classic-open
+goal: G1
+task: T1
+profile: full
+phase: open
+archived: false
+created_at: "2026-01-01T00:00:00.000Z"

@@ -39,6 +39,13 @@ $CF change run build-change . --agent mock
 $CF change verify verify-change .
 $CF change archive archive-change .
 
+$CF classic status classic-open .
+$CF classic transition classic-open open-complete .
+$CF classic transition classic-open design-complete .
+$CF classic transition classic-open build-complete .
+$CF classic transition classic-open verify-pass .
+$CF classic transition classic-open archive-complete .
+
 $CF daemon start . --mode manual --budget 1 --safety-bundle
 
 

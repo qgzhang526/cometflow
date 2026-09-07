@@ -23,6 +23,11 @@ import {
   skillShowCommand,
 } from '../commands/skill.js';
 import { contextSyncCommand } from '../commands/context.js';
+import {
+  classicNewCommand,
+  classicStatusCommand,
+  classicTransitionCommand,
+} from '../commands/classic.js';
 import { dashboardCommand } from '../commands/dashboard.js';
 import { hookCheckCommand } from '../commands/hook.js';
 import { doctorCommand } from '../commands/doctor.js';
@@ -99,6 +104,33 @@ agent
   .description('Check whether an agent adapter is available')
   .action(async (agentId) => {
     await agentCheckCommand(agentId);
+  });
+
+const classic = program.command('classic').description('Classic workflow commands');
+
+classic
+  .command('new <name>')
+  .description('Create a Classic change')
+  .requiredOption('--goal <goal>', 'Goal id')
+  .requiredOption('--task <task>', 'Task id')
+  .option('--profile <profile>', 'full | hotfix | tweak', 'full')
+  .option('--path <path>', 'Project root')
+  .action(async (name, options) => {
+    await classicNewCommand(name, options);
+  });
+
+classic
+  .command('status <name> [path]')
+  .description('Show a Classic change state')
+  .action(async (name, targetPath = '.') => {
+    await classicStatusCommand(name, targetPath);
+  });
+
+classic
+  .command('transition <name> <event> [path]')
+  .description('Apply a Classic transition: open-complete | design-complete | build-complete | verify-pass | verify-fail | archive-complete')
+  .action(async (name, event, targetPath = '.') => {
+    await classicTransitionCommand(name, event, targetPath);
   });
 
 const change = program.command('change').description('Workflow change commands');

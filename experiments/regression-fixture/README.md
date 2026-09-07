@@ -41,6 +41,7 @@ bash run-regression.sh
 | Builder/Verifier 分离 | 独立 `verification.yaml` 覆盖验收 | ✅ |
 | Dashboard 基础可视化 | `dashboard-smoke.ts` 检查 HTML 与 /api/status | ✅ |
 | 多平台 Skill/Bundle 分发 | `bundle distribute` opencode/claude-code/codex | ✅ |
+| Classic 工作流 | `classic new/status/transition` 五阶段 | ✅ |
 
 ## 待实现能力与未来回归场景
 
@@ -48,7 +49,7 @@ bash run-regression.sh
 |---|---|---|
 | 完整 Builder/Verifier 分离 | 已实现独立 verification 文档，见当前清单 | ✅ |
 | Hook/Guard 写保护 | 已实现，见当前验收清单 | ✅ |
-| Classic 工作流 | OpenSpec/Superpowers 五阶段夹具 | 平台实现 Classic |
+| Classic 工作流 | 已实现基础五阶段，见当前清单 | ✅ |
 | 多平台 Skill/Bundle 分发 | 已实现，见当前清单 | ✅ |
 | Dashboard 可视化 | 已实现基础页面，见当前清单 | ✅ |
 | LLM judge / LangSmith | 契约测试 + 真实网络集成测试 | 平台实现科学评估增强 |
