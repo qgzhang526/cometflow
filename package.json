@@ -1,5 +1,5 @@
 {
-  "name": "cometflow",
+  "name": "@zqg/cometflow",
   "version": "0.1.0",
   "description": "Full-time autonomous agent development platform",
   "type": "module",
