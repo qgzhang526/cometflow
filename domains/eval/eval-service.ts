@@ -3,6 +3,7 @@ import path from 'node:path';
 import { parse } from 'yaml';
 import { runCommand } from '../../platform/process/spawn-command.js';
 import type { EvalAssertion, EvalManifest, EvalReport, EvalRubricSummary, EvalTaskResult, EvalTaskSummary } from './types.js';
+import { runLlmJudge } from './llm-judge.js';
 
 export function evalManifestPath(projectRoot: string): string {
   return path.join(projectRoot, '.cometflow', 'eval.yaml');
@@ -105,6 +106,10 @@ export async function runLocalEval(projectRoot: string): Promise<EvalReport> {
     results: summaries,
     rubric,
   };
+
+  if (manifest.judge) {
+    report.judge = await runLlmJudge(report, manifest.judge);
+  }
 
   await fs.mkdir(path.join(projectRoot, ".cometflow"), { recursive: true });
   await fs.writeFile(path.join(projectRoot, ".cometflow", "eval-report.json"), JSON.stringify(report, null, 2));

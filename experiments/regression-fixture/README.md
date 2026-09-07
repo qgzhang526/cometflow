@@ -42,6 +42,7 @@ bash run-regression.sh
 | Dashboard 基础可视化 | `dashboard-smoke.ts` 检查 HTML 与 /api/status | ✅ |
 | 多平台 Skill/Bundle 分发 | `bundle distribute` opencode/claude-code/codex | ✅ |
 | Classic 工作流 | `classic new/status/transition` 五阶段 | ✅ |
+| LLM judge / LangSmith | mock judge 接入 eval，LangSmith contract-only | ✅ |
 
 ## 待实现能力与未来回归场景
 
@@ -52,7 +53,7 @@ bash run-regression.sh
 | Classic 工作流 | 已实现基础五阶段，见当前清单 | ✅ |
 | 多平台 Skill/Bundle 分发 | 已实现，见当前清单 | ✅ |
 | Dashboard 可视化 | 已实现基础页面，见当前清单 | ✅ |
-| LLM judge / LangSmith | 契约测试 + 真实网络集成测试 | 平台实现科学评估增强 |
+| LLM judge / LangSmith | 已实现 provider 契约与 mock judge，见当前清单 | ✅ |
 | npm 发布/安装 | `package-e2e` + 干净环境安装测试 | 平台发布流程 |
 
 ## 维护规则

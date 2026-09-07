@@ -10,3 +10,5 @@ rubric:
   - id: smoke
     description: deterministic smoke
     task: smoke
+judge:
+  provider: mock

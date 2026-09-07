@@ -12,6 +12,10 @@ export async function evalCommand(targetPath: string): Promise<void> {
   }
   console.log('pass@k rate: ' + report.passAtKRate.toFixed(2) + ' (k=' + report.passAtK + ')');
   console.log('pass^k rate: ' + report.passAllKRate.toFixed(2) + ' (k=' + report.passAllK + ')');
+  if (report.judge) {
+    console.log('judge: ' + report.judge.provider + ' ' + report.judge.verdict);
+    for (const note of report.judge.notes) console.log('  - ' + note);
+  }
   console.log(report.passed ? 'eval: PASS' : 'eval: FAIL');
   if (!report.passed) process.exitCode = 1;
 }

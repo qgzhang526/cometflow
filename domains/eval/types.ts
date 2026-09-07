@@ -17,6 +17,13 @@ export interface EvalRubricItem {
   task: string;
 }
 
+export interface LlmJudgeConfig {
+  provider: 'mock' | 'langsmith' | 'langfuse';
+  model?: string;
+  api_key_env?: string;
+  project?: string;
+}
+
 export interface EvalManifest {
   schema: 'cometflow.eval.v1';
   tasks: EvalTask[];
@@ -24,6 +31,7 @@ export interface EvalManifest {
   pass_at_k?: number;
   pass_all_k?: number;
   rubric?: EvalRubricItem[];
+  judge?: LlmJudgeConfig;
 }
 
 export interface EvalTaskResult {
@@ -53,6 +61,12 @@ export interface EvalRubricSummary {
   passed: boolean;
 }
 
+export interface LlmJudgeSummary {
+  provider: string;
+  verdict: 'pass' | 'fail' | 'blocked';
+  notes: string[];
+}
+
 export interface EvalReport {
   schema: 'cometflow.eval-report.v1';
   passed: boolean;
@@ -63,4 +77,5 @@ export interface EvalReport {
   passAllKRate: number;
   results: EvalTaskSummary[];
   rubric: EvalRubricSummary[];
+  judge?: LlmJudgeSummary;
 }
