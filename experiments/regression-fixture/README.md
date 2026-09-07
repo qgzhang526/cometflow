@@ -37,13 +37,14 @@ bash run-regression.sh
 | scheduler queue/safety snapshot | daemon manual 临时副本 | ✅ |
 | doctor | `doctor .` | ✅ |
 | status/dashboard JSON | `status .` | ✅ |
+| Hook/Guard 写保护 | `hook check` 预期拒绝场景 | ✅ |
 
 ## 待实现能力与未来回归场景
 
 | 待实现能力 | 未来回归场景 | 前置条件 |
 |---|---|---|
 | 完整 Builder/Verifier 分离 | `scripted` agent 写文件 + 独立 verifier 逐项验收 | 平台实现 `scripted` agent |
-| Hook/Guard 写保护 | `hook simulate` 或宿主 Hook 测试 | 平台实现 Hook/Guard |
+| Hook/Guard 写保护 | 已实现，见当前验收清单 | ✅ |
 | Classic 工作流 | OpenSpec/Superpowers 五阶段夹具 | 平台实现 Classic |
 | 多平台 Skill/Bundle 分发 | `bundle distribute` 到 opencode/claude/codex 等 | 平台实现多平台 |
 | Dashboard 可视化 | `/api/status` 结构断言 + 浏览器 E2E | 平台 Dashboard 增强 |

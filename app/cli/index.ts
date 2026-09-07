@@ -24,6 +24,7 @@ import {
 } from '../commands/skill.js';
 import { contextSyncCommand } from '../commands/context.js';
 import { dashboardCommand } from '../commands/dashboard.js';
+import { hookCheckCommand } from '../commands/hook.js';
 import { doctorCommand } from '../commands/doctor.js';
 import { evalCommand } from '../commands/eval.js';
 import { projectMigrateCommand } from '../commands/migrate.js';
@@ -236,6 +237,16 @@ program
   .description('Run local evaluation tasks from .cometflow/eval.yaml')
   .action(async (targetPath = '.') => {
     await evalCommand(targetPath);
+  });
+
+const hook = program.command('hook').description('Write guard commands');
+
+hook
+  .command('check <target> [path]')
+  .description('Check whether a write target is allowed')
+  .requiredOption('--event <event>', 'write or edit')
+  .action(async (target, targetPath = '.', options) => {
+    await hookCheckCommand(targetPath, { event: options.event, target });
   });
 
 program

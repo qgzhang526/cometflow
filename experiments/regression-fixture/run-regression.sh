@@ -38,4 +38,10 @@ $CF change archive archive-change .
 
 $CF daemon start . --mode manual --budget 1 --safety-bundle
 
+
+# hook guard: multiple active changes must fail closed
+if $CF hook check src/core/index.ts . --event write; then
+  echo "hook guard expected denial"
+  exit 1
+fi
 echo "regression: PASS"
