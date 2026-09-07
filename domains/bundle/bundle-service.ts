@@ -40,10 +40,30 @@ export async function compileBundle(projectRoot: string): Promise<CompiledBundle
   return { schema: "cometflow.compiled-bundle.v1", name: manifest.name, version: manifest.version, skills: manifest.skills, files };
 }
 
+const PLATFORM_SKILL_ROOTS: Record<string, string> = {
+  opencode: '.opencode/skills',
+  'claude-code': '.claude/skills',
+  codex: '.codex/skills',
+  qoder: '.qoder/skills',
+  codebuddy: '.codebuddy/skills',
+  zcode: '.zcode/skills',
+  cursor: '.cursor/skills',
+  windsurf: '.windsurf/skills',
+};
+
+export function supportedBundlePlatforms(): string[] {
+  return Object.keys(PLATFORM_SKILL_ROOTS).sort();
+}
+
+export function platformSkillsRoot(platform: string): string {
+  const root = PLATFORM_SKILL_ROOTS[platform];
+  if (!root) throw new Error('Unsupported bundle platform: ' + platform);
+  return root;
+}
+
 export async function distributeBundle(projectRoot: string, platform: string): Promise<string[]> {
   const manifest = await readBundleManifest(projectRoot);
-  const base = platform === "claude-code" ? ".claude" : ".opencode";
-  const skillsRoot = path.join(projectRoot, base, "skills");
+  const skillsRoot = path.join(projectRoot, platformSkillsRoot(platform));
   const written: string[] = [];
   for (const skillRef of manifest.skills) {
     const sourceRoot = path.resolve(projectRoot, skillRef.path);

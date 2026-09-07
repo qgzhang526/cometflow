@@ -32,6 +32,8 @@ $CF skill import skills/risky-skill risky-skill --project .
 
 $CF bundle compile .
 $CF bundle distribute . --platform opencode
+$CF bundle distribute . --platform claude-code
+$CF bundle distribute . --platform codex
 
 $CF change run build-change . --agent mock
 $CF change verify verify-change .

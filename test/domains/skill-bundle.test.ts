@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { installSkillPackage } from '../../domains/skill/skill-install.js';
 import { listInstalledSkills } from '../../domains/skill/skill-list.js';
 import { importSkill } from '../../domains/skill/skill-import.js';
-import { compileBundle, createBundle, distributeBundle } from '../../domains/bundle/bundle-service.js';
+import { compileBundle, createBundle, distributeBundle, supportedBundlePlatforms } from '../../domains/bundle/bundle-service.js';
 
 async function makeSourceSkill(root: string): Promise<string> {
   const source = path.join(root, 'source-skill');
@@ -76,6 +76,10 @@ describe('bundle', () => {
     const written = await distributeBundle(tmp, 'opencode');
     expect(written.length).toBe(1);
     await fs.access(path.join(tmp, '.opencode', 'skills', 'demo-skill', 'SKILL.md'));
+
+    expect(supportedBundlePlatforms()).toContain('codex');
+    await distributeBundle(tmp, 'codex');
+    await fs.access(path.join(tmp, '.codex', 'skills', 'demo-skill', 'SKILL.md'));
     await fs.rm(tmp, { recursive: true, force: true });
   });
 });
