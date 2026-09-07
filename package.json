@@ -10,6 +10,12 @@
   "bin": {
     "cometflow": "dist/app/cli/index.js"
   },
+  "files": [
+    "dist",
+    "!dist/test",
+    "README.md"
+  ],
+  "prepublishOnly": "npm run build && npm test",
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsx app/cli/index.ts",

@@ -9,14 +9,23 @@ import type { EvolutionGate, EvolutionProposal } from './types.js';
 
 const require = createRequire(import.meta.url);
 
-// 默认真实门禁：解析到 cometflow 自身 node_modules 里的 tsc / vitest（绝对路径，cwd 无关）
-const TSC = require.resolve('typescript/bin/tsc');
-const VITEST = path.join(path.dirname(require.resolve('vitest/package.json')), 'vitest.mjs');
-
-const DEFAULT_GATES: EvolutionGate[] = [
-  { name: 'typecheck', command: process.execPath, args: [TSC, '-p', 'tsconfig.json', '--noEmit'] },
-  { name: 'tests', command: process.execPath, args: [VITEST, 'run'] },
-];
+// 默认真实门禁：优先解析到本仓库 node_modules 里的 tsc / vitest；
+// 作为 npm 包安装到用户项目时，这些 devDependency 不存在，则回退到 PATH 上的 tsc/vitest。
+function defaultGates(): EvolutionGate[] {
+  try {
+    const tsc = require.resolve('typescript/bin/tsc');
+    const vitest = path.join(path.dirname(require.resolve('vitest/package.json')), 'vitest.mjs');
+    return [
+      { name: 'typecheck', command: process.execPath, args: [tsc, '-p', 'tsconfig.json', '--noEmit'] },
+      { name: 'tests', command: process.execPath, args: [vitest, 'run'] },
+    ];
+  } catch {
+    return [
+      { name: 'typecheck', command: 'tsc', args: ['--noEmit'] },
+      { name: 'tests', command: 'vitest', args: ['run'] },
+    ];
+  }
+}
 
 async function readGateManifest(projectRoot: string): Promise<EvolutionGate[] | null> {
   const manifestPath = path.join(projectRoot, '.cometflow', 'evolve.yaml');
@@ -38,7 +47,7 @@ export async function proposeEvolution(options: {
 }): Promise<EvolutionProposal> {
   const now = new Date().toISOString();
   const manifestGates = await readGateManifest(options.projectRoot);
-  const gates = options.gates ?? manifestGates ?? DEFAULT_GATES;
+  const gates = options.gates ?? manifestGates ?? defaultGates();
   const proposal: EvolutionProposal = {
     schema: 'cometflow.evolution.v1',
     name: options.name,
