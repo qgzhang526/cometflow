@@ -39,6 +39,7 @@ bash run-regression.sh
 | status/dashboard JSON | `status .` | ✅ |
 | Hook/Guard 写保护 | `hook check` 预期拒绝场景 | ✅ |
 | Builder/Verifier 分离 | 独立 `verification.yaml` 覆盖验收 | ✅ |
+| Dashboard 基础可视化 | `dashboard-smoke.ts` 检查 HTML 与 /api/status | ✅ |
 
 ## 待实现能力与未来回归场景
 
@@ -48,7 +49,7 @@ bash run-regression.sh
 | Hook/Guard 写保护 | 已实现，见当前验收清单 | ✅ |
 | Classic 工作流 | OpenSpec/Superpowers 五阶段夹具 | 平台实现 Classic |
 | 多平台 Skill/Bundle 分发 | `bundle distribute` 到 opencode/claude/codex 等 | 平台实现多平台 |
-| Dashboard 可视化 | `/api/status` 结构断言 + 浏览器 E2E | 平台 Dashboard 增强 |
+| Dashboard 可视化 | 已实现基础页面，见当前清单 | ✅ |
 | LLM judge / LangSmith | 契约测试 + 真实网络集成测试 | 平台实现科学评估增强 |
 | npm 发布/安装 | `package-e2e` + 干净环境安装测试 | 平台发布流程 |
 

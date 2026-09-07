@@ -13,6 +13,7 @@ $CF spec drift .
 $CF change list --all .
 $CF evolve review-list .
 $CF status .
+$ROOT/node_modules/.bin/tsx $ROOT/scripts/dashboard-smoke.ts .
 
 echo "== mutating checks in temp copy =="
 TMP=$(mktemp -d)
