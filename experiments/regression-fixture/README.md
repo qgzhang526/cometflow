@@ -38,12 +38,13 @@ bash run-regression.sh
 | doctor | `doctor .` | ✅ |
 | status/dashboard JSON | `status .` | ✅ |
 | Hook/Guard 写保护 | `hook check` 预期拒绝场景 | ✅ |
+| Builder/Verifier 分离 | 独立 `verification.yaml` 覆盖验收 | ✅ |
 
 ## 待实现能力与未来回归场景
 
 | 待实现能力 | 未来回归场景 | 前置条件 |
 |---|---|---|
-| 完整 Builder/Verifier 分离 | `scripted` agent 写文件 + 独立 verifier 逐项验收 | 平台实现 `scripted` agent |
+| 完整 Builder/Verifier 分离 | 已实现独立 verification 文档，见当前清单 | ✅ |
 | Hook/Guard 写保护 | 已实现，见当前验收清单 | ✅ |
 | Classic 工作流 | OpenSpec/Superpowers 五阶段夹具 | 平台实现 Classic |
 | 多平台 Skill/Bundle 分发 | `bundle distribute` 到 opencode/claude/codex 等 | 平台实现多平台 |

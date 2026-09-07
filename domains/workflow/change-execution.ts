@@ -5,6 +5,11 @@ import { runLocalEval } from '../eval/eval-service.js';
 import { readChangeState, writeChangeState } from './change-store.js';
 import { applyChangeTransition } from './change-transitions.js';
 import type { ChangeState } from './change-types.js';
+import {
+  allAcceptancePassed,
+  readVerificationDocument,
+  validateVerificationDocument,
+} from './verification.js';
 
 export interface ChangeRunOutcome {
   state: ChangeState;
@@ -53,13 +58,24 @@ export interface ChangeVerifyOutcome {
 export async function verifyChange(projectRoot: string, name: string): Promise<ChangeVerifyOutcome> {
   const state = await readChangeState(projectRoot, name);
   if (state.phase !== 'verify') throw new Error('change verify requires verify phase');
-  let reportPassed = true;
-  let report = null;
-  try {
-    report = await runLocalEval(projectRoot);
-    reportPassed = report.passed;
-  } catch {
-    reportPassed = false;
+
+  const document = await readVerificationDocument(projectRoot, name);
+  let reportPassed: boolean;
+  let acceptanceLines: string[];
+
+  if (document) {
+    const errors = validateVerificationDocument(state, document);
+    if (errors.length > 0) throw new Error(errors.join('; '));
+    reportPassed = allAcceptancePassed(document);
+    acceptanceLines = document.acceptance.map((item) => '- ' + item.id + ': ' + item.result + ' - ' + item.reason);
+  } else {
+    try {
+      const report = await runLocalEval(projectRoot);
+      reportPassed = report.passed;
+    } catch {
+      reportPassed = false;
+    }
+    acceptanceLines = ['- eval: ' + (reportPassed ? 'passed' : 'failed')];
   }
 
   const dir = path.join(projectRoot, 'changes', name);
@@ -68,6 +84,7 @@ export async function verifyChange(projectRoot: string, name: string): Promise<C
     '',
     'change: ' + state.name,
     'acceptance: ' + (state.acceptance_ids.length > 0 ? state.acceptance_ids.join(', ') : '(none)'),
+    ...acceptanceLines,
     'result: ' + (reportPassed ? 'pass' : 'fail'),
   ];
   await fs.mkdir(dir, { recursive: true });

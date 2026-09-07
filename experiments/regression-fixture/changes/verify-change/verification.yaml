@@ -1,0 +1,6 @@
+schema: cometflow.verification.v1
+change: verify-change
+acceptance:
+  - id: A1
+    result: passed
+    reason: regression verifier passed
