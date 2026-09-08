@@ -15,6 +15,9 @@
 | [005-cli-and-workflow.md](./005-cli-and-workflow.md) | CLI 命令与执行流程 |
 | [006-roadmap.md](./006-roadmap.md) | 分阶段实施路线 |
 | [007-evolution-review-workflow.md](./007-evolution-review-workflow.md) | Evolve 评审与终态工作流 |
+| [008-client-visualization.md](./008-client-visualization.md) | 客户端可视化（serve + Web UI）架构 |
+| [009-spec-artifact-taxonomy.md](./009-spec-artifact-taxonomy.md) | Spec 工件分类（kind 模型）与事实所有权 |
+| [010-init-scaffolding.md](./010-init-scaffolding.md) | Init 按项目类型裁剪生成 spec kind |
 
 ## 决策记录
 
@@ -26,3 +29,8 @@
 | [0004-spec-change-reconciliation.md](../decisions/0004-spec-change-reconciliation.md) | 已完成任务不可变，spec 变更走 reconciliation |
 | [0005-goal-source-markdown-first.md](../decisions/0005-goal-source-markdown-first.md) | 任务目标以 Markdown 为人类事实源 |
 | [0006-evolution-review-states.md](../decisions/0006-evolution-review-states.md) | Evolve 提案 approved/rejected 终态与评审命令 |
+| [0007-ui-headless-service.md](../decisions/0007-ui-headless-service.md) | UI 通过 headless service 访问领域 |
+| [0008-workspace-project-model.md](../decisions/0008-workspace-project-model.md) | serve 采用工作区 + 项目注册表，支持多项目 |
+| [0009-agent-model-config.md](../decisions/0009-agent-model-config.md) | Agent/模型配置分层，凭证不代管 |
+| [0010-spec-artifact-kind-model.md](../decisions/0010-spec-artifact-kind-model.md) | Spec 工件分类（kind 模型），project=COMETFLOW.md |
+| [0011-init-kind-scaffolding.md](../decisions/0011-init-kind-scaffolding.md) | Init 按项目类型裁剪生成 spec kind |
