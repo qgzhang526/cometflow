@@ -157,6 +157,93 @@ describe('spec cross-file references', () => {
     await fs.rm(tmp, { recursive: true, force: true });
   });
 
+  it('validates capability request/response fields against models', async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'cometflow-xref-'));
+    await writeProject(tmp, {
+      'COMETFLOW.md': COMETFLOW,
+      'specs/models.md': '# 数据模型\n\n## 实体：User\n\n| 字段 | 类型 |\n|------|------|\n| username | string |\n| token | string |\n',
+      'specs/auth/spec.md': [
+        '# auth',
+        '',
+        '## POST /login',
+        '',
+        '模型：User',
+        '',
+        '### 请求体',
+        '',
+        '| 字段 | 类型 |',
+        '|------|------|',
+        '| username | string |',
+        '',
+        '### 响应',
+        '',
+        '| 字段 | 类型 |',
+        '|------|------|',
+        '| token | string |',
+        '',
+        '## Acceptance',
+        '',
+        '- A1：ok',
+      ].join('\n'),
+    });
+    const result = await validateSpecs(tmp);
+    expect(result.findings.filter((finding) => finding.severity === 'error')).toHaveLength(0);
+    await fs.rm(tmp, { recursive: true, force: true });
+  });
+
+  it('flags unresolved capability field references', async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'cometflow-xref-'));
+    await writeProject(tmp, {
+      'COMETFLOW.md': COMETFLOW,
+      'specs/models.md': '# 数据模型\n\n## 实体：User\n\n| 字段 | 类型 |\n|------|------|\n| username | string |\n',
+      'specs/auth/spec.md': [
+        '# auth',
+        '',
+        '## POST /login',
+        '',
+        '模型：User',
+        '',
+        '### 请求体',
+        '',
+        '| 字段 | 类型 |',
+        '|------|------|',
+        '| password | string |',
+        '',
+        '## Acceptance',
+        '',
+        '- A1：ok',
+      ].join('\n'),
+    });
+    const result = await validateSpecs(tmp);
+    expect(result.findings.some((finding) => finding.code === 'unresolved-field-reference')).toBe(true);
+    await fs.rm(tmp, { recursive: true, force: true });
+  });
+
+  it('warns when capability declares fields without a model binding', async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'cometflow-xref-'));
+    await writeProject(tmp, {
+      'COMETFLOW.md': COMETFLOW,
+      'specs/auth/spec.md': [
+        '# auth',
+        '',
+        '## POST /login',
+        '',
+        '### 请求体',
+        '',
+        '| 字段 | 类型 |',
+        '|------|------|',
+        '| username | string |',
+        '',
+        '## Acceptance',
+        '',
+        '- A1：ok',
+      ].join('\n'),
+    });
+    const result = await validateSpecs(tmp);
+    expect(result.findings.some((finding) => finding.code === 'missing-model-binding')).toBe(true);
+    await fs.rm(tmp, { recursive: true, force: true });
+  });
+
   it('flags unresolved process api references as warnings', async () => {
     const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'cometflow-xref-'));
     await writeProject(tmp, {

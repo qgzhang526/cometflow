@@ -6,11 +6,14 @@ import type { SchedulerMode } from '../../domains/scheduler/idle-governor.js';
 import {
   CONFIG_SCHEMA,
   DEFAULT_CONFIG,
+  globalConfigPath,
   projectConfigPath,
+  readGlobalConfig,
   readProjectConfig,
   resolveAgentId,
   resolveModel,
   validateProjectConfig,
+  writeGlobalConfig,
   writeProjectConfig,
 } from '../../domains/project/config.js';
 
@@ -82,6 +85,60 @@ describe('project config service', () => {
     await fs.rm(projectConfigPath(tmp));
     expect(await resolveAgentId(tmp, {})).toBe('opencode');
     await fs.rm(tmp, { recursive: true, force: true });
+  });
+
+  it('reads global config defaults', async () => {
+    const home = await fs.mkdtemp(path.join(os.tmpdir(), 'cometflow-home-'));
+    const previous = process.env.COMETFLOW_HOME;
+    process.env.COMETFLOW_HOME = home;
+    try {
+      expect(await readGlobalConfig()).toMatchObject({ agent: 'opencode' });
+      await writeGlobalConfig({ ...DEFAULT_CONFIG, agent: 'claude-code', model: 'global-model' });
+      expect((await readGlobalConfig()).agent).toBe('claude-code');
+      expect(globalConfigPath().endsWith(path.join('.cometflow', 'config.yaml'))).toBe(true);
+    } finally {
+      if (previous === undefined) delete process.env.COMETFLOW_HOME; else process.env.COMETFLOW_HOME = previous;
+      await fs.rm(home, { recursive: true, force: true });
+    }
+  });
+
+  it('merges global defaults and project overrides', async () => {
+    const home = await fs.mkdtemp(path.join(os.tmpdir(), 'cometflow-home-'));
+    const previous = process.env.COMETFLOW_HOME;
+    process.env.COMETFLOW_HOME = home;
+    try {
+      await writeGlobalConfig({ ...DEFAULT_CONFIG, agent: 'claude-code', model: 'global-model' });
+      const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'cometflow-proj-'));
+      expect((await readProjectConfig(tmp)).agent).toBe('claude-code');
+
+      await fs.mkdir(path.join(tmp, '.cometflow'), { recursive: true });
+      await fs.writeFile(projectConfigPath(tmp), 'schema: cometflow.project.v1\nagent: opencode\n');
+      expect((await readProjectConfig(tmp)).agent).toBe('opencode');
+      expect((await readProjectConfig(tmp)).model).toBe('global-model');
+      await fs.rm(tmp, { recursive: true, force: true });
+    } finally {
+      if (previous === undefined) delete process.env.COMETFLOW_HOME; else process.env.COMETFLOW_HOME = previous;
+      await fs.rm(home, { recursive: true, force: true });
+    }
+  });
+
+  it('merges per-agent models from global and project', async () => {
+    const home = await fs.mkdtemp(path.join(os.tmpdir(), 'cometflow-home-'));
+    const previous = process.env.COMETFLOW_HOME;
+    process.env.COMETFLOW_HOME = home;
+    try {
+      await writeGlobalConfig({ ...DEFAULT_CONFIG, agents: { opencode: { model: 'global-opencode' } } });
+      const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'cometflow-proj-'));
+      await fs.mkdir(path.join(tmp, '.cometflow'), { recursive: true });
+      await fs.writeFile(projectConfigPath(tmp), 'schema: cometflow.project.v1\nagents:\n  claude-code: { model: project-claude }\n');
+      const config = await readProjectConfig(tmp);
+      expect(config.agents?.opencode?.model).toBe('global-opencode');
+      expect(config.agents?.['claude-code']?.model).toBe('project-claude');
+      await fs.rm(tmp, { recursive: true, force: true });
+    } finally {
+      if (previous === undefined) delete process.env.COMETFLOW_HOME; else process.env.COMETFLOW_HOME = previous;
+      await fs.rm(home, { recursive: true, force: true });
+    }
   });
 
   it('resolves model: per-agent > global > undefined', async () => {

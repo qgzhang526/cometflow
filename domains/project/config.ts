@@ -1,4 +1,5 @@
 import { promises as fs } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { parse, stringify } from 'yaml';
 import { builtInAgentRunners } from '../../platform/agents/registry.js';
@@ -40,12 +41,32 @@ export function projectConfigPath(projectRoot: string): string {
   return path.join(projectRoot, '.cometflow', 'config.yaml');
 }
 
+function globalConfigDir(): string {
+  const home = process.env.COMETFLOW_HOME ?? os.homedir();
+  return path.join(home, '.cometflow');
+}
+
+export function globalConfigPath(): string {
+  return path.join(globalConfigDir(), 'config.yaml');
+}
+
 export function knownAgentIds(): string[] {
   return builtInAgentRunners().map((runner) => runner.id);
 }
 
-export async function readProjectConfig(projectRoot: string): Promise<ProjectConfig> {
-  const filePath = projectConfigPath(projectRoot);
+function toConfig(raw: unknown): ProjectConfig {
+  const record = raw !== null && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+  return { ...DEFAULT_CONFIG, ...record } as ProjectConfig;
+}
+
+function mergeConfigs(global: ProjectConfig, project: ProjectConfig): ProjectConfig {
+  const merged: ProjectConfig = { ...DEFAULT_CONFIG, ...global, ...project };
+  merged.agents = { ...(global.agents ?? {}), ...(project.agents ?? {}) };
+  return merged;
+}
+
+export async function readGlobalConfig(): Promise<ProjectConfig> {
+  const filePath = globalConfigPath();
   let parsed: unknown;
   try {
     const source = await fs.readFile(filePath, 'utf8');
@@ -54,8 +75,28 @@ export async function readProjectConfig(projectRoot: string): Promise<ProjectCon
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { ...DEFAULT_CONFIG };
     throw error;
   }
-  const raw = parsed !== null && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {};
-  return { ...DEFAULT_CONFIG, ...raw } as ProjectConfig;
+  return toConfig(parsed);
+}
+
+export async function writeGlobalConfig(config: ProjectConfig): Promise<string> {
+  const filePath = globalConfigPath();
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  await fs.writeFile(filePath, stringify(config));
+  return filePath;
+}
+
+export async function readProjectConfig(projectRoot: string): Promise<ProjectConfig> {
+  const global = await readGlobalConfig();
+  const filePath = projectConfigPath(projectRoot);
+  let parsed: unknown;
+  try {
+    const source = await fs.readFile(filePath, 'utf8');
+    parsed = parse(source);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return mergeConfigs(global, {} as ProjectConfig);
+    throw error;
+  }
+  return mergeConfigs(global, toConfig(parsed));
 }
 
 export async function writeProjectConfig(projectRoot: string, config: ProjectConfig): Promise<string> {

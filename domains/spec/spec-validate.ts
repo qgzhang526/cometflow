@@ -5,6 +5,7 @@ import { loadProjectContext, validateProjectContext } from '../project/context.j
 import { pathExists, readTextFile } from '../../platform/fs/read-file.js';
 import { kindForSpecFile, ROOT_KIND_FILES, type SpecKind } from './kind.js';
 import { readInitManifest } from '../project/scaffold.js';
+import { parseCapability, parseModels } from './spec-model.js';
 import {
   extractApiPathRefs,
   extractApiReferences,
@@ -29,6 +30,7 @@ interface CrossRefIndex {
   apiAnchors: Set<string>;
   modelsContent: string | null;
   modelsEntities: Set<string>;
+  modelsFields: Map<string, Set<string>>;
   errorsContent: string | null;
   errorCodes: Set<string>;
   configContent: string | null;
@@ -121,6 +123,27 @@ function checkStatusRefs(content: string, relativePath: string, findings: SpecVa
   }
 }
 
+function checkFieldRefs(content: string, relativePath: string, findings: SpecValidationFinding[], index: CrossRefIndex): void {
+  const capability = parseCapability(content, relativePath);
+  for (const endpoint of capability.endpoints) {
+    const fields = [...endpoint.requestFields, ...endpoint.responseFields];
+    if (fields.length === 0) continue;
+    if (endpoint.modelRefs.length === 0) {
+      findings.push(warning(relativePath, 'missing-model-binding', '接口 ' + endpoint.method + ' ' + endpoint.path + ' 声明了字段但未绑定 模型：X'));
+      continue;
+    }
+    for (const entity of endpoint.modelRefs) {
+      const entityFields = index.modelsFields.get(entity);
+      if (!entityFields) continue;
+      for (const field of fields) {
+        if (!entityFields.has(field.name)) {
+          findings.push(error(relativePath, 'unresolved-field-reference', '接口字段未在 models 实体 ' + entity + ' 中定义: ' + field.name));
+        }
+      }
+    }
+  }
+}
+
 async function validateCapabilityFile(
   projectRoot: string,
   relativePath: string,
@@ -139,6 +162,7 @@ async function validateCapabilityFile(
   checkErrorCodeRefs(content, relativePath, findings, index);
   checkHeaderRefs(content, relativePath, findings, index);
   checkStatusRefs(content, relativePath, findings, index);
+  checkFieldRefs(content, relativePath, findings, index);
 }
 
 async function validateFlowFile(
@@ -261,6 +285,7 @@ export async function validateSpecs(projectRoot: string): Promise<SpecValidation
     apiAnchors: new Set(),
     modelsContent,
     modelsEntities: new Set(modelsContent ? extractEntities(modelsContent).map((entry) => entry.name) : []),
+    modelsFields: new Map(modelsContent ? parseModels(modelsContent).entities.map((entity) => [entity.name, new Set(entity.fields.map((field) => field.name))] as [string, Set<string>]) : []),
     errorsContent,
     errorCodes: new Set(errorsContent ? extractErrorCodes(errorsContent) : []),
     configContent,

@@ -2,8 +2,8 @@ import path from 'node:path';
 import { promises as fs } from 'node:fs';
 import { stringify } from 'yaml';
 import { listSpecEntries } from './spec-index.js';
-import { parseSpecFile } from './spec-parse.js';
-import { parseFlow, parseModels, type EntityDef, type FlowStepDef, type StateMachineDef } from './spec-model.js';
+import { parseSpecContent } from './spec-parse.js';
+import { parseCapability, parseFlow, parseModels, type CapFieldDef, type EntityDef, type FlowStepDef, type StateMachineDef } from './spec-model.js';
 import { extractConfigKeys, extractErrorCodes } from './spec-structure.js';
 import { pathExists, readTextFile } from '../../platform/fs/read-file.js';
 import { ROOT_KIND_FILES } from './kind.js';
@@ -14,6 +14,9 @@ export interface ApiProjection {
   method: string | null;
   path: string | null;
   acceptanceIds: string[];
+  requestFields: CapFieldDef[];
+  responseFields: CapFieldDef[];
+  modelRefs: string[];
 }
 
 export interface ModelsProjection {
@@ -60,12 +63,26 @@ export async function buildSpecIndex(projectRoot: string): Promise<SpecIndexProj
 
   for (const entry of entries) {
     if (entry.kind === 'capability') {
-      const parsed = await parseSpecFile(projectRoot, entry.path);
+      const content = await readTextFile(path.join(projectRoot, entry.path));
+      const parsed = parseSpecContent(content, entry.path);
       const capability = entry.path.replace(/^specs\//u, '').replace(/\/spec\.md$/u, '');
+      const endpointsByHeading = new Map(
+        parseCapability(content, entry.path).endpoints.map((endpoint) => [endpoint.method + ' ' + endpoint.path, endpoint]),
+      );
       for (const anchor of parsed.anchors) {
         const { method, path: apiPath } = parseApiHeading(anchor.heading);
         const acceptanceIds = (anchor.acceptance.length > 0 ? anchor.acceptance : parsed.acceptance).map((item) => item.id);
-        apis.push({ capability, heading: anchor.heading, method, path: apiPath, acceptanceIds });
+        const endpoint = method && apiPath ? endpointsByHeading.get(method + ' ' + apiPath) : undefined;
+        apis.push({
+          capability,
+          heading: anchor.heading,
+          method,
+          path: apiPath,
+          acceptanceIds,
+          requestFields: endpoint?.requestFields ?? [],
+          responseFields: endpoint?.responseFields ?? [],
+          modelRefs: endpoint?.modelRefs ?? [],
+        });
       }
     } else if (entry.kind === 'flow') {
       const content = await readTextFile(path.join(projectRoot, entry.path));

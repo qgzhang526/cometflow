@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseFlow, parseModels } from '../../domains/spec/spec-model.js';
+import { parseCapability, parseFlow, parseModels } from '../../domains/spec/spec-model.js';
 
 describe('spec model parsers', () => {
   it('parses models entities, enums, and state machines', () => {
@@ -32,6 +32,36 @@ describe('spec model parsers', () => {
     expect(models.enums).toEqual([['0=文档', '1=图片']]);
     expect(models.stateMachines).toHaveLength(1);
     expect(models.stateMachines[0].transitions).toEqual([{ from: 'pending', event: 'approve', to: 'active' }]);
+  });
+
+  it('parses capability endpoints with request/response fields and model refs', () => {
+    const content = [
+      '# auth',
+      '',
+      '## POST /api/auth/login',
+      '',
+      '模型：User',
+      '',
+      '### 请求体',
+      '',
+      '| 字段 | 类型 | 必填 | 说明 |',
+      '|------|------|------|------|',
+      '| username | string | 是 | 登录名 |',
+      '',
+      '### 成功响应',
+      '',
+      '| 字段 | 类型 | 说明 |',
+      '|------|------|------|',
+      '| token | string | JWT |',
+    ].join('\n');
+    const capability = parseCapability(content, 'specs/auth/spec.md');
+    expect(capability.endpoints).toHaveLength(1);
+    expect(capability.endpoints[0].method).toBe('POST');
+    expect(capability.endpoints[0].path).toBe('/api/auth/login');
+    expect(capability.endpoints[0].requestFields[0].name).toBe('username');
+    expect(capability.endpoints[0].requestFields[0].required).toBe(true);
+    expect(capability.endpoints[0].responseFields[0].name).toBe('token');
+    expect(capability.endpoints[0].modelRefs).toEqual(['User']);
   });
 
   it('parses flow steps, branches, polling, and references', () => {

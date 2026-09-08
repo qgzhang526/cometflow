@@ -180,3 +180,78 @@ export function parseFlow(content: string, source: string): FlowSpec {
 
   return { name, preconditions, steps, postconditions, modelRefs, configRefs };
 }
+
+
+export interface CapFieldDef {
+  name: string;
+  type: string;
+  required: boolean;
+  description: string;
+}
+
+export interface EndpointDef {
+  method: string;
+  path: string;
+  requestFields: CapFieldDef[];
+  responseFields: CapFieldDef[];
+  modelRefs: string[];
+}
+
+export interface CapabilitySpec {
+  capability: string;
+  endpoints: EndpointDef[];
+}
+
+export function parseCapability(content: string, source: string): CapabilitySpec {
+  const lines = content.split(/\r?\n/u);
+  const capability = (/^#\s+(.+?)\s*$/mu.exec(content) ?? [])[1] ?? source;
+  const endpoints: EndpointDef[] = [];
+  let current: EndpointDef | null = null;
+  let section: 'request' | 'response' | null = null;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    const endpointMatch = /^##\s+([A-Z]{3,8})\s+(\/\S+)/u.exec(trimmed);
+    if (endpointMatch) {
+      current = { method: endpointMatch[1].toUpperCase(), path: endpointMatch[2], requestFields: [], responseFields: [], modelRefs: [] };
+      endpoints.push(current);
+      section = null;
+      continue;
+    }
+
+    if (/^##\s+/u.test(trimmed)) {
+      current = null;
+      section = null;
+      continue;
+    }
+
+    if (/^###\s+/u.test(trimmed)) {
+      if (/请求头/u.test(trimmed)) section = null;
+      else if (/请求/u.test(trimmed)) section = 'request';
+      else if (/响应/u.test(trimmed)) section = 'response';
+      else section = null;
+      continue;
+    }
+
+    if (!current) continue;
+
+    const modelMatch = /^\s*(?:[-*]\s+)?(?:模型|实体)[:：]\s*([^\s，,]+)/u.exec(line);
+    if (modelMatch) current.modelRefs.push(modelMatch[1]);
+
+    if (section && line.includes('|')) {
+      const cells = tableCells(line);
+      if (cells.length >= 2 && !/字段|----|:--/u.test(cells[0])) {
+        const field: CapFieldDef = {
+          name: cells[0],
+          type: cells[1] ?? '',
+          required: (cells[2] ?? '') === '是',
+          description: cells[cells.length - 1] ?? '',
+        };
+        if (section === 'request') current.requestFields.push(field);
+        else current.responseFields.push(field);
+      }
+    }
+  }
+
+  return { capability, endpoints };
+}

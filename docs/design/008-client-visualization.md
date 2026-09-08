@@ -88,6 +88,7 @@
 ├───────────────┬──────────────────────────────────────────────┤
 │ 总览          │                                              │
 │ 目标 Goals    │              内容区（当前面板）                │
+│ 规格 Specs    │                                              │
 │ 计划 Plans    │                                              │
 │ 变更 Changes  │                                              │
 │ 进化 Evolve   │                                              │
@@ -111,6 +112,7 @@ TopBar 元素：
 | 首页 / 项目列表 | 新建项目、打开项目、最近项目 | init、project 注册 |
 | 总览 Overview | 项目状态摘要 + 快速入口 | collectProjectStatus |
 | 目标 Goals | 编辑总体目标/技术栈/任务目标 | mission.md 读写、context/goal sync |
+| 规格 Specs | 12-kind 状态/脚手架/跨文件引用图/校验 | init-manifest、spec scaffold、spec-index、spec validate |
 | 计划 Plans | 拆解向导 | plan generate/validate/review/approve/freeze/regenerate |
 | 变更 Changes | 步骤条 + 运行日志 | change new/transition/run/verify/archive |
 | 进化 Evolve | 提案评审 | evolve propose/verify/submit/approve/reject |
@@ -125,12 +127,15 @@ TopBar 元素：
 - 两个主按钮：**[+ 新建项目]**、**[打开已有项目]**。
 - 最近项目卡片列表：名称、路径、goals/plans/changes 摘要、最近打开时间。
 
-### 5.4 新建项目流程（对应 init）
+### 5.4 新建项目流程（对应 init + 12-kind 脚手架）
 
-1. 点「+ 新建项目」→ 打开弹窗；
-2. 填写项目名称 + 本地路径（目录选择器 + 可手输）；可选快速填写技术栈/运行环境（对应 COMETFLOW.md 两张表），可留空稍后在 Goals 补；
-3. 点「创建」→ POST /api/projects → 服务端在目标路径执行 init（生成 COMETFLOW.md 模板 + 目录）并写入注册表；
-4. 前端跳转到该项目的 Goals 面板，引导用户完善技术栈/运行环境，再「同步」。
+新建项目是一个三步向导，而不是单个弹窗：
+
+1. **基本信息**：项目名称 + 本地路径（目录选择器 + 可手输）。
+2. **项目类型（12-kind 裁剪）**：
+   - 技术栈提示（前端/后端/数据库）与 COMETFLOW.md「技术栈」表一致，用于第一层推断（frontend≠无 → pages、database≠无 → models、有后端 → constraints）；
+   - 七个交互问题（对应 Q1-Q7）：网络接口、运行时配置、跨接口流程、后台进程、领域 DSL、鉴权方式（无需/机机/角色矩阵）、错误码是否较多（>20）。
+3. **预览并创建**：展示 12-kind 清单（present/deferred/absent + reason + 目标文件），点「创建」→ POST /api/projects（带 stackHints + scaffoldAnswers）→ 服务端 init + scaffold，生成 kind 骨架与 init-manifest.yaml；前端跳转到 Specs 面板。
 
 ## 6. 页面线框
 
@@ -153,18 +158,31 @@ TopBar 元素：
 └──────────────────────────────────────────────────────┘
 ```
 
-新建项目弹窗：
+新建项目三步向导：
 
 ```text
-┌─ 新建项目 ────────────────────────────────┐
-│ 项目名称   [____________________________] │
-│ 本地路径   [____________________] [浏览…] │
-│ ── 可选：技术栈 / 运行环境 ──────────────── │
-│ 前端 [____] 后端 [____] 数据库 [____]      │
-│ （可跳过，稍后在 Goals 填写）              │
-│                                          │
-│ [取消]                          [创建]   │
-└──────────────────────────────────────────┘
+① 基本信息              ② 项目类型              ③ 预览创建
+┌─ 新建项目 ──────────────────────────────────────┐
+│ 项目名称   [__________________________]         │
+│ 本地路径   [________________] [浏览…]            │
+│ 技术栈  前端 [无 ▼] 后端 [Go ▼] 数据库 [SQLite ▼] │
+│                                                │
+│ ── 项目类型（决定生成哪些 spec kind）──────────── │
+│ [✓] 对外网络接口/协议    [ ] 运行时配置键          │
+│ [✓] 跨接口业务场景       [ ] 后台进程             │
+│ [ ] 领域 DSL            鉴权方式 [机机 ▼]         │
+│ [ ] 错误码 > 20 个                               │
+│                                                │
+│ [取消]                                [下一步]   │
+└────────────────────────────────────────────────┘
+        ↓ 下一步
+┌─ 预览 12-kind ──────────────────────────────────┐
+│ ● present   models / protocol / config /        │
+│             constraints / permissions           │
+│ ○ deferred  rules / flow / pages / process      │
+│ — absent    capability（由 plan 生成）            │
+│ [取消]                                  [创建]  │
+└────────────────────────────────────────────────┘
 ```
 
 ### 6.2 Goals（目标）面板
@@ -246,6 +264,26 @@ TopBar 元素：
 └─────────────────────────────────────────────────┘
 ```
 
+### 6.7 Specs（规格）面板
+
+```text
+┌ Specs ─────────────────────────────────────────────────┐
+│ [kind 状态] [引用图] [校验] [文件]                        │
+│ ┌ 12-kind 状态 ──────────────┐ ┌ 引用关系图 ─────────────┐ │
+│ │ ● models     specs/models.md│ │        ┌ project ┐     │ │
+│ │ ● protocol  specs/protocol. │ │            │ scope      │ │
+│ │ ○ flow      deferred        │ │        ┌ capability ┐  │ │
+│ │ — capability 由 plan 生成    │ │   ┌────┼─────┐      │  │ │
+│ │ [补全 deferred]             │ │ models errors protocol │ │
+│ └─────────────────────────────┘ └────────────────────────┘ │
+│ ┌ 校验结果 ─────────────────────────────────────────────┐ │
+│ │ ✗ unresolved-model-reference  flow/login.md:12       │ │
+│ │   「实体 Session」未在 models.md 定义 → [去补]          │ │
+│ │ ✔ 0 error / 3 warning                               │ │
+│ └──────────────────────────────────────────────────────┘ │
+└──────────────────────────────────────────────────────────┘
+```
+
 ## 7. headless service：cometflow serve
 
 命令：`cometflow serve [--workspace <dir>] --port <port> --token <token>`。缺省端口 4321，缺省绑 127.0.0.1；未指定 token 时随机生成并打印到控制台。静态托管 web 前端构建产物。
@@ -283,6 +321,20 @@ TopBar 元素：
 | GET | /api/config | 读 .cometflow/config.yaml | 同步 |
 | PUT | /api/config | 写 .cometflow/config.yaml（含校验） | 同步 |
 | GET | /api/agents | agent list（含 available 检测） | 同步 |
+
+#### 规格 Specs
+
+| 方法 | 路径 | 对应命令/服务 | 类型 |
+|---|---|---|---|
+| GET | /api/init-manifest | 12-kind 状态（present/deferred/absent） | 同步 |
+| POST | /api/spec/scaffold | spec scaffold（补 deferred/指定 kind，幂等） | 同步 |
+| GET | /api/specs | listSpecEntries（path + kind） | 同步 |
+| GET | /api/specs/{path} | 读单个 spec 文件 | 同步 |
+| PUT | /api/specs/{path} | 写单个 spec 文件 | 同步 |
+| GET | /api/spec-index | buildSpecIndex 投影（apis/models/flows/errors/config） | 同步 |
+| POST | /api/spec/validate | spec validate（含 cross-ref findings） | 同步 |
+
+注：`{path}` 是相对路径（如 `specs/models.md`），含斜杠，建议用查询参数或 URL 编码传递。
 
 #### 计划拆解
 
@@ -461,10 +513,44 @@ UI 表现：
 
 新增服务：`domains/project/config.ts`（读写/校验 config.yaml），并把 `flow-run.ts` 的 `resolveAgentId` 迁移到该服务（消除 ad-hoc 读取）。
 
+### 8.6 Specs 面板与跨文件引用设计
+
+数据来源（机器投影，不手绘）：
+
+- `.cometflow/init-manifest.yaml`：12-kind 的 present/deferred/absent + reason；
+- `.cometflow/spec-index/{models,apis,flows,errors,config}.yaml`：结构投影；
+- `spec validate` findings：跨文件引用错误/告警。
+
+**① kind 状态视图**
+
+- 12 个 kind 卡片/表格：状态徽章（present 绿 / deferred 黄 / absent 灰）、canonical 路径、reason；
+- 「补全 deferred」→ POST /api/spec/scaffold（幂等，不覆盖人类修改）；
+- 点击 kind → 打开对应文件（Markdown 编辑或结构化视图）。
+
+**② 引用关系图（graph）**
+
+- 节点按 kind 聚合；边按 009 的引用方向表生成（capability→models/errors/protocol、flow→capability/models/config、process→capability/models/config、rules→models、permissions→capability、project→capability）。
+- 点击 kind 节点展开到文件级/接口级/实体级（如 capability 展开为 `POST /login`；models 展开为实体/枚举/状态机）。
+- 悬停边显示引用详情（源 anchor → 目标 anchor）；deferred/absent kind 置灰。
+
+**③ 引用检查面板**
+
+- 按 severity/code 分组：`unresolved-model-reference`、`unresolved-api-reference`、`unresolved-error-code`、`unresolved-config-key`、`missing-reference-target` 等；
+- 每条 finding 显示 [severity] code + 源文件:行 + 缺失目标，点击跳转源文件对应位置；
+- 顶部统计徽章：0 error / n warning，error 阻断下一步（plan freeze / change new）。
+
+**④ 编辑器内引用高亮**
+
+- 可解析引用渲染为 chip/链接（`POST /login` → capability anchor；`字段 keyword_id` → models 字段；`code 1001` → errors；`键 port` → config）；
+- 未解析引用红色下划线 + tooltip「目标未定义，点击去补」；
+- models 实体/字段提供「被引用」反向列表，点反向边跳回引用方。
+
+设计原则：引用图与高亮全部由投影 + findings 驱动，用户不手绘；编辑 spec 后自动重跑投影/校验刷新。
+
 ## 9. 交互流程示例
 
 ```text
-1. 打开 CometFlow 首页 → 点「+ 新建项目」→ 填名称/路径 → 创建（init）
+1. 打开 CometFlow 首页 → 点「+ 新建项目」→ 三步向导（基本信息→项目类型问答→12-kind 预览）→ 创建（init + scaffold）
 2. 进入 Goals，编辑总体目标 + 技术栈 → 点「同步」（context/goal sync）
 3. 点「+ 添加目标」新增 G2 → 同步
 4. 进入 Plans，选中 G2，点「生成」→ 展示草稿
@@ -494,6 +580,14 @@ UI 表现：
 - JobManager + /api/jobs + /api/events（SSE）。
 
 验收：打开首页 → 新建项目 → 进入项目 → curl 读状态 → 订阅 SSE 收到 state.changed。
+
+### S1.5 Specs 面板
+
+- 12-kind 状态视图 + init-manifest + scaffold 补全；
+- 引用关系图（kind → 文件 → 实体/接口三级展开）；
+- spec validate 跨文件引用检查面板 + 编辑器引用高亮。
+
+验收：新建项目后看到 12-kind 清单；补全一个 deferred kind；故意写错一个跨文件引用，面板能红色定位并跳转。
 
 ### S2 Plan 向导
 
@@ -525,3 +619,4 @@ UI 表现：
 6. **离线/打包**：web 前端依赖与构建产物如何进入 npm 包与内网分发。
 7. **认证与局域网访问**：MVP 只 127.0.0.1 + token；开放局域网前需会话/CSRF 防护。
 8. **敏感配置边界**：API key / endpoint 等凭证由 agent 工具自身管理，CometFlow 配置只存 agent id 与 model 名，防止重复存储与泄露。
+9. **引用图规模与刷新**：kind 只有 12 个，但 capability/flow 展开后的接口/实体级节点可能很多；MVP 逐级展开 + 只渲染当前项目，避免全量布局；spec 编辑后自动重跑投影/校验，防止展示陈旧引用。
