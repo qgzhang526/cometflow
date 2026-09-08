@@ -1,6 +1,8 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { stringify } from 'yaml';
+import { detectKindNeeds, scaffoldProject, writeInitManifest } from '../../domains/project/scaffold.js';
+import { askScaffoldPrompts } from './scaffold-prompts.js';
 
 const COMETFLOW_TEMPLATE = [
   '# 项目使命',
@@ -58,7 +60,10 @@ async function ensureGitignore(projectRoot: string): Promise<void> {
   }
 }
 
-export async function initCommand(targetPath: string): Promise<void> {
+export async function initCommand(
+  targetPath: string,
+  options: { interactive?: boolean } = {},
+): Promise<void> {
   const projectRoot = path.resolve(targetPath);
   const missionPath = path.join(projectRoot, 'COMETFLOW.md');
   try {
@@ -79,4 +84,16 @@ export async function initCommand(targetPath: string): Promise<void> {
   );
   await ensureGitignore(projectRoot);
   console.log('initialized ' + projectRoot);
+
+  if (options.interactive) {
+    const { stack, answers } = await askScaffoldPrompts(true);
+    const result = await scaffoldProject(projectRoot, stack, answers);
+    for (const filePath of result.created) console.log('scaffolded ' + filePath);
+    for (const filePath of result.skipped) console.log('skipped ' + filePath);
+    console.log('wrote ' + result.manifestPath);
+  } else {
+    const kinds = detectKindNeeds({}, {});
+    const manifestPath = await writeInitManifest(projectRoot, kinds);
+    console.log('wrote ' + manifestPath);
+  }
 }

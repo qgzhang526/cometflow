@@ -54,6 +54,8 @@ import {
   specDiffCommand,
   specDriftCommand,
   specLockCommand,
+  specScaffoldCommand,
+  specScaffoldListCommand,
   specValidateCommand,
 } from '../commands/spec.js';
 import {
@@ -76,8 +78,9 @@ program
 program
   .command('init [path]')
   .description('Initialize a CometFlow project')
-  .action(async (targetPath = '.') => {
-    await initCommand(targetPath);
+  .option('--interactive', 'Ask project-type questions and scaffold spec kinds')
+  .action(async (targetPath = '.', options) => {
+    await initCommand(targetPath, { interactive: options.interactive === true });
   });
 
 program
@@ -457,6 +460,16 @@ spec
   .option('--json', 'Output as JSON')
   .action(async (targetPath = '.', options) => {
     await specDriftCommand(targetPath, options);
+  });
+
+spec
+  .command('scaffold [path]')
+  .description('Scaffold missing spec kinds from project type (non-destructive)')
+  .option('--interactive', 'Ask interactive questions for deferred kinds')
+  .option('--list', 'List spec kind states instead of scaffolding')
+  .action(async (targetPath = '.', options) => {
+    if (options.list) await specScaffoldListCommand(targetPath);
+    else await specScaffoldCommand(targetPath, options);
   });
 
 const plan = program.command('plan').description('Task plan commands');

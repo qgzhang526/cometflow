@@ -4,6 +4,9 @@ import { parseSpecFile } from '../../domains/spec/spec-parse.js';
 import { listSpecFiles } from '../../domains/spec/spec-index.js';
 import { computeSpecLock, diffSpecs, writeSpecLock } from '../../domains/spec/spec-lock.js';
 import { collectSpecDrift } from '../../domains/spec/spec-drift.js';
+import { loadProjectContext } from '../../domains/project/context.js';
+import { readInitManifest, scaffoldProject } from '../../domains/project/scaffold.js';
+import { askScaffoldPrompts } from './scaffold-prompts.js';
 
 export async function specValidateCommand(targetPath: string): Promise<void> {
   const projectRoot = path.resolve(targetPath);
@@ -55,5 +58,30 @@ export async function specAnchorsCommand(targetPath: string): Promise<void> {
     for (const anchor of parsed.anchors) {
       console.log(file + '#' + anchor.heading + ' acceptance=' + (anchor.acceptance.length > 0 ? anchor.acceptance.length : parsed.acceptance.length));
     }
+  }
+}
+
+export async function specScaffoldCommand(targetPath: string, options: { interactive?: boolean }): Promise<void> {
+  const projectRoot = path.resolve(targetPath);
+  const context = await loadProjectContext(projectRoot);
+  const stack = context
+    ? { frontend: context.tech_stack.frontend, backend: context.tech_stack.backend, database: context.tech_stack.database }
+    : {};
+  const answers = options.interactive ? (await askScaffoldPrompts(false)).answers : {};
+  const result = await scaffoldProject(projectRoot, stack, answers);
+  for (const filePath of result.created) console.log('scaffolded ' + filePath);
+  for (const filePath of result.skipped) console.log('skipped ' + filePath);
+  console.log('wrote ' + result.manifestPath);
+}
+
+export async function specScaffoldListCommand(targetPath: string): Promise<void> {
+  const projectRoot = path.resolve(targetPath);
+  const manifest = await readInitManifest(projectRoot);
+  if (!manifest) {
+    console.log('(no init-manifest.yaml)');
+    return;
+  }
+  for (const [kind, entry] of Object.entries(manifest.kinds)) {
+    console.log(kind + ': ' + entry.status + ' (' + entry.reason + ')');
   }
 }
