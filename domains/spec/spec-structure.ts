@@ -86,3 +86,53 @@ export function normalizeApiHeading(heading: string): string {
   if (parts.length >= 2) return parts[0].toUpperCase() + ' ' + parts.slice(1).join(' ');
   return heading.trim();
 }
+
+// Explicit cross-file references, written as "模型：Name" / "错误码：CODE" / "配置：key".
+export function extractModelRefs(content: string): string[] {
+  const refs: string[] = [];
+  for (const line of content.split(/\r?\n/u)) {
+    const match = /^\s*(?:[-*]\s+)?(?:模型|实体)[:：]\s*([^\s，,]+)/u.exec(line);
+    if (match) refs.push(match[1]);
+  }
+  return refs;
+}
+
+export function extractErrorCodeRefs(content: string): string[] {
+  const refs: string[] = [];
+  for (const line of content.split(/\r?\n/u)) {
+    const match = /^\s*(?:[-*]\s+)?(?:错误码|错误)[:：]\s*([A-Z0-9_]+)/u.exec(line);
+    if (match) refs.push(match[1]);
+  }
+  return refs;
+}
+
+export function extractConfigKeyRefs(content: string): string[] {
+  const refs: string[] = [];
+  for (const line of content.split(/\r?\n/u)) {
+    const match = /^\s*(?:[-*]\s+)?(?:配置键|配置)[:：]\s*([A-Za-z0-9_.]+)/u.exec(line);
+    if (match) refs.push(match[1]);
+  }
+  return refs;
+}
+
+function extractTableFirstColumn(content: string): string[] {
+  const cells: string[] = [];
+  for (const line of content.split(/\r?\n/u)) {
+    const parts = line.split('|').map((part) => part.trim()).filter((part) => part !== '');
+    if (parts.length === 0) continue;
+    cells.push(parts[0]);
+  }
+  return cells;
+}
+
+export function extractErrorCodes(content: string): string[] {
+  return extractTableFirstColumn(content).filter((cell) => /^[A-Z0-9_]+$/u.test(cell));
+}
+
+export function extractConfigKeys(content: string): string[] {
+  return extractTableFirstColumn(content).filter((cell) => /^[A-Za-z0-9_.-]+$/u.test(cell));
+}
+
+export function extractApiPathRefs(content: string): string[] {
+  return extractTableFirstColumn(content).filter((cell) => /^[A-Z]{3,8}\s+\//u.test(cell));
+}

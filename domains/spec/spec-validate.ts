@@ -6,13 +6,29 @@ import { pathExists, readTextFile } from '../../platform/fs/read-file.js';
 import { kindForSpecFile, ROOT_KIND_FILES, type SpecKind } from './kind.js';
 import { readInitManifest } from '../project/scaffold.js';
 import {
+  extractApiPathRefs,
+  extractConfigKeyRefs,
+  extractConfigKeys,
   extractEntities,
+  extractErrorCodeRefs,
+  extractErrorCodes,
   extractFlowSteps,
   extractHeadings,
+  extractModelRefs,
   extractProcesses,
   normalizeApiHeading,
 } from './spec-structure.js';
 import type { SpecValidationFinding, SpecValidationResult } from './types.js';
+
+interface CrossRefIndex {
+  apiAnchors: Set<string>;
+  modelsContent: string | null;
+  modelsEntities: Set<string>;
+  errorsContent: string | null;
+  errorCodes: Set<string>;
+  configContent: string | null;
+  configKeys: Set<string>;
+}
 
 function error(pathValue: string, code: string, message: string): SpecValidationFinding {
   return { path: pathValue, severity: 'error', code, message };
@@ -20,6 +36,14 @@ function error(pathValue: string, code: string, message: string): SpecValidation
 
 function warning(pathValue: string, code: string, message: string): SpecValidationFinding {
   return { path: pathValue, severity: 'warning', code, message };
+}
+
+async function readRootKind(projectRoot: string, kind: SpecKind): Promise<string | null> {
+  const relativePath = ROOT_KIND_FILES[kind];
+  if (!relativePath) return null;
+  const absolutePath = path.join(projectRoot, relativePath);
+  if (!(await pathExists(absolutePath))) return null;
+  return readTextFile(absolutePath);
 }
 
 async function validateManifest(projectRoot: string, findings: SpecValidationFinding[]): Promise<void> {
@@ -39,10 +63,41 @@ async function validateManifest(projectRoot: string, findings: SpecValidationFin
   }
 }
 
+function checkModelRefs(content: string, relativePath: string, findings: SpecValidationFinding[], index: CrossRefIndex): void {
+  for (const entity of extractModelRefs(content)) {
+    if (!index.modelsContent) {
+      findings.push(warning(relativePath, 'missing-reference-target', '引用了模型 ' + entity + '，但 specs/models.md 不存在'));
+    } else if (!index.modelsEntities.has(entity)) {
+      findings.push(error(relativePath, 'unresolved-model-reference', '引用的模型未在 specs/models.md 定义: ' + entity));
+    }
+  }
+}
+
+function checkErrorCodeRefs(content: string, relativePath: string, findings: SpecValidationFinding[], index: CrossRefIndex): void {
+  for (const code of extractErrorCodeRefs(content)) {
+    if (!index.errorsContent) {
+      findings.push(warning(relativePath, 'missing-reference-target', '引用了错误码 ' + code + '，但 specs/errors.md 不存在'));
+    } else if (!index.errorCodes.has(code)) {
+      findings.push(error(relativePath, 'unresolved-error-reference', '引用的错误码未在 specs/errors.md 定义: ' + code));
+    }
+  }
+}
+
+function checkConfigKeyRefs(content: string, relativePath: string, findings: SpecValidationFinding[], index: CrossRefIndex): void {
+  for (const key of extractConfigKeyRefs(content)) {
+    if (!index.configContent) {
+      findings.push(warning(relativePath, 'missing-reference-target', '引用了配置键 ' + key + '，但 specs/config.md 不存在'));
+    } else if (!index.configKeys.has(key)) {
+      findings.push(error(relativePath, 'unresolved-config-reference', '引用的配置键未在 specs/config.md 定义: ' + key));
+    }
+  }
+}
+
 async function validateCapabilityFile(
   projectRoot: string,
   relativePath: string,
   findings: SpecValidationFinding[],
+  index: CrossRefIndex,
 ): Promise<void> {
   const parsed = await parseSpecFile(projectRoot, relativePath);
   if (parsed.anchors.length === 0) {
@@ -51,13 +106,16 @@ async function validateCapabilityFile(
   if (parsed.acceptance.length === 0) {
     findings.push(error(relativePath, 'no-acceptance', 'spec 中没有 Acceptance 验收项'));
   }
+  const content = await readTextFile(path.join(projectRoot, relativePath));
+  checkModelRefs(content, relativePath, findings, index);
+  checkErrorCodeRefs(content, relativePath, findings, index);
 }
 
 async function validateFlowFile(
   projectRoot: string,
   relativePath: string,
-  apiAnchors: Set<string>,
   findings: SpecValidationFinding[],
+  index: CrossRefIndex,
 ): Promise<void> {
   const content = await readTextFile(path.join(projectRoot, relativePath));
   const steps = extractFlowSteps(content);
@@ -70,9 +128,61 @@ async function validateFlowFile(
   for (const step of steps) {
     for (const ref of step.apiRefs) {
       const key = normalizeApiHeading(ref.method + ' ' + ref.path);
-      if (!apiAnchors.has(key)) {
+      if (!index.apiAnchors.has(key)) {
         findings.push(warning(relativePath, 'unresolved-api-reference', 'flow 步骤 ' + step.step + ' 引用的 API 未在 capability spec 中找到: ' + key));
       }
+    }
+  }
+}
+
+async function validateModelsFile(projectRoot: string, relativePath: string, findings: SpecValidationFinding[]): Promise<void> {
+  const content = await readTextFile(path.join(projectRoot, relativePath));
+  if (extractEntities(content).length === 0) {
+    findings.push(error(relativePath, 'no-models', 'models spec 需要至少一个 ## 实体：<Name>'));
+  }
+}
+
+async function validateProcessFile(
+  projectRoot: string,
+  relativePath: string,
+  findings: SpecValidationFinding[],
+  index: CrossRefIndex,
+): Promise<void> {
+  const content = await readTextFile(path.join(projectRoot, relativePath));
+  if (extractProcesses(content).length === 0) {
+    findings.push(error(relativePath, 'no-processes', 'process spec 需要至少一个 ## 进程：<Name>'));
+  }
+  checkConfigKeyRefs(content, relativePath, findings, index);
+  checkModelRefs(content, relativePath, findings, index);
+}
+
+async function validateRulesFile(
+  projectRoot: string,
+  relativePath: string,
+  findings: SpecValidationFinding[],
+  index: CrossRefIndex,
+): Promise<void> {
+  const content = await readTextFile(path.join(projectRoot, relativePath));
+  if (extractHeadings(content, 2).length === 0) {
+    findings.push(error(relativePath, 'empty-kind-file', 'rules spec 缺少二级标题结构'));
+  }
+  checkModelRefs(content, relativePath, findings, index);
+}
+
+async function validatePermissionsFile(
+  projectRoot: string,
+  relativePath: string,
+  findings: SpecValidationFinding[],
+  index: CrossRefIndex,
+): Promise<void> {
+  const content = await readTextFile(path.join(projectRoot, relativePath));
+  if (extractHeadings(content, 2).length === 0) {
+    findings.push(error(relativePath, 'empty-kind-file', 'permissions spec 缺少二级标题结构'));
+  }
+  for (const apiPath of extractApiPathRefs(content)) {
+    const key = normalizeApiHeading(apiPath);
+    if (!index.apiAnchors.has(key)) {
+      findings.push(warning(relativePath, 'unresolved-api-reference', 'permissions 矩阵引用的 API 未在 capability spec 中找到: ' + key));
     }
   }
 }
@@ -84,21 +194,6 @@ async function validateStructuralFile(
   findings: SpecValidationFinding[],
 ): Promise<void> {
   const content = await readTextFile(path.join(projectRoot, relativePath));
-
-  if (kind === 'models') {
-    if (extractEntities(content).length === 0) {
-      findings.push(error(relativePath, 'no-models', 'models spec 需要至少一个 ## 实体：<Name>'));
-    }
-    return;
-  }
-
-  if (kind === 'process') {
-    if (extractProcesses(content).length === 0) {
-      findings.push(error(relativePath, 'no-processes', 'process spec 需要至少一个 ## 进程：<Name>'));
-    }
-    return;
-  }
-
   if (extractHeadings(content, 2).length === 0) {
     findings.push(error(relativePath, 'empty-kind-file', 'kind ' + kind + ' 的 spec 缺少二级标题结构'));
   }
@@ -110,43 +205,61 @@ export async function validateSpecs(projectRoot: string): Promise<SpecValidation
 
   const context = await loadProjectContext(projectRoot);
   if (!context) {
-    findings.push({
-      path: 'COMETFLOW.md',
-      severity: 'error',
-      code: 'missing-project-context',
-      message: 'project context is missing; run cometflow context sync',
-    });
+    findings.push(error('COMETFLOW.md', 'missing-project-context', 'project context is missing; run cometflow context sync'));
   } else {
     for (const message of validateProjectContext(context)) {
-      findings.push({
-        path: 'COMETFLOW.md',
-        severity: 'error',
-        code: 'invalid-project-context',
-        message,
-      });
+      findings.push(error('COMETFLOW.md', 'invalid-project-context', message));
     }
   }
 
   await validateManifest(projectRoot, findings);
 
-  // Cross-file reference base: every capability anchor is a resolvable API target.
-  const apiAnchors = new Set<string>();
+  const modelsContent = await readRootKind(projectRoot, 'models');
+  const errorsContent = await readRootKind(projectRoot, 'errors');
+  const configContent = await readRootKind(projectRoot, 'config');
+
+  const index: CrossRefIndex = {
+    apiAnchors: new Set(),
+    modelsContent,
+    modelsEntities: new Set(modelsContent ? extractEntities(modelsContent).map((entry) => entry.name) : []),
+    errorsContent,
+    errorCodes: new Set(errorsContent ? extractErrorCodes(errorsContent) : []),
+    configContent,
+    configKeys: new Set(configContent ? extractConfigKeys(configContent) : []),
+  };
+
   for (const relativePath of files) {
     if (kindForSpecFile(relativePath) !== 'capability') continue;
     const parsed = await parseSpecFile(projectRoot, relativePath);
     for (const anchor of parsed.anchors) {
-      apiAnchors.add(normalizeApiHeading(anchor.heading));
+      index.apiAnchors.add(normalizeApiHeading(anchor.heading));
     }
   }
 
   for (const relativePath of files) {
     const kind = kindForSpecFile(relativePath);
-    if (kind === 'capability') {
-      await validateCapabilityFile(projectRoot, relativePath, findings);
-    } else if (kind === 'flow') {
-      await validateFlowFile(projectRoot, relativePath, apiAnchors, findings);
-    } else {
-      await validateStructuralFile(projectRoot, relativePath, kind, findings);
+    switch (kind) {
+      case 'capability':
+        await validateCapabilityFile(projectRoot, relativePath, findings, index);
+        break;
+      case 'flow':
+        await validateFlowFile(projectRoot, relativePath, findings, index);
+        break;
+      case 'models':
+        await validateModelsFile(projectRoot, relativePath, findings);
+        break;
+      case 'process':
+        await validateProcessFile(projectRoot, relativePath, findings, index);
+        break;
+      case 'rules':
+        await validateRulesFile(projectRoot, relativePath, findings, index);
+        break;
+      case 'permissions':
+        await validatePermissionsFile(projectRoot, relativePath, findings, index);
+        break;
+      default:
+        await validateStructuralFile(projectRoot, relativePath, kind, findings);
+        break;
     }
   }
 
