@@ -1,8 +1,7 @@
-import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { parse } from 'yaml';
 import { readTextFile } from '../../platform/fs/read-file.js';
 import type { AgentRunner } from '../../platform/agents/types.js';
+export { resolveAgentId } from '../project/config.js';
 
 export interface FlowRunOptions {
   projectRoot: string;
@@ -10,18 +9,6 @@ export interface FlowRunOptions {
   model?: string;
   timeoutMs?: number;
   env?: NodeJS.ProcessEnv;
-}
-
-export async function resolveAgentId(projectRoot: string, env: NodeJS.ProcessEnv = process.env): Promise<string> {
-  if (env.COMETFLOW_AGENT) return env.COMETFLOW_AGENT;
-  try {
-    const source = await fs.readFile(path.join(projectRoot, '.cometflow', 'config.yaml'), 'utf8');
-    const config = parse(source) as { agent?: string };
-    if (config.agent) return config.agent;
-  } catch {
-    // fall through to default
-  }
-  return 'opencode';
 }
 
 export async function buildFlowPrompt(projectRoot: string): Promise<string> {

@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { runFlowRun, resolveAgentId } from '../../domains/scheduler/flow-run.js';
+import { resolveModel } from '../../domains/project/config.js';
 import { getBuiltInAgentRunner } from '../../platform/agents/registry.js';
 
 export async function runCommand(targetPath: string, options: { agent?: string; model?: string; timeout?: number }): Promise<void> {
@@ -9,7 +10,7 @@ export async function runCommand(targetPath: string, options: { agent?: string; 
   const outcome = await runFlowRun(runner, {
     projectRoot,
     agentId,
-    model: options.model,
+    model: options.model ?? (await resolveModel(projectRoot, agentId)),
     timeoutMs: options.timeout,
   });
   process.stdout.write(outcome.result.stdout);

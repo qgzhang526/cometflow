@@ -2,6 +2,7 @@ import path from 'node:path';
 import { startDaemon } from '../../domains/scheduler/daemon.js';
 import type { SchedulerMode } from '../../domains/scheduler/idle-governor.js';
 import { resolveAgentId } from '../../domains/scheduler/flow-run.js';
+import { resolveModel } from '../../domains/project/config.js';
 import { parseScheduleWindow } from '../../domains/scheduler/schedule.js';
 
 export interface DaemonCommandOptions {
@@ -36,7 +37,7 @@ export async function daemonStartCommand(targetPath: string, options: DaemonComm
     budgetMs: options.budget,
     intervalMs: options.interval,
     idleCpuThreshold: options.cpuThreshold,
-    model: options.model,
+    model: options.model ?? (await resolveModel(projectRoot, agentId)),
     scheduleStartMinutes,
     scheduleEndMinutes,
     safetyBundle: options.safetyBundle === true,
