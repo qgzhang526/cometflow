@@ -1,20 +1,11 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { parse, stringify } from 'yaml';
+import { ROOT_KIND_FILES } from '../spec/kind.js';
+import type { SpecKind } from '../spec/kind.js';
 
-export type SpecKind =
-  | 'project'
-  | 'models'
-  | 'protocol'
-  | 'errors'
-  | 'config'
-  | 'capability'
-  | 'flow'
-  | 'process'
-  | 'rules'
-  | 'constraints'
-  | 'permissions'
-  | 'pages';
+export type { SpecKind } from '../spec/kind.js';
+
 
 export type KindStatus = 'present' | 'deferred' | 'absent';
 
@@ -298,18 +289,6 @@ function permissionsTemplate(auth: ScaffoldAnswers['auth']): string {
 `;
 }
 
-const KIND_FILE: Partial<Record<SpecKind, string>> = {
-  models: 'specs/models.md',
-  protocol: 'specs/protocol.md',
-  errors: 'specs/errors.md',
-  config: 'specs/config.md',
-  constraints: 'specs/constraints.md',
-  permissions: 'specs/permissions.md',
-  rules: 'specs/rules.md',
-  process: 'specs/processes.md',
-  pages: 'specs/pages.md',
-};
-
 function templateFor(kind: SpecKind, answers: ScaffoldAnswers): string | null {
   switch (kind) {
     case 'models': return TEMPLATE_MODELS;
@@ -348,7 +327,7 @@ export async function scaffoldKinds(
       continue;
     }
 
-    const relativePath = KIND_FILE[kind];
+    const relativePath = ROOT_KIND_FILES[kind];
     if (!relativePath) continue;
     const absolutePath = path.join(projectRoot, relativePath);
     try {

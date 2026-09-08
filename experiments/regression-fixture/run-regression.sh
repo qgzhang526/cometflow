@@ -9,6 +9,7 @@ echo "== read-only checks =="
 $CF doctor .
 $CF context sync .
 $CF spec validate .
+$CF spec scaffold --list .
 $CF spec drift .
 $CF change list --all .
 $CF evolve review-list .
@@ -20,6 +21,12 @@ TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 cp -R . "$TMP/fixture"
 cd "$TMP/fixture"
+
+# spec kind scaffolding: remove a present kind, then re-scaffold (idempotent)
+rm specs/constraints.md
+$CF spec scaffold .
+test -f specs/constraints.md || { echo "spec scaffold failed to recreate specs/constraints.md"; exit 1; }
+test ! -f specs/models.md || { echo "spec scaffold unexpectedly created specs/models.md"; exit 1; }
 
 $CF plan generate G3 .
 $CF plan validate G3 .

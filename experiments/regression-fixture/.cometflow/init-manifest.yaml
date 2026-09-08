@@ -1,0 +1,38 @@
+schema: cometflow.init-manifest.v1
+kinds:
+  project:
+    status: present
+    reason: always
+  models:
+    status: absent
+    reason: database == none
+  pages:
+    status: absent
+    reason: frontend == none
+  constraints:
+    status: present
+    reason: backend present
+  capability:
+    status: absent
+    reason: derived from goals, not init
+  protocol:
+    status: deferred
+    reason: use --interactive
+  errors:
+    status: deferred
+    reason: use --interactive
+  config:
+    status: deferred
+    reason: use --interactive
+  flow:
+    status: deferred
+    reason: use --interactive
+  process:
+    status: deferred
+    reason: use --interactive
+  rules:
+    status: deferred
+    reason: use --interactive
+  permissions:
+    status: deferred
+    reason: use --interactive

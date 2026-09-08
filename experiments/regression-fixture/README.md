@@ -27,6 +27,7 @@ bash run-regression.sh
 | goal sync | `goal sync` + fixture goals | ✅ |
 | spec validate | `spec validate .` | ✅ |
 | spec lock/diff/drift | `spec drift .` | ✅ |
+| spec kind 脚手架 / init-manifest | `spec scaffold --list` + 临时副本幂等重建 | ✅ |
 | plan generate/validate/freeze | 临时副本中执行 | ✅ |
 | change list/resume/transition | `change list --all .` | ✅ |
 | Native change run/verify/archive | 临时副本 + mock agent | ✅ |
