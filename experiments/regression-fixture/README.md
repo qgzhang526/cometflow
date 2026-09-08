@@ -28,6 +28,7 @@ bash run-regression.sh
 | spec validate | `spec validate .` | ✅ |
 | spec lock/diff/drift | `spec drift .` | ✅ |
 | spec kind 脚手架 / init-manifest | `spec scaffold --list` + 临时副本幂等重建 | ✅ |
+| spec index 投影 | `spec index .` 生成 spec-index/{apis,models,flows,errors,config}.yaml | ✅ |
 | plan generate/validate/freeze | 临时副本中执行 | ✅ |
 | change list/resume/transition | `change list --all .` | ✅ |
 | Native change run/verify/archive | 临时副本 + mock agent | ✅ |

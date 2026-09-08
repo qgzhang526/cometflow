@@ -28,6 +28,9 @@ $CF spec scaffold .
 test -f specs/constraints.md || { echo "spec scaffold failed to recreate specs/constraints.md"; exit 1; }
 test ! -f specs/models.md || { echo "spec scaffold unexpectedly created specs/models.md"; exit 1; }
 
+$CF spec index .
+test -f .cometflow/spec-index/apis.yaml || { echo "spec index missing apis.yaml"; exit 1; }
+
 $CF plan generate G3 .
 $CF plan validate G3 .
 $CF plan freeze G3 .

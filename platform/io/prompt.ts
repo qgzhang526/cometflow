@@ -1,7 +1,18 @@
 import { createInterface } from 'node:readline/promises';
+import type { Readable, Writable } from 'node:stream';
 
-export async function promptLine(question: string, fallback = ''): Promise<string> {
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
+export interface PromptIO {
+  input: Readable;
+  output: Writable;
+}
+
+function resolveIO(io?: PromptIO): PromptIO {
+  return io ?? { input: process.stdin, output: process.stdout };
+}
+
+export async function promptLine(question: string, fallback = '', io?: PromptIO): Promise<string> {
+  const streams = resolveIO(io);
+  const rl = createInterface({ input: streams.input, output: streams.output });
   try {
     const suffix = fallback === '' ? '' : ' [' + fallback + ']';
     const answer = (await rl.question(question + suffix + ' ')).trim();
@@ -11,8 +22,9 @@ export async function promptLine(question: string, fallback = ''): Promise<strin
   }
 }
 
-export async function promptBoolean(question: string): Promise<boolean> {
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
+export async function promptBoolean(question: string, io?: PromptIO): Promise<boolean> {
+  const streams = resolveIO(io);
+  const rl = createInterface({ input: streams.input, output: streams.output });
   try {
     const answer = (await rl.question(question + ' [y/N] ')).trim().toLowerCase();
     return answer === 'y' || answer === 'yes' || answer === 'true' || answer === '1';
@@ -21,8 +33,9 @@ export async function promptBoolean(question: string): Promise<boolean> {
   }
 }
 
-export async function promptChoice<T extends string>(question: string, choices: readonly T[]): Promise<T> {
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
+export async function promptChoice<T extends string>(question: string, choices: readonly T[], io?: PromptIO): Promise<T> {
+  const streams = resolveIO(io);
+  const rl = createInterface({ input: streams.input, output: streams.output });
   try {
     const answer = (await rl.question(question + ' [' + choices.join('/') + '] ')).trim() as T;
     return choices.includes(answer) ? answer : choices[0];

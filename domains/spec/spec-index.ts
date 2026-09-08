@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { toPosix } from '../../platform/paths/relative.js';
+import { kindForSpecFile, type SpecKind } from './kind.js';
 
 async function walkMarkdown(root: string, current = root): Promise<string[]> {
   const entries = await fs.readdir(current, { withFileTypes: true });
@@ -29,4 +30,14 @@ export async function listSpecFiles(projectRoot: string): Promise<string[]> {
 
 export function capabilitySpecFile(capability: string): string {
   return 'specs/' + capability + '/spec.md';
+}
+
+export interface SpecEntry {
+  path: string;
+  kind: SpecKind;
+}
+
+export async function listSpecEntries(projectRoot: string): Promise<SpecEntry[]> {
+  const files = await listSpecFiles(projectRoot);
+  return files.map((file) => ({ path: file, kind: kindForSpecFile(file) }));
 }

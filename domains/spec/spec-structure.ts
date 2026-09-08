@@ -63,6 +63,14 @@ export function extractApiReferencesFromLine(line: string): ApiReference[] {
   return refs;
 }
 
+export function extractApiReferences(content: string): ApiReference[] {
+  const refs: ApiReference[] = [];
+  for (const line of content.split(/\r?\n/u)) {
+    refs.push(...extractApiReferencesFromLine(line));
+  }
+  return refs;
+}
+
 export function extractFlowSteps(content: string): FlowStep[] {
   const lines = content.split(/\r?\n/u);
   const steps: FlowStep[] = [];
@@ -115,6 +123,24 @@ export function extractConfigKeyRefs(content: string): string[] {
   return refs;
 }
 
+export function extractHeaderRefs(content: string): string[] {
+  const refs: string[] = [];
+  for (const line of content.split(/\r?\n/u)) {
+    const match = /^\s*(?:[-*]\s+)?协议头[:：]\s*([^\s，,]+)/u.exec(line);
+    if (match) refs.push(match[1]);
+  }
+  return refs;
+}
+
+export function extractStatusRefs(content: string): string[] {
+  const refs: string[] = [];
+  for (const line of content.split(/\r?\n/u)) {
+    const match = /^\s*(?:[-*]\s+)?状态码[:：]\s*(\d{3})/u.exec(line);
+    if (match) refs.push(match[1]);
+  }
+  return refs;
+}
+
 function extractTableFirstColumn(content: string): string[] {
   const cells: string[] = [];
   for (const line of content.split(/\r?\n/u)) {
@@ -125,12 +151,38 @@ function extractTableFirstColumn(content: string): string[] {
   return cells;
 }
 
+export function extractTableSectionFirstColumn(content: string, sectionTitle: string): string[] {
+  const lines = content.split(/\r?\n/u);
+  const cells: string[] = [];
+  let inSection = false;
+  for (const line of lines) {
+    const heading = /^##\s+(.+?)\s*$/u.exec(line.trim());
+    if (heading) {
+      inSection = heading[1] === sectionTitle;
+      continue;
+    }
+    if (!inSection || !line.includes('|')) continue;
+    const parts = line.split('|').map((part) => part.trim()).filter((part) => part !== '');
+    if (parts.length === 0) continue;
+    cells.push(parts[0]);
+  }
+  return cells;
+}
+
+export function extractProtocolHeaders(content: string): string[] {
+  return extractTableSectionFirstColumn(content, '请求头');
+}
+
+export function extractProtocolStatusCodes(content: string): string[] {
+  return extractTableSectionFirstColumn(content, '状态码总表');
+}
+
 export function extractErrorCodes(content: string): string[] {
   return extractTableFirstColumn(content).filter((cell) => /^[A-Z0-9_]+$/u.test(cell));
 }
 
 export function extractConfigKeys(content: string): string[] {
-  return extractTableFirstColumn(content).filter((cell) => /^[A-Za-z0-9_.-]+$/u.test(cell));
+  return extractTableFirstColumn(content).filter((cell) => /^[A-Za-z0-9_.-]+$/u.test(cell) && !/^-+$/u.test(cell));
 }
 
 export function extractApiPathRefs(content: string): string[] {

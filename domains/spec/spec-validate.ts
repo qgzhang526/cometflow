@@ -7,15 +7,20 @@ import { kindForSpecFile, ROOT_KIND_FILES, type SpecKind } from './kind.js';
 import { readInitManifest } from '../project/scaffold.js';
 import {
   extractApiPathRefs,
+  extractApiReferences,
   extractConfigKeyRefs,
   extractConfigKeys,
   extractEntities,
   extractErrorCodeRefs,
   extractErrorCodes,
   extractFlowSteps,
+  extractHeaderRefs,
   extractHeadings,
   extractModelRefs,
   extractProcesses,
+  extractProtocolHeaders,
+  extractProtocolStatusCodes,
+  extractStatusRefs,
   normalizeApiHeading,
 } from './spec-structure.js';
 import type { SpecValidationFinding, SpecValidationResult } from './types.js';
@@ -28,6 +33,9 @@ interface CrossRefIndex {
   errorCodes: Set<string>;
   configContent: string | null;
   configKeys: Set<string>;
+  protocolContent: string | null;
+  protocolHeaders: Set<string>;
+  protocolStatusCodes: Set<string>;
 }
 
 function error(pathValue: string, code: string, message: string): SpecValidationFinding {
@@ -93,6 +101,26 @@ function checkConfigKeyRefs(content: string, relativePath: string, findings: Spe
   }
 }
 
+function checkHeaderRefs(content: string, relativePath: string, findings: SpecValidationFinding[], index: CrossRefIndex): void {
+  for (const header of extractHeaderRefs(content)) {
+    if (!index.protocolContent) {
+      findings.push(warning(relativePath, 'missing-reference-target', '引用了协议头 ' + header + '，但 specs/protocol.md 不存在'));
+    } else if (!index.protocolHeaders.has(header)) {
+      findings.push(error(relativePath, 'unresolved-protocol-reference', '引用的协议头未在 specs/protocol.md 定义: ' + header));
+    }
+  }
+}
+
+function checkStatusRefs(content: string, relativePath: string, findings: SpecValidationFinding[], index: CrossRefIndex): void {
+  for (const status of extractStatusRefs(content)) {
+    if (!index.protocolContent) {
+      findings.push(warning(relativePath, 'missing-reference-target', '引用了状态码 ' + status + '，但 specs/protocol.md 不存在'));
+    } else if (!index.protocolStatusCodes.has(status)) {
+      findings.push(error(relativePath, 'unresolved-protocol-reference', '引用的状态码未在 specs/protocol.md 定义: ' + status));
+    }
+  }
+}
+
 async function validateCapabilityFile(
   projectRoot: string,
   relativePath: string,
@@ -109,6 +137,8 @@ async function validateCapabilityFile(
   const content = await readTextFile(path.join(projectRoot, relativePath));
   checkModelRefs(content, relativePath, findings, index);
   checkErrorCodeRefs(content, relativePath, findings, index);
+  checkHeaderRefs(content, relativePath, findings, index);
+  checkStatusRefs(content, relativePath, findings, index);
 }
 
 async function validateFlowFile(
@@ -133,6 +163,8 @@ async function validateFlowFile(
       }
     }
   }
+  checkModelRefs(content, relativePath, findings, index);
+  checkConfigKeyRefs(content, relativePath, findings, index);
 }
 
 async function validateModelsFile(projectRoot: string, relativePath: string, findings: SpecValidationFinding[]): Promise<void> {
@@ -154,6 +186,12 @@ async function validateProcessFile(
   }
   checkConfigKeyRefs(content, relativePath, findings, index);
   checkModelRefs(content, relativePath, findings, index);
+  for (const ref of extractApiReferences(content)) {
+    const key = normalizeApiHeading(ref.method + ' ' + ref.path);
+    if (!index.apiAnchors.has(key)) {
+      findings.push(warning(relativePath, 'unresolved-api-reference', 'process 引用的 API 未在 capability spec 中找到: ' + key));
+    }
+  }
 }
 
 async function validateRulesFile(
@@ -217,6 +255,7 @@ export async function validateSpecs(projectRoot: string): Promise<SpecValidation
   const modelsContent = await readRootKind(projectRoot, 'models');
   const errorsContent = await readRootKind(projectRoot, 'errors');
   const configContent = await readRootKind(projectRoot, 'config');
+  const protocolContent = await readRootKind(projectRoot, 'protocol');
 
   const index: CrossRefIndex = {
     apiAnchors: new Set(),
@@ -226,6 +265,9 @@ export async function validateSpecs(projectRoot: string): Promise<SpecValidation
     errorCodes: new Set(errorsContent ? extractErrorCodes(errorsContent) : []),
     configContent,
     configKeys: new Set(configContent ? extractConfigKeys(configContent) : []),
+    protocolContent,
+    protocolHeaders: new Set(protocolContent ? extractProtocolHeaders(protocolContent) : []),
+    protocolStatusCodes: new Set(protocolContent ? extractProtocolStatusCodes(protocolContent) : []),
   };
 
   for (const relativePath of files) {

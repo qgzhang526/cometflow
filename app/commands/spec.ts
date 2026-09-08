@@ -6,6 +6,7 @@ import { computeSpecLock, diffSpecs, writeSpecLock } from '../../domains/spec/sp
 import { collectSpecDrift } from '../../domains/spec/spec-drift.js';
 import { loadProjectContext } from '../../domains/project/context.js';
 import { readInitManifest, scaffoldProject } from '../../domains/project/scaffold.js';
+import { writeSpecIndex } from '../../domains/spec/spec-project.js';
 import { askScaffoldPrompts } from './scaffold-prompts.js';
 
 export async function specValidateCommand(targetPath: string): Promise<void> {
@@ -72,6 +73,12 @@ export async function specScaffoldCommand(targetPath: string, options: { interac
   for (const filePath of result.created) console.log('scaffolded ' + filePath);
   for (const filePath of result.skipped) console.log('skipped ' + filePath);
   console.log('wrote ' + result.manifestPath);
+}
+
+export async function specIndexCommand(targetPath: string): Promise<void> {
+  const projectRoot = path.resolve(targetPath);
+  const result = await writeSpecIndex(projectRoot);
+  for (const filePath of result.files) console.log('wrote ' + filePath);
 }
 
 export async function specScaffoldListCommand(targetPath: string): Promise<void> {

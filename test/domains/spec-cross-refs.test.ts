@@ -116,6 +116,59 @@ describe('spec cross-file references', () => {
     await fs.rm(tmp, { recursive: true, force: true });
   });
 
+  it('flags unresolved capability protocol references', async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'cometflow-xref-'));
+    const protocol = '# 通信协议\n\n## 请求头\n\n| 头 | 类型 |\n|----|------|\n| User-Agent | string |\n\n## 状态码总表\n\n| 状态码 | 含义 |\n|--------|------|\n| 200 | OK |\n';
+    await writeProject(tmp, {
+      'COMETFLOW.md': COMETFLOW,
+      'specs/protocol.md': protocol,
+      'specs/auth/spec.md': '# auth\n\n## POST /login\n\n协议头：X-Missing\n状态码：499\n\n## Acceptance\n\n- A1：ok\n',
+    });
+    const result = await validateSpecs(tmp);
+    expect(result.findings.filter((finding) => finding.code === 'unresolved-protocol-reference')).toHaveLength(2);
+    await fs.rm(tmp, { recursive: true, force: true });
+  });
+
+  it('resolves capability protocol references when defined', async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'cometflow-xref-'));
+    const protocol = '# 通信协议\n\n## 请求头\n\n| 头 | 类型 |\n|----|------|\n| User-Agent | string |\n\n## 状态码总表\n\n| 状态码 | 含义 |\n|--------|------|\n| 200 | OK |\n';
+    await writeProject(tmp, {
+      'COMETFLOW.md': COMETFLOW,
+      'specs/protocol.md': protocol,
+      'specs/auth/spec.md': '# auth\n\n## POST /login\n\n协议头：User-Agent\n状态码：200\n\n## Acceptance\n\n- A1：ok\n',
+    });
+    const result = await validateSpecs(tmp);
+    expect(result.findings.filter((finding) => finding.severity === 'error')).toHaveLength(0);
+    await fs.rm(tmp, { recursive: true, force: true });
+  });
+
+  it('validates flow model and config references', async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'cometflow-xref-'));
+    await writeProject(tmp, {
+      'COMETFLOW.md': COMETFLOW,
+      'specs/models.md': '# 数据模型\n\n## 实体：User\n',
+      'specs/config.md': '# 运行时配置\n\n## 配置项\n\n| 键 | 类型 |\n|----|------|\n| platform.url | string |\n',
+      'specs/auth/spec.md': '# auth\n\n## POST /login\n\n## Acceptance\n\n- A1：ok\n',
+      'specs/flows/login.md': '# 场景：登录\n\n## 前置条件\n- 无\n\n## 步骤\n\n### 步骤1：调用登录\n调用 POST /login\n\n模型：Ghost\n配置：missing.key\n\n## 后置条件\n- 成功\n',
+    });
+    const result = await validateSpecs(tmp);
+    expect(result.findings.some((finding) => finding.code === 'unresolved-model-reference')).toBe(true);
+    expect(result.findings.some((finding) => finding.code === 'unresolved-config-reference')).toBe(true);
+    await fs.rm(tmp, { recursive: true, force: true });
+  });
+
+  it('flags unresolved process api references as warnings', async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'cometflow-xref-'));
+    await writeProject(tmp, {
+      'COMETFLOW.md': COMETFLOW,
+      'specs/auth/spec.md': '# auth\n\n## POST /login\n\n## Acceptance\n\n- A1：ok\n',
+      'specs/processes.md': '# 后台进程\n\n## 进程：心跳\n\n调用 POST /missing\n',
+    });
+    const result = await validateSpecs(tmp);
+    expect(result.findings.some((finding) => finding.code === 'unresolved-api-reference')).toBe(true);
+    await fs.rm(tmp, { recursive: true, force: true });
+  });
+
   it('warns when a referenced target kind is missing', async () => {
     const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'cometflow-xref-'));
     await writeProject(tmp, {

@@ -53,6 +53,7 @@ import {
   specAnchorsCommand,
   specDiffCommand,
   specDriftCommand,
+  specIndexCommand,
   specLockCommand,
   specScaffoldCommand,
   specScaffoldListCommand,
@@ -470,6 +471,13 @@ spec
   .action(async (targetPath = '.', options) => {
     if (options.list) await specScaffoldListCommand(targetPath);
     else await specScaffoldCommand(targetPath, options);
+  });
+
+spec
+  .command('index [path]')
+  .description('Generate .cometflow/spec-index projection files')
+  .action(async (targetPath = '.') => {
+    await specIndexCommand(targetPath);
   });
 
 const plan = program.command('plan').description('Task plan commands');
