@@ -151,4 +151,27 @@ describe('serve API', () => {
     const index = await json(await fetch(url(base + '/spec-index'), { headers: auth() }));
     expect(Array.isArray(index.data.apis)).toBe(true);
   });
+
+  it('creates a new spec file via POST /api/specs', async () => {
+    const projectPath = path.join(workspace, 'fifth');
+    const created = await post('/api/projects', { name: 'fifth', path: projectPath });
+    const id = created.data.project.id as string;
+    const base = '/api/projects/' + id;
+
+    const payload = await post(base + '/specs', {
+      path: 'specs/engine/spec.md',
+      content: '# engine capability\n\n## GET /state\n\n## 验收\n\n- A001：返回状态\n',
+    });
+    expect(payload.ok).toBe(true);
+    await fs.access(path.join(projectPath, 'specs', 'engine', 'spec.md'));
+
+    const specsPayload = await json(await fetch(url(base + '/specs'), { headers: auth() }));
+    expect(specsPayload.data.entries.some((e: { path: string }) => e.path === 'specs/engine/spec.md')).toBe(true);
+
+    const outside = await post(base + '/specs', { path: '../evil.md', content: 'x' });
+    expect(outside.ok).toBe(false);
+
+    const noMd = await post(base + '/specs', { path: 'specs/notes', content: 'x' });
+    expect(noMd.ok).toBe(false);
+  });
 });

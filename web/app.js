@@ -524,7 +524,11 @@ async function renderSpecs() {
     '</div><button class="primary" onclick="scaffoldKinds()">生成/补全</button>';
   const refsHtml = '<p class="muted">apis: ' + esc((index.apis || []).length) + ' · entities: ' + esc(((index.models || {}).entities || []).length) + ' · flows: ' + esc((index.flows || []).length) + ' · errors: ' + esc((index.errors || []).length) + ' · config keys: ' + esc((index.config || []).length) + '</p>' +
     '<button onclick="validateSpecs()">校验引用</button><div id="validate-result"></div>';
-  const filesHtml = '<table><tr><th>路径</th><th>kind</th></tr>' +
+  const filesHtml = '<div class="toolbar">' +
+    '<input id="new-spec-path" placeholder="specs/<cap>/spec.md 或 specs/flows/<name>.md" style="width:360px">' +
+    '<button class="primary" onclick="createSpec()">+ 新建文件</button>' +
+    '</div>' +
+    '<table><tr><th>路径</th><th>kind</th></tr>' +
     (specs.entries || []).map((e) => '<tr><td><a href="javascript:void(0)" data-spec-path="' + esc(e.path) + '">' + esc(e.path) + '</a></td><td>' + esc(e.kind) + '</td></tr>').join('') +
     '</table>';
   const tabs = [['kinds', '12-kind 状态'], ['scaffold', '脚手架'], ['refs', '引用检查'], ['files', 'Spec 文件']];
@@ -575,6 +579,17 @@ window.openSpec = async function (specPath) {
         overlay.remove();
       } catch (error) { alert(error.message); }
     };
+  } catch (error) { alert(error.message); }
+};
+
+window.createSpec = async function () {
+  const input = document.getElementById('new-spec-path');
+  const rel = (input?.value || '').trim();
+  if (!rel) { alert('请输入文件路径，如 specs/engine/spec.md 或 specs/flows/build-facility.md'); return; }
+  try {
+    await projectApi('/specs', { method: 'POST', body: JSON.stringify({ path: rel, content: '' }) });
+    await renderSpecs();
+    openSpec(rel);
   } catch (error) { alert(error.message); }
 };
 

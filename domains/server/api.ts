@@ -379,6 +379,27 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
       sendOk(res, { entries, manifest });
       return true;
     }
+    if (segments[0] === 'specs' && segments.length === 1 && method === 'POST') {
+      const body = await readJsonBody(req);
+      const relativePath = stringField(body.path);
+      const content = stringField(body.content);
+      if (relativePath === '' || !relativePath.endsWith('.md')) {
+        sendError(res, 400, 'invalid-spec-path', 'spec path must be a non-empty .md path under specs/');
+        return true;
+      }
+      let absolute: string;
+      try {
+        absolute = resolveSpecPath(root, relativePath);
+      } catch {
+        sendError(res, 400, 'invalid-spec-path', 'spec path must stay under specs/');
+        return true;
+      }
+      await fs.mkdir(path.dirname(absolute), { recursive: true });
+      await fs.writeFile(absolute, content);
+      jobs.stateChanged(projectId, '/api/specs');
+      sendOk(res, { path: relativePath, created: absolute });
+      return true;
+    }
     if (segments[0] === 'specs' && segments[1] === 'content') {
       const relativePath = stringField(url.searchParams.get('path'));
       const absolute = resolveSpecPath(root, relativePath);
