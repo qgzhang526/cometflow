@@ -353,6 +353,42 @@ function connectSse() {
   };
 }
 
+let goalsTab = 'mission';
+let specsTab = 'kinds';
+
+function showModal(options) {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = '<div class="modal' + (options.wide ? ' wide' : '') + '">' +
+    '<div class="modal-head"><strong>' + esc(options.title) + '</strong><button class="ghost" data-close>✕</button></div>' +
+    '<div class="modal-body">' + (options.bodyHtml || '') + '</div>' +
+    '<div class="modal-foot">' + (options.footerHtml || '') + '</div>' +
+  '</div>';
+  document.body.appendChild(overlay);
+  overlay.querySelector('[data-close]').onclick = () => overlay.remove();
+  return overlay;
+}
+
+function parseMissionSections(md) {
+  const NL = String.fromCharCode(10);
+  const lines = md.split(NL).map((l) => l.replace(String.fromCharCode(13), ''));
+  const out = { mission: '', tech: '', runtime: '', objectives: '' };
+  let current = 'mission';
+  for (const line of lines) {
+    if (line.trim().startsWith('## 技术栈')) { current = 'tech'; continue; }
+    if (line.trim().startsWith('## 运行环境')) { current = 'runtime'; continue; }
+    if (line.trim().startsWith('## 任务目标')) { current = 'objectives'; continue; }
+    out[current] += line + NL;
+  }
+  return out;
+}
+
+function renderGoalProjection(goals) {
+  if (!goals || !goals.length) return '<div class="empty">暂无目标，点击「＋ 添加目标」或编辑 COMETFLOW.md 后同步</div>';
+  return '<table><tr><th>ID</th><th>标题</th><th>范围</th><th>成功标准</th><th>非目标</th></tr>' +
+    goals.map((g) => '<tr><td><b>' + esc(g.id) + '</b></td><td>' + esc(g.title) + '</td><td>' + esc((g.scope || []).join(', ')) + '</td><td>' + esc((g.success_criteria || []).join('；')) + '</td><td>' + esc((g.non_goals || []).join('；')) + '</td></tr>').join('') + '</table>';
+}
+
 // ---------- panels ----------
 async function renderOverview() {
   const box = document.getElementById('panel');
@@ -377,34 +413,90 @@ async function renderGoals() {
   const box = document.getElementById('panel');
   const mission = await projectApi('/mission.md');
   const goals = await projectApi('/goals');
-  box.innerHTML = `<div class="card"><h2>总体目标 / 任务目标（COMETFLOW.md）</h2>
-    <textarea id="mission-edit">${esc(mission.content)}</textarea>
-    <button class="primary" onclick="saveMission()">保存</button>
-    <button onclick="syncGoals()">同步 (context + goal)</button>
-    <button onclick="addGoal()">+ 添加目标</button>
-  </div>
-  <div class="card"><h2>目标列表</h2>
-    ${(goals.goals || []).map((g) => '<p><b>' + esc(g.id) + '</b> ' + esc(g.title) + ' <span class="muted">scope: ' + esc((g.scope || []).join(',')) + '</span></p>').join('') || '<p class="muted">无目标</p>'}
+  const sections = parseMissionSections(mission.content);
+  const tabs = [['mission', '项目使命'], ['tech', '技术栈'], ['runtime', '运行环境'], ['objectives', '任务目标'], ['projection', '目标投影']];
+  const tabsHtml = tabs.map(([id, label]) => '<button class="tab' + (goalsTab === id ? ' active' : '') + '" data-tab="' + id + '">' + label + '</button>').join('');
+  const active = goalsTab === 'projection' ? renderGoalProjection(goals.goals) : '<pre class="mdblock">' + esc(sections[goalsTab] || '') + '</pre>';
+  box.innerHTML = `<div class="card">
+    <div class="toolbar">
+      <button class="primary" onclick="openMissionModal()">COMETFLOW.md</button>
+      <button onclick="openGoalFormModal()">＋ 添加目标</button>
+      <button onclick="syncGoals()">同步</button>
+    </div>
+    <div class="tabs">${tabsHtml}</div>
+    <div class="tab-panel">${active}</div>
   </div>`;
+  box.querySelectorAll('.tab').forEach((tab) => { tab.onclick = () => { goalsTab = tab.dataset.tab; renderGoals(); }; });
 }
 
-window.saveMission = async function () {
+window.openMissionModal = async function () {
   try {
-    await projectApi('/mission.md', { method: 'PUT', body: JSON.stringify({ content: document.getElementById('mission-edit').value }) });
-    alert('已保存');
+    const mission = await projectApi('/mission.md');
+    const overlay = showModal({
+      title: 'COMETFLOW.md',
+      wide: true,
+      bodyHtml: '<textarea id="mission-modal-text" class="modal-textarea">' + esc(mission.content) + '</textarea>',
+      footerHtml: '<button data-cancel>取消</button><button data-save>保存</button><button class="primary" data-sync>保存并同步</button>',
+    });
+    overlay.querySelector('[data-cancel]').onclick = () => overlay.remove();
+    overlay.querySelector('[data-save]').onclick = async () => {
+      try {
+        await projectApi('/mission.md', { method: 'PUT', body: JSON.stringify({ content: document.getElementById('mission-modal-text').value }) });
+        overlay.remove();
+        renderGoals();
+      } catch (error) { alert(error.message); }
+    };
+    overlay.querySelector('[data-sync]').onclick = async () => {
+      try {
+        await projectApi('/mission.md', { method: 'PUT', body: JSON.stringify({ content: document.getElementById('mission-modal-text').value }) });
+        await projectApi('/context/sync', { method: 'POST' });
+        await projectApi('/goals/sync', { method: 'POST' });
+        overlay.remove();
+        renderGoals();
+      } catch (error) { alert(error.message); }
+    };
   } catch (error) { alert(error.message); }
 };
+
+window.openGoalFormModal = async function () {
+  try {
+    const mission = await projectApi('/mission.md');
+    const NL = String.fromCharCode(10);
+    const n = mission.content.split('### G').length;
+    const overlay = showModal({
+      title: '添加目标 G' + n,
+      bodyHtml:
+        '<div class="form-grid">' +
+        '<label>目标标题 <input id="g-title" placeholder="一句话描述该目标"></label>' +
+        '<label>范围 capability <input id="g-scope" placeholder="auth"></label>' +
+        '<label>成功标准（每行一条）<textarea id="g-criteria" rows="4" placeholder="未注册邮箱可获取验证码&#10;验证码错误返回 401"></textarea></label>' +
+        '<label>非目标（每行一条，可空）<textarea id="g-non" rows="3" placeholder="不做第三方 OAuth"></textarea></label>' +
+        '</div>',
+      footerHtml: '<button data-cancel>取消</button><button class="primary" data-submit>添加到 COMETFLOW.md</button>',
+    });
+    overlay.querySelector('[data-cancel]').onclick = () => overlay.remove();
+    overlay.querySelector('[data-submit]').onclick = async () => {
+      const title = document.getElementById('g-title').value.trim();
+      if (!title) { alert('请填写目标标题'); return; }
+      const scope = document.getElementById('g-scope').value.trim() || 'capability';
+      const criteria = document.getElementById('g-criteria').value.split(NL).map((s) => s.trim()).filter(Boolean).map((s) => '  - ' + s).join(NL);
+      const non = document.getElementById('g-non').value.split(NL).map((s) => s.trim()).filter(Boolean).map((s) => '  - ' + s).join(NL);
+      const block = NL + '### G' + n + '：' + title + NL + '- 目标：' + title + NL + '- 范围：' + scope + NL + '- 成功标准：' + NL + (criteria || '  - 待补充') + NL + '- 非目标：' + NL + (non || '  - 无') + NL;
+      try {
+        await projectApi('/mission.md', { method: 'PUT', body: JSON.stringify({ content: mission.content + block }) });
+        overlay.remove();
+        renderGoals();
+      } catch (error) { alert(error.message); }
+    };
+  } catch (error) { alert(error.message); }
+};
+
 window.syncGoals = async function () {
   try {
     await projectApi('/context/sync', { method: 'POST' });
     await projectApi('/goals/sync', { method: 'POST' });
-    route();
+    renderGoals();
   } catch (error) { alert(error.message); }
-};
-window.addGoal = function () {
-  const ta = document.getElementById('mission-edit');
-  const n = (ta.value.match(/### G\d+/g) || []).length + 1;
-  ta.value = ta.value + '\n### G' + n + '：新目标\n- 目标：\n- 范围：\n- 成功标准：\n  - \n- 非目标：\n  - \n';
 };
 
 async function renderSpecs() {
@@ -416,30 +508,31 @@ async function renderSpecs() {
     projectApi('/spec-index').catch(() => ({ apis: [], models: null, flows: [], errors: [], config: [] })),
   ]);
   const kinds = manifest.kinds || {};
-  const rows = Object.entries(kinds).map(([k, v]) => {
-    const badge = v.status === 'present' ? '<span class="badge ok">present</span>' : v.status === 'deferred' ? '<span class="badge warn">deferred</span>' : '<span class="badge gray">absent</span>';
-    return '<tr><td><b>' + esc(k) + '</b></td><td>' + badge + '</td><td class="muted">' + esc(v.reason) + '</td></tr>';
-  }).join('');
-  const fileRows = (specs.entries || []).map((e) => '<tr><td><a href="javascript:void(0)" onclick="openSpec(\'' + esc(e.path) + '\')">' + esc(e.path) + '</a></td><td>' + esc(e.kind) + '</td></tr>').join('');
-  box.innerHTML = `<div class="card"><h2>12-kind 状态</h2><table><tr><th>kind</th><th>状态</th><th>原因</th></tr>${rows}</table></div>
-  <div class="card"><h2>脚手架补全</h2>
-    <label><input type="checkbox" id="s-network"> 网络接口</label>
-    <label><input type="checkbox" id="s-config"> 运行时配置</label>
-    <label><input type="checkbox" id="s-flow"> 跨接口流程</label>
-    <label><input type="checkbox" id="s-process"> 后台进程</label>
-    <label><input type="checkbox" id="s-dsl"> 领域 DSL</label>
-    <label><input type="checkbox" id="s-errors"> 错误码>20</label>
-    鉴权 <select id="s-auth"><option value="none">无需</option><option value="machine">机机</option><option value="roles">角色矩阵</option></select>
-    <button class="primary" onclick="scaffoldKinds()">生成/补全</button>
-  </div>
-  <div class="card"><h2>跨文件引用索引</h2>
-    <p class="muted">apis: ${esc((index.apis || []).length)} · entities: ${esc((index.models?.entities || []).length)} · flows: ${esc((index.flows || []).length)} · errors: ${esc((index.errors || []).length)} · config keys: ${esc((index.config || []).length)}</p>
-    <button onclick="validateSpecs()">校验引用</button>
-    <div id="validate-result"></div>
-  </div>
-  <div class="card"><h2>Spec 文件</h2><table><tr><th>路径</th><th>kind</th></tr>${fileRows}</table>
-    <div id="spec-editor"></div>
-  </div>`;
+  const kindsHtml = '<table><tr><th>kind</th><th>状态</th><th>原因</th></tr>' +
+    Object.entries(kinds).map(([k, v]) => {
+      const badge = v.status === 'present' ? '<span class="badge ok">present</span>' : v.status === 'deferred' ? '<span class="badge warn">deferred</span>' : '<span class="badge gray">absent</span>';
+      return '<tr><td><b>' + esc(k) + '</b></td><td>' + badge + '</td><td class="muted">' + esc(v.reason) + '</td></tr>';
+    }).join('') + '</table>';
+  const scaffoldHtml = '<div class="form-grid">' +
+    '<label><input type="checkbox" id="s-network"> 对外网络接口/协议</label>' +
+    '<label><input type="checkbox" id="s-config"> 运行时配置键</label>' +
+    '<label><input type="checkbox" id="s-flow"> 跨接口业务场景</label>' +
+    '<label><input type="checkbox" id="s-process"> 常驻后台进程</label>' +
+    '<label><input type="checkbox" id="s-dsl"> 领域 DSL / 业务不变量</label>' +
+    '<label><input type="checkbox" id="s-errors"> 错误码 > 20</label>' +
+    '<label>鉴权方式 <select id="s-auth"><option value="none">无需</option><option value="machine">机机</option><option value="roles">角色矩阵</option></select></label>' +
+    '</div><button class="primary" onclick="scaffoldKinds()">生成/补全</button>';
+  const refsHtml = '<p class="muted">apis: ' + esc((index.apis || []).length) + ' · entities: ' + esc(((index.models || {}).entities || []).length) + ' · flows: ' + esc((index.flows || []).length) + ' · errors: ' + esc((index.errors || []).length) + ' · config keys: ' + esc((index.config || []).length) + '</p>' +
+    '<button onclick="validateSpecs()">校验引用</button><div id="validate-result"></div>';
+  const filesHtml = '<table><tr><th>路径</th><th>kind</th></tr>' +
+    (specs.entries || []).map((e) => '<tr><td><a href="javascript:void(0)" data-spec-path="' + esc(e.path) + '">' + esc(e.path) + '</a></td><td>' + esc(e.kind) + '</td></tr>').join('') +
+    '</table>';
+  const tabs = [['kinds', '12-kind 状态'], ['scaffold', '脚手架'], ['refs', '引用检查'], ['files', 'Spec 文件']];
+  const tabsHtml = tabs.map(([id, label]) => '<button class="tab' + (specsTab === id ? ' active' : '') + '" data-tab="' + id + '">' + label + '</button>').join('');
+  const active = specsTab === 'kinds' ? kindsHtml : specsTab === 'scaffold' ? scaffoldHtml : specsTab === 'refs' ? refsHtml : filesHtml;
+  box.innerHTML = `<div class="card"><div class="tabs">${tabsHtml}</div><div class="tab-panel">${active}</div></div>`;
+  box.querySelectorAll('.tab').forEach((tab) => { tab.onclick = () => { specsTab = tab.dataset.tab; renderSpecs(); }; });
+  box.querySelectorAll('[data-spec-path]').forEach((a) => { a.onclick = () => openSpec(a.dataset.specPath); });
 }
 
 window.scaffoldKinds = async function () {
@@ -469,14 +562,19 @@ window.validateSpecs = async function () {
 window.openSpec = async function (specPath) {
   try {
     const data = await projectApi('/specs/content?path=' + encodeURIComponent(specPath));
-    const editor = document.getElementById('spec-editor');
-    editor.innerHTML = '<h3>' + esc(data.path) + '</h3><textarea id="spec-text">' + esc(data.content) + '</textarea><button class="primary" onclick="saveSpec(\'' + esc(data.path) + '\')">保存</button>';
-  } catch (error) { alert(error.message); }
-};
-window.saveSpec = async function (specPath) {
-  try {
-    await projectApi('/specs/content?path=' + encodeURIComponent(specPath), { method: 'PUT', body: JSON.stringify({ content: document.getElementById('spec-text').value }) });
-    alert('已保存');
+    const overlay = showModal({
+      title: specPath,
+      wide: true,
+      bodyHtml: '<textarea id="spec-modal-text" class="modal-textarea">' + esc(data.content) + '</textarea>',
+      footerHtml: '<button data-cancel>关闭</button><button class="primary" data-save>保存</button>',
+    });
+    overlay.querySelector('[data-cancel]').onclick = () => overlay.remove();
+    overlay.querySelector('[data-save]').onclick = async () => {
+      try {
+        await projectApi('/specs/content?path=' + encodeURIComponent(specPath), { method: 'PUT', body: JSON.stringify({ content: document.getElementById('spec-modal-text').value }) });
+        overlay.remove();
+      } catch (error) { alert(error.message); }
+    };
   } catch (error) { alert(error.message); }
 };
 
@@ -626,32 +724,3 @@ window.runEval = async function () {
     pollJob(result.jobId, document.getElementById('eval-log'));
   } catch (error) { alert(error.message); }
 };
-
-async function renderSettings() {
-  const box = document.getElementById('panel');
-  const config = await projectApi('/config');
-  box.innerHTML = `<div class="card"><h2>Agent 与模型配置</h2>
-    <div class="row">
-      <div>默认 Agent <input id="cfg-agent" value="${esc(config.agent || 'opencode')}"></div>
-      <div>默认模型 <input id="cfg-model" value="${esc(config.model || '')}"></div>
-    </div>
-    <button class="primary" onclick="saveConfig()">保存配置</button>
-  </div>
-  <div class="card"><h2>调度器默认参数</h2>
-    <div class="row">
-      <div>模式 <select id="cfg-mode"><option value="always">always</option><option value="idle">idle</option><option value="schedule">schedule</option><option value="manual">manual</option></select></div>
-      <div>间隔ms <input id="cfg-interval" value="${esc(config.scheduler?.intervalMs ?? '')}"></div>
-    </div>
-  </div>`;
-  document.getElementById('cfg-mode').value = config.scheduler?.mode || 'idle';
-}
-window.saveConfig = async function () {
-  try {
-    const intervalMs = document.getElementById('cfg-interval').value;
-    const scheduler = { mode: document.getElementById('cfg-mode').value, ...(intervalMs === '' ? {} : { intervalMs: Number(intervalMs) }) };
-    await projectApi('/config', { method: 'PUT', body: JSON.stringify({ agent: document.getElementById('cfg-agent').value, model: document.getElementById('cfg-model').value, scheduler }) });
-    alert('已保存');
-  } catch (error) { alert(error.message); }
-};
-
-render();
