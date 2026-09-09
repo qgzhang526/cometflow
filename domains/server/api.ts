@@ -56,6 +56,42 @@ function stringField(value: unknown, fallback = ''): string {
   return typeof value === 'string' ? value : fallback;
 }
 
+interface FsEntry {
+  name: string;
+  path: string;
+  isDirectory: boolean;
+}
+
+async function listDirectory(targetPath: string): Promise<{ path: string; parent: string | null; entries: FsEntry[] }> {
+  const isWindows = process.platform === 'win32';
+  if (targetPath.trim() === '') {
+    if (isWindows) {
+      const candidates = Array.from({ length: 26 }, (_, index) => String.fromCharCode(65 + index) + ':\\');
+      const checked = await Promise.all(
+        candidates.map(async (drive) => {
+          try {
+            await fs.access(drive);
+            return { name: drive, path: drive, isDirectory: true } as FsEntry;
+          } catch {
+            return null;
+          }
+        }),
+      );
+      return { path: '', parent: null, entries: checked.filter((entry): entry is FsEntry => entry !== null) };
+    }
+    return { path: '', parent: null, entries: [{ name: '/', path: '/', isDirectory: true }] };
+  }
+
+  const absolute = path.resolve(targetPath);
+  const dirents = await fs.readdir(absolute, { withFileTypes: true });
+  const entries = dirents
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => ({ name: entry.name, path: path.join(absolute, entry.name), isDirectory: true }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const parent = path.dirname(absolute);
+  return { path: absolute, parent: parent === absolute ? null : parent, entries };
+}
+
 async function readGoalFiles(projectRoot: string): Promise<GoalRecord[]> {
   const dir = path.join(projectRoot, '.cometflow', 'goals');
   let entries: string[];
@@ -186,6 +222,11 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
       } else {
         sendOk(res, { job });
       }
+      return true;
+    }
+
+    if (pathname === '/api/fs/list' && method === 'GET') {
+      sendOk(res, await listDirectory(url.searchParams.get('path') ?? ''));
       return true;
     }
 

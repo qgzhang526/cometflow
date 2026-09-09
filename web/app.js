@@ -42,6 +42,64 @@ function loadProjects() {
 function projectApi(seg, options) {
   return api('/projects/' + currentProjectId + seg, options);
 }
+function browseFs(pathValue) {
+  return api('/fs/list?path=' + encodeURIComponent(pathValue || ''));
+}
+
+function openDirectoryPicker(initialPath) {
+  return new Promise((resolve) => {
+    let current = initialPath || '';
+    let resolvedPath = '';
+    let parent = null;
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.innerHTML = '<div class="modal">' +
+      '<div class="modal-head"><strong>选择目录</strong><button class="ghost" data-close>✕</button></div>' +
+      '<div class="modal-body">' +
+        '<div class="breadcrumb"><button data-root>此电脑</button><button data-up>↑ 上一级</button><span class="muted" data-cur></span></div>' +
+        '<div class="dir-list" data-list></div>' +
+      '</div>' +
+      '<div class="modal-foot"><button data-cancel>取消</button><button class="primary" data-select>选择此目录</button></div>' +
+    '</div>';
+    document.body.appendChild(overlay);
+    const listEl = overlay.querySelector('[data-list]');
+    const curEl = overlay.querySelector('[data-cur]');
+    const upBtn = overlay.querySelector('[data-up]');
+    const selectBtn = overlay.querySelector('[data-select]');
+    function close() { overlay.remove(); }
+    async function render() {
+      curEl.textContent = '当前：' + (current || '此电脑');
+      listEl.innerHTML = '<div class="empty">加载中…</div>';
+      try {
+        const data = await browseFs(current);
+        resolvedPath = data.path;
+        parent = data.parent;
+        upBtn.disabled = parent === null;
+        selectBtn.disabled = resolvedPath === '';
+        listEl.innerHTML = data.entries.map((e) => '<div class="dir-item" data-path="' + esc(e.path) + '"><span class="folder">📁</span><span>' + esc(e.name) + '</span></div>').join('') || '<div class="empty">此目录为空</div>';
+        listEl.querySelectorAll('[data-path]').forEach((item) => { item.onclick = () => { current = item.dataset.path; render(); }; });
+      } catch (error) {
+        listEl.innerHTML = '<div class="empty">' + esc(error.message) + '</div>';
+      }
+    }
+    overlay.querySelector('[data-close]').onclick = () => { close(); resolve(null); };
+    overlay.querySelector('[data-cancel]').onclick = () => { close(); resolve(null); };
+    overlay.querySelector('[data-root]').onclick = () => { current = ''; render(); };
+    upBtn.onclick = () => { if (parent !== null) { current = parent; render(); } };
+    selectBtn.onclick = () => { close(); resolve(resolvedPath || current); };
+    render();
+  });
+}
+
+window.pickWizardPath = async function () {
+  const picked = await openDirectoryPicker(wizardData.path);
+  if (picked) {
+    wizardData.path = picked;
+    const input = document.getElementById('w-path');
+    if (input) input.value = picked;
+  }
+};
+
 
 // ---------- token ----------
 function tokenSection() {
@@ -95,20 +153,19 @@ function kindPreview() {
 }
 
 function renderHome() {
-  const tokenHtml = tokenSection();
-  setHtml(`<div style="max-width:960px;margin:0 auto;padding:24px">
-    <h1>CometFlow</h1>
-    <p class="muted">全时运行的自主 Agent 开发平台</p>
-    <div class="card row">${tokenHtml}</div>
-    <div class="card">
-      <button class="primary" onclick="startWizard()">+ 新建项目</button>
-      <button onclick="importProject()">打开已有项目</button>
-      <div id="wizard"></div>
+  setHtml(`<div class="home">
+    <div class="hero">
+      <h1>CometFlow</h1>
+      <p>全时运行的自主 Agent 开发平台 · 把 CLI 工作流可视化</p>
+      <div class="actions">
+        <button class="primary" onclick="startWizard()">＋ 新建项目</button>
+        <button onclick="importProject()">打开已有项目</button>
+      </div>
     </div>
-    <div class="card">
-      <h2>最近项目</h2>
-      <div id="project-list">加载中…</div>
-    </div>
+    <div class="tokenbar card">${tokenSection()}</div>
+    <div id="wizard"></div>
+    <div class="section-title"><h2>最近项目</h2><span class="muted" id="proj-count"></span></div>
+    <div class="project-grid" id="project-list">加载中…</div>
   </div>`);
   refreshProjectList();
   if (wizardStep > 1) renderWizard();
@@ -127,7 +184,7 @@ function renderWizard() {
     box.innerHTML = `<h2>新建项目 · ① 基本信息</h2>
       <div class="row">
         <div class="grow">项目名称 <input id="w-name" value="${esc(wizardData.name)}"></div>
-        <div class="grow">本地路径 <input id="w-path" value="${esc(wizardData.path)}" placeholder="D:\\projects\\demo"></div>
+        <div class="grow">本地路径 <input id="w-path" value="${esc(wizardData.path)}" placeholder="选择或输入目录路径" style="flex:1"> <button type="button" onclick="pickWizardPath()">浏览…</button></div>
       </div>
       <div class="row">
         <div>前端 <input id="w-frontend" value="${esc(wizardData.frontend)}"></div>
@@ -206,7 +263,7 @@ window.createProject = async function () {
 };
 
 window.importProject = async function () {
-  const projectPath = prompt('输入已有项目路径（含 COMETFLOW.md）：');
+  const projectPath = await openDirectoryPicker('');
   if (!projectPath) return;
   try {
     const result = await api('/projects/import', { method: 'POST', body: JSON.stringify({ path: projectPath }) });
@@ -218,17 +275,25 @@ window.importProject = async function () {
 
 async function refreshProjectList() {
   const box = document.getElementById('project-list');
+  const count = document.getElementById('proj-count');
   if (!box) return;
   try {
     const data = await loadProjects();
-    if (!data.projects.length) { box.innerHTML = '<p class="muted">暂无项目</p>'; return; }
+    if (count) count.textContent = data.projects.length + ' 个项目';
+    if (!data.projects.length) { box.innerHTML = '<div class="empty">暂无项目，点击上方「＋ 新建项目」开始</div>'; return; }
     box.innerHTML = data.projects.map((p) => {
-      const status = p.status;
-      const summary = status ? (status.goals.length + ' 目标 · ' + status.plans.length + ' 计划 · ' + status.changes.length + ' change') : '';
-      return '<div class="card"><a href="#/project/' + esc(p.id) + '/overview">' + esc(p.name) + '</a><div class="muted">' + esc(p.path) + '</div><div class="muted">' + esc(summary) + '</div></div>';
+      const s = p.status || {};
+      const goals = (s.goals || []).length;
+      const plans = (s.plans || []).length;
+      const changes = (s.changes || []).length;
+      return '<a class="project-card" href="#/project/' + esc(p.id) + '/overview">' +
+        '<div class="name">' + esc(p.name) + '</div>' +
+        '<div class="path">' + esc(p.path) + '</div>' +
+        '<div class="meta"><span class="badge brand">' + goals + ' 目标</span><span class="badge brand">' + plans + ' 计划</span><span class="badge brand">' + changes + ' 变更</span></div>' +
+        '</a>';
     }).join('');
   } catch (error) {
-    box.innerHTML = '<p class="muted">' + esc(error.message) + '</p>';
+    box.innerHTML = '<div class="empty">' + esc(error.message) + '</div>';
   }
 }
 
@@ -241,11 +306,12 @@ async function renderProject(panel) {
     setHtml('<p>' + esc(error.message) + '</p>');
     return;
   }
+  const ICONS = { overview: '📊', goals: '🎯', specs: '📐', plans: '🗺️', changes: '🔀', evolve: '🧬', eval: '🧪', settings: '⚙️' };
   const panels = [
-    ['overview', '总览'], ['goals', '目标 Goals'], ['specs', '规格 Specs'], ['plans', '计划 Plans'],
-    ['changes', '变更 Changes'], ['evolve', '进化 Evolve'], ['eval', '评估 Eval'], ['settings', '设置 Settings'],
+    ['overview', '总览'], ['goals', '目标'], ['specs', '规格'], ['plans', '计划'],
+    ['changes', '变更'], ['evolve', '进化'], ['eval', '评估'], ['settings', '设置'],
   ];
-  const nav = panels.map(([id, label]) => '<a href="#/project/' + esc(currentProjectId) + '/' + id + '" class="' + (panel === id ? 'active' : '') + '">' + label + '</a>').join('');
+  const nav = '<div class="nav-label">工作台</div>' + panels.map(([id, label]) => '<a href="#/project/' + esc(currentProjectId) + '/' + id + '" class="' + (panel === id ? 'active' : '') + '"><span class="icon">' + (ICONS[id] || '·') + '</span><span>' + label + '</span></a>').join('');
   setHtml(`<div class="topbar">
     <span class="logo">CometFlow</span>
     <span>${esc(currentProject.name)}</span>
