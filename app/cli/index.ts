@@ -29,6 +29,7 @@ import {
   classicTransitionCommand,
 } from '../commands/classic.js';
 import { dashboardCommand } from '../commands/dashboard.js';
+import { serveCommand } from '../commands/serve.js';
 import { hookCheckCommand } from '../commands/hook.js';
 import { doctorCommand } from '../commands/doctor.js';
 import { evalCommand } from '../commands/eval.js';
@@ -321,6 +322,18 @@ program
   .option('--port <port>', 'HTTP port', (value) => Number.parseInt(value, 10))
   .action(async (targetPath = '.', options) => {
     await dashboardCommand(targetPath, options);
+  });
+
+program
+  .command('serve')
+  .description('Start the CometFlow web client (workspace + API + UI)')
+  .option('--workspace <dir>', 'Workspace directory (default ~/.cometflow/workspace)')
+  .option('--port <port>', 'HTTP port', (value) => Number.parseInt(value, 10))
+  .option('--token <token>', 'Bearer token (default random)')
+  .option('--web-dir <dir>', 'Static web assets directory (default ./web)')
+  .option('--host <host>', 'Bind host (default 127.0.0.1)')
+  .action(async (options) => {
+    await serveCommand(options);
   });
 
 const evolve = program.command('evolve').description('Evolution commands');
