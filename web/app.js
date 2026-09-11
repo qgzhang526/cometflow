@@ -739,3 +739,31 @@ window.runEval = async function () {
     pollJob(result.jobId, document.getElementById('eval-log'));
   } catch (error) { alert(error.message); }
 };
+async function renderSettings() {
+  const box = document.getElementById('panel');
+  const config = await projectApi('/config');
+  box.innerHTML = `<div class="card"><h2>Agent 与模型配置</h2>
+    <div class="row">
+      <div>默认 Agent <input id="cfg-agent" value="${esc(config.agent || 'opencode')}"></div>
+      <div>默认模型 <input id="cfg-model" value="${esc(config.model || '')}"></div>
+    </div>
+    <button class="primary" onclick="saveConfig()">保存配置</button>
+  </div>
+  <div class="card"><h2>调度器默认参数</h2>
+    <div class="row">
+      <div>模式 <select id="cfg-mode"><option value="always">always</option><option value="idle">idle</option><option value="schedule">schedule</option><option value="manual">manual</option></select></div>
+      <div>间隔ms <input id="cfg-interval" value="${esc(config.scheduler?.intervalMs ?? '')}"></div>
+    </div>
+  </div>`;
+  document.getElementById('cfg-mode').value = config.scheduler?.mode || 'idle';
+}
+window.saveConfig = async function () {
+  try {
+    const intervalMs = document.getElementById('cfg-interval').value;
+    const scheduler = { mode: document.getElementById('cfg-mode').value, ...(intervalMs === '' ? {} : { intervalMs: Number(intervalMs) }) };
+    await projectApi('/config', { method: 'PUT', body: JSON.stringify({ agent: document.getElementById('cfg-agent').value, model: document.getElementById('cfg-model').value, scheduler }) });
+    alert('已保存');
+  } catch (error) { alert(error.message); }
+};
+
+render();
