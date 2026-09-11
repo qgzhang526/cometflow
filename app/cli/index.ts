@@ -75,7 +75,7 @@ const program = new Command();
 program
   .name('cometflow')
   .description('Full-time autonomous agent development platform')
-  .version('0.1.0');
+  .version('0.2.0');
 
 program
   .command('init [path]')
