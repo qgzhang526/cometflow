@@ -36,7 +36,12 @@ import {
 } from '../commands/classic.js';
 import { dashboardCommand } from '../commands/dashboard.js';
 import { serveCommand } from '../commands/serve.js';
-import { hookCheckCommand } from '../commands/hook.js';
+import {
+  hookCheckCommand,
+  hookInstallCommand,
+  hookStatusCommand,
+  hookUninstallCommand,
+} from '../commands/hook.js';
 import { doctorCommand } from '../commands/doctor.js';
 import { evalCommand } from '../commands/eval.js';
 import { projectMigrateCommand } from '../commands/migrate.js';
@@ -358,6 +363,31 @@ hook
   .requiredOption('--event <event>', 'write or edit')
   .action(async (target, targetPath = '.', options) => {
     await hookCheckCommand(targetPath, { event: options.event, target });
+  });
+
+hook
+  .command('install [path]')
+  .description('Install the platform hook that enforces the write guard')
+  .option('--platform <platform>', 'claude-code | opencode | codex')
+  .action(async (targetPath = '.', options) => {
+    await hookInstallCommand(targetPath, options);
+  });
+
+hook
+  .command('status [path]')
+  .description('Show whether the platform hook is installed and healthy')
+  .option('--platform <platform>', 'clamp to one platform')
+  .option('--json', 'Output as JSON')
+  .action(async (targetPath = '.', options) => {
+    await hookStatusCommand(targetPath, options);
+  });
+
+hook
+  .command('uninstall [path]')
+  .description('Remove the platform hook installed by CometFlow')
+  .option('--platform <platform>', 'claude-code | opencode | codex')
+  .action(async (targetPath = '.', options) => {
+    await hookUninstallCommand(targetPath, options);
   });
 
 program

@@ -265,6 +265,22 @@ for (const event of ['open-complete', 'design-complete', 'build-complete', 'veri
 expectOk('daemon manual run', ['daemon', 'start', '.', '--mode', 'manual', '--budget', '1', '--safety-bundle'], project);
 
 // hook guard：有指针时按指针路由，没有指针时必须 fail closed
+// B hook 接线：安装后写入平台配置，卸载后逐字还原
+expectOk('hook status（安装前）', ['hook', 'status', '.', '--json'], project);
+expectOk('hook install claude-code', ['hook', 'install', '.', '--platform', 'claude-code'], project);
+check(
+  'claude settings 含 PreToolUse 条目',
+  fileContains(path.join(project, '.claude', 'settings.json'), 'cometflow-guard.mjs'),
+);
+expectDenied(
+  'opencode 缺少可依据的格式，显式拒绝',
+  ['hook', 'install', '.', '--platform', 'opencode'],
+  project,
+  '尚未支持',
+);
+expectOk('hook uninstall claude-code', ['hook', 'uninstall', '.', '--platform', 'claude-code'], project);
+check('卸载后 settings.json 被还原（安装前不存在）', !existsSync(path.join(project, '.claude', 'settings.json')));
+
 expectOk('change select stall-demo', ['change', 'select', 'stall-demo', '.'], project);
 expectOk(
   '指针路由允许模块内写入',

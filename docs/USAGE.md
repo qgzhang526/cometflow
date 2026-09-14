@@ -1217,6 +1217,9 @@ cometflow dashboard [path] [--port]  # 只读 Dashboard（默认 4321，暴露 /
 cometflow metrics [path] [--json]    # 只读度量：重建质量（首轮通过率/修复轮数/停机率）+ spec 健康度（可判定率/anchor 覆盖/漂移/版本）
 cometflow project migrate [path]     # NIGHTSHIFT.md → COMETFLOW.md；.nightshift/config → .cometflow/config.yaml
 cometflow hook check <target> [path] --event write|edit   # 写保护判定
+cometflow hook install [path] --platform claude-code      # 把写保护装进平台 hook
+cometflow hook status [path] [--json]                     # 已装 / 未装 / 守卫缺失
+cometflow hook uninstall [path] --platform claude-code    # 卸载（未改动则逐字还原）
 cometflow update                     # MVP stub：请重装 npm 包升级
 cometflow uninstall [path] --force   # 删除 .cometflow/（必须 --force）
 ```
@@ -1235,6 +1238,22 @@ cometflow uninstall [path] --force   # 删除 .cometflow/（必须 --force）
 8. 其余情况放行（`build`/`archive` 的实现写入）。
 
 退出码非 0 表示被拒绝，可直接用于 CI 或 Agent 的 hook。
+
+#### 把守卫装进平台
+
+`hook check` 只是判定函数；要让它真正拦得住 agent 的写入，得装进平台的 hook 配置：
+
+```bash
+cometflow hook install . --platform claude-code
+cometflow hook status .
+cometflow hook uninstall . --platform claude-code
+```
+
+- 安装位置：`.claude/hooks/cometflow-guard.mjs` + `.claude/settings.json` 的 `hooks.PreToolUse`（matcher `Write|Edit|MultiEdit`）。
+- 守卫从 stdin 读工具调用 JSON，取出文件路径后调用 `cometflow hook check ... --event write`；被拒时以**退出码 2** 阻止该次写入。
+- 当前仅支持 `claude-code`。`opencode` / `codex` 会**显式报「不支持」并返回非零退出码**，而不是写入猜测出来的配置（猜错会导致静默失效）。
+- 守卫调用 `cometflow` 需在 PATH 上；也可用 `COMETFLOW_CLI` 指定可执行文件路径。CLI 不可用时守卫放行，避免把开发环境锁死。
+- 卸载是可逆的：安装时备份原始 `settings.json`；未被用户改动过就逐字还原，改过则只摘除 CometFlow 自己的条目。
 
 ### 13.2 度量（metrics）
 
