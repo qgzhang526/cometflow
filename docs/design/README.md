@@ -46,3 +46,4 @@
 | [0019-web-client-vue-vite.md](../decisions/0019-web-client-vue-vite.md) | Web 客户端采用 Vue 3 + Vite + TypeScript，产物为 web/dist |
 | [0020-ui-edit-spec-semantics.md](../decisions/0020-ui-edit-spec-semantics.md) | UI 编辑 spec：保存即版本，草稿只有 change 提案一种形态 |
 | [0021-concurrent-write-protection.md](../decisions/0021-concurrent-write-protection.md) | 并发写保护：单文件 CAS + 多文件锁，warn 是有期限的过渡态 |
+| [0022-verifier-resolution-and-policy.md](../decisions/0022-verifier-resolution-and-policy.md) | 独立 Verifier 的 agent 解析回退与不可用策略 |

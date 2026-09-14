@@ -172,6 +172,31 @@ check(
 );
 expectOk('spec verify（迁移后）', ['spec', 'verify', '.'], project);
 
+// A 独立验证默认化：用 mock 固定住「Verifier 真的被调用」这条路径（本机/CI 是否装了
+// opencode、claude 会影响默认解析结果，所以这里显式指定 agent，保证回归跨环境确定）。
+// mock 返回的不是可解析的验证 YAML → 结论无效，但判定仍由 check 决定（checks+agent 下 check 优先）。
+expectOk('change new agent-policy-demo', ['change', 'new', 'agent-policy-demo', '--goal', 'G1', '--task', 'T1', '--path', '.'], project);
+expectOk('agent-policy-demo -> build', ['change', 'transition', 'agent-policy-demo', 'confirm-acceptance', '.'], project);
+expectOk('agent-policy-demo -> verify', ['change', 'transition', 'agent-policy-demo', 'submit-candidate', '.'], project);
+expectOk(
+  'checks+agent 调用 Verifier 后仍按 check 判定',
+  ['change', 'verify', 'agent-policy-demo', '.', '--mode', 'checks+agent', '--agent', 'mock'],
+  project,
+);
+check(
+  'verification.md 记录 Verifier 与耗时（成本记账）',
+  fileContains(path.join(project, 'changes', 'agent-policy-demo', 'verification.md'), 'verifier: mock') &&
+    fileContains(path.join(project, 'changes', 'agent-policy-demo', 'verification.md'), 'verifier_ms:'),
+);
+check(
+  'verification.md 记录 verifier_policy',
+  fileContains(path.join(project, 'changes', 'agent-policy-demo', 'verification.md'), 'verifier_policy: warn'),
+);
+check(
+  '结论仍来自 check（Verifier 未产出可解析结论时不改变判定）',
+  fileContains(path.join(project, 'changes', 'agent-policy-demo', 'verification.md'), 'A1: passed [check]'),
+);
+
 // 证据回收：apply 只能删 runtime 下可推导的内容
 expectOk('change gc dry-run', ['change', 'gc', '.', '--json'], project);
 expectOk('change gc apply', ['change', 'gc', '.', '--apply'], project);

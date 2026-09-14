@@ -56,6 +56,15 @@ export interface GitConfig {
 
 export type VerificationMode = 'checks' | 'checks+agent' | 'agent-required';
 
+/**
+ * 独立 Verifier 不可用时的策略。
+ *
+ * - skip：静默降级（旧行为，保留给不想被打扰的项目）
+ * - warn：验证继续，但把「本轮没有独立验证」写进 verification.md 与 journal（默认）
+ * - fail：直接判定失败，要求必须有人/agent 独立判定
+ */
+export type VerifierPolicy = 'skip' | 'warn' | 'fail';
+
 export interface VerificationConfig {
   /**
    * checks：只跑确定性 acceptance 检查（默认，可离线）。
@@ -71,6 +80,8 @@ export interface VerificationConfig {
    * 设为 1 表示「只要一次失败就停机」，适合无人值守场景。
    */
   max_repair_attempts?: number;
+  /** 仅在 mode 为 checks+agent / agent-required 时生效。 */
+  verifier_policy?: VerifierPolicy;
 }
 
 export const DEFAULT_CONFIG: ProjectConfig = {
@@ -266,6 +277,10 @@ export function validateProjectConfig(config: ProjectConfig): string[] {
       (!Number.isInteger(maxAttempts) || maxAttempts < 1)
     ) {
       errors.push('verification.max_repair_attempts must be an integer >= 1');
+    }
+    const policy = config.verification.verifier_policy;
+    if (policy !== undefined && !['skip', 'warn', 'fail'].includes(policy)) {
+      errors.push('verification.verifier_policy must be one of: skip, warn, fail');
     }
   }
 

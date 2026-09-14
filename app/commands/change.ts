@@ -151,11 +151,20 @@ export async function changeVerifyCommand(
   const projectRoot = root(targetPath);
   const config = await readProjectConfig(projectRoot);
   const mode = (options.mode ?? config.verification?.mode) as VerificationMode | undefined;
-  const verifierId = options.agent ?? config.verification?.agent;
-  const runner = verifierId ? getBuiltInAgentRunner(verifierId) : undefined;
+  // Verifier 的 agent 解析顺序：CLI 参数 → verification.agent → 项目默认 agent。
+  // 少了最后一级回退时，checks+agent 在默认配置下会静默空转（runner 恒为 undefined）。
+  const verifierId = options.agent ?? config.verification?.agent ?? config.agent ?? null;
+  let runner = verifierId ? getBuiltInAgentRunner(verifierId) : undefined;
+  let verifierUnavailableReason: string | null = null;
+  if (runner && !(await runner.check())) {
+    verifierUnavailableReason = 'verifier agent "' + runner.id + '" is not installed or not on PATH';
+    runner = undefined;
+  }
   const outcome = await verifyChange(projectRoot, name, {
     runner,
     mode,
+    verifierAgentId: verifierId,
+    verifierUnavailableReason,
     allowDrift: options.allowDrift === true,
   });
   for (const verdict of outcome.verdicts) {
@@ -178,6 +187,11 @@ export async function changeVerifyCommand(
       ' repair_attempts=' +
       (outcome.state.repair_attempts ?? 0),
   );
+  if (outcome.verifierAgent === null && (mode === 'checks+agent' || mode === 'agent-required')) {
+    console.log(
+      'verifier: 未运行（' + (verifierUnavailableReason ?? '未配置独立 Verifier') + '）',
+    );
+  }
   if (outcome.state.status === 'blocked') {
     console.log(
       'blocked: 连续同一失败结论，已停机等待人工；查看 changes/' +

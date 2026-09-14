@@ -10,7 +10,7 @@ import { normalizeModulePath, parseSpecMeta } from '../spec/spec-meta.js';
 import { hashSpecText } from '../spec/spec-hash.js';
 import { readSpecBlob, recordSpecVersion, refreshSpecBaseline } from '../spec/spec-version.js';
 import { readTextFile } from '../../platform/fs/read-file.js';
-import { readProjectConfig, type VerificationMode } from '../project/config.js';
+import { readProjectConfig, type VerificationMode, type VerifierPolicy } from '../project/config.js';
 import { redactSecrets } from '../../platform/io/redact.js';
 import { canonicalHash } from '../state/canonical-hash.js';
 import { describeDriftFailure, enforceGitProvenance } from './git-provenance.js';
@@ -248,6 +248,12 @@ export interface AcceptanceVerdictRecord {
 export interface ChangeVerifyOptions {
   runner?: AgentRunner;
   mode?: VerificationMode;
+  /** 未显式传入时取项目配置的 verification.verifier_policy，再退回 warn。 */
+  verifierPolicy?: VerifierPolicy;
+  /** 已解析出的 Verifier agent id（即使不可用也记录，便于解释「谁没跑」）。 */
+  verifierAgentId?: string | null;
+  /** Verifier 不可用的原因；用于 warn/fail 的说明。 */
+  verifierUnavailableReason?: string | null;
   model?: string;
   timeoutMs?: number;
   now?: Date;
@@ -258,6 +264,13 @@ export interface ChangeVerifyOptions {
 export const VERDICT_FINGERPRINT_TAG = 'cometflow.verify-fingerprint.v1';
 /** 默认的修复轮数上限；可用 verification.max_repair_attempts 覆盖。 */
 export const DEFAULT_MAX_REPAIR_ATTEMPTS = 3;
+/**
+ * 独立 Verifier 的默认超时。
+ *
+ * A（独立验证默认化）之后 Verifier 真的会被调用，而 `runner.run` 不传 timeout 就是无限等待——
+ * 一次挂起的 agent 会话会让 `change verify` 永久卡住。
+ */
+export const DEFAULT_VERIFIER_TIMEOUT_MS = 600_000;
 
 /**
  * 失败结论指纹。
@@ -300,6 +313,8 @@ export async function verifyChange(
 
   const config = await readProjectConfig(projectRoot);
   const mode: VerificationMode = options.mode ?? config.verification?.mode ?? 'checks';
+  const verifierPolicy: VerifierPolicy =
+    options.verifierPolicy ?? config.verification?.verifier_policy ?? 'warn';
   const allow = await resolveScopeAllow(projectRoot);
 
   const checks = await runAcceptanceChecks(projectRoot, name, {
@@ -361,28 +376,50 @@ export async function verifyChange(
 
   // 独立 Verifier：Builder 不能自证。
   let verifierAgent: string | null = null;
+  let verifierDurationMs: number | null = null;
+  const verifierRequested = mode === 'checks+agent' || mode === 'agent-required';
   const violations: string[] = [];
   const notes: string[] = [];
-  if (mode === 'checks+agent' || mode === 'agent-required') {
+  if (verifierRequested) {
     const runner = options.runner;
-    if (!runner && mode === 'agent-required') {
-      violations.push(
-        'verification.mode=agent-required but no independent verifier agent is available',
-      );
-      for (const verdict of verdicts) {
-        if (verdict.source === 'check') continue;
-        verdict.result = 'blocked';
-        verdict.reason = 'independent verifier is required but no agent runner is available';
-        verdict.source = 'uncovered';
+    if (!runner) {
+      // 不可用时按 verifier_policy 决定：fail 直接判失败，warn 记录「本轮没有独立验证」，
+      // skip 保持旧行为（静默降级）。agent-required 无论策略如何都必须有 Verifier。
+      const reason =
+        options.verifierUnavailableReason ??
+        (options.verifierAgentId
+          ? 'verifier agent "' + options.verifierAgentId + '" is not available'
+          : 'no independent verifier is configured (set verification.agent or agent)');
+      const mustFail = mode === 'agent-required' || verifierPolicy === 'fail';
+      if (mustFail) {
+        violations.push(
+          (mode === 'agent-required'
+            ? 'verification.mode=agent-required'
+            : 'verification.verifier_policy=fail') +
+            ' but the independent verifier is unavailable: ' +
+            reason,
+        );
+        for (const verdict of verdicts) {
+          if (verdict.source === 'check') continue;
+          verdict.result = 'blocked';
+          verdict.reason = 'independent verifier is required but unavailable: ' + reason;
+          verdict.source = 'uncovered';
+        }
+      } else if (verifierPolicy === 'warn') {
+        notes.push('no independent verification this round: ' + reason);
       }
     } else if (runner) {
       const outcome = await runIndependentVerifier(projectRoot, name, checks, {
         runner,
         model: options.model ?? config.verification?.model,
-        timeoutMs: options.timeoutMs,
+        timeoutMs: options.timeoutMs ?? DEFAULT_VERIFIER_TIMEOUT_MS,
         now: options.now,
       });
       verifierAgent = outcome.agentId;
+      verifierDurationMs = outcome.durationMs;
+      if (outcome.status !== 'verdict') {
+        notes.push('verifier did not produce a verdict (' + outcome.status + '): ' + outcome.notes.join('; '));
+      }
       const byId = new Map(outcome.report?.acceptance.map((item) => [item.id, item]) ?? []);
       for (const verdict of verdicts) {
         // 确定性检查一票否决：agent 不能把失败的 check 判成通过。
@@ -444,6 +481,8 @@ export async function verifyChange(
     'module: ' + (state.module ?? '(unbounded)'),
     'acceptance: ' + (state.acceptance_ids.length > 0 ? state.acceptance_ids.join(', ') : '(none)'),
     'verifier: ' + (verifierAgent ?? '(none)'),
+    'verifier_policy: ' + verifierPolicy + (verifierRequested ? '' : ' (mode=' + mode + '，未要求独立验证)'),
+    ...(verifierDurationMs === null ? [] : ['verifier_ms: ' + verifierDurationMs]),
     'scope: ' +
       (scope.baseline_captured_at === null
         ? 'not-baselined (change predates implementation baselines)'
@@ -481,6 +520,10 @@ export async function verifyChange(
   await appendChangeEvent(projectRoot, name, 'verify-result', {
     passed: reportPassed,
     verifier: verifierAgent,
+    verifier_agent_id: options.verifierAgentId ?? null,
+    verifier_ms: verifierDurationMs,
+    verifier_policy: verifierPolicy,
+    verification_mode: mode,
     verdicts: verdicts.map((entry) => entry.id + ':' + entry.result + '@' + entry.source),
     violations,
     repair_attempts: repairAttempts,

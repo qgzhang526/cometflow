@@ -136,6 +136,32 @@ export interface RebuildMetricsResult {
 }
 
 /**
+ * Verifier 成本：只在 journal 里记录过 `verifier_ms` 的轮次计入，
+ * 因此「配了 agent 但没跑到」与「跑了一轮」能区分开，不会被平均掉。
+ */
+function summarizeVerifierCost(
+  samples: RebuildSample[],
+  eventsByChange: Map<string, ChangeJournalEvent[]>,
+): RebuildMetrics['verifier'] {
+  let runs = 0;
+  let totalMs = 0;
+  for (const sample of samples) {
+    for (const event of eventsByChange.get(sample.change) ?? []) {
+      if (event.event !== ('verify-result' as ChangeJournalEventType)) continue;
+      const ms = event.data?.verifier_ms;
+      if (typeof ms !== 'number') continue;
+      runs += 1;
+      totalMs += ms;
+    }
+  }
+  return {
+    runs,
+    total_ms: totalMs,
+    mean_ms: runs === 0 ? null : Math.round(totalMs / runs),
+  };
+}
+
+/**
  * 重建质量指标。
  *
  * 分母刻意分成两个：
@@ -149,9 +175,11 @@ export async function collectRebuildMetrics(
     left.name.localeCompare(right.name),
   );
   const samples: RebuildSample[] = [];
+  const eventsByChange = new Map<string, ChangeJournalEvent[]>();
   for (const state of states) {
     // limit: 0 = 全量读取，避免轮转后的历史被截断而低估样本。
     const events = await readChangeJournal(projectRoot, state.name, { limit: 0 });
+    eventsByChange.set(state.name, events);
     samples.push(buildRebuildSample(state, events));
   }
 
@@ -181,6 +209,7 @@ export async function collectRebuildMetrics(
       [...sourceCounts.entries()].sort(([left], [right]) => left.localeCompare(right)),
     ) as Record<VerdictSource, number>,
     check_coverage_rate: rate(verified.filter((sample) => sample.check_only).length, verified.length),
+    verifier: summarizeVerifierCost(samples, eventsByChange),
     per_capability: groupBy(verified, (sample) => sample.capability),
     per_module: groupBy(verified, (sample) => sample.module),
     samples,

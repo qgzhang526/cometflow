@@ -91,6 +91,13 @@ export function formatMetrics(report: MetricsReport): string[] {
   lines.push('  pass_rate (archived)   ' + percent(rebuild.pass_rate));
   lines.push('  blocked_rate           ' + percent(rebuild.blocked_rate));
   lines.push('  check_coverage_rate    ' + percent(rebuild.check_coverage_rate));
+  lines.push(
+    '  verifier_runs          ' +
+      rebuild.verifier.runs +
+      (rebuild.verifier.runs > 0
+        ? '（累计 ' + Math.round(rebuild.verifier.total_ms / 1000) + 's，均值 ' + (rebuild.verifier.mean_ms ?? 0) + 'ms）'
+        : ''),
+  );
   const sources = Object.entries(rebuild.verdict_sources)
     .filter(([, count]) => count > 0)
     .map(([source, count]) => source + '=' + count)

@@ -30,6 +30,8 @@ export interface VerifierOutcome {
   report: VerifierReport | null;
   agentId: string | null;
   exitCode: number | null;
+  /** 本次 Verifier 会话耗时（毫秒），用于成本记账。 */
+  durationMs: number;
   notes: string[];
 }
 
@@ -239,26 +241,56 @@ export async function runIndependentVerifier(
     mode: 'independent-verifier',
   }, { phase: state.phase, now: options.now });
 
+  const startedAt = Date.now();
   const result = await options.runner.run({
     prompt,
     cwd: projectRoot,
     model: options.model,
     timeoutMs: options.timeoutMs,
   });
+  const durationMs = Date.now() - startedAt;
   if (result.exitCode !== 0) {
     notes.push('verifier agent exited with code ' + result.exitCode);
-    return { status: 'unavailable', report: null, agentId: options.runner.id, exitCode: result.exitCode, notes };
+    return {
+      status: 'unavailable',
+      report: null,
+      agentId: options.runner.id,
+      exitCode: result.exitCode,
+      durationMs,
+      notes,
+    };
   }
 
   const report = parseVerifierOutput(result.stdout);
   if (!report) {
     notes.push('verifier output did not contain a parsable verification YAML block');
-    return { status: 'invalid', report: null, agentId: options.runner.id, exitCode: result.exitCode, notes };
+    return {
+      status: 'invalid',
+      report: null,
+      agentId: options.runner.id,
+      exitCode: result.exitCode,
+      durationMs,
+      notes,
+    };
   }
   const coverage = validateVerifierCoverage(state, report);
   if (coverage.length > 0) {
     notes.push(...coverage);
-    return { status: 'invalid', report: null, agentId: options.runner.id, exitCode: result.exitCode, notes };
+    return {
+      status: 'invalid',
+      report: null,
+      agentId: options.runner.id,
+      exitCode: result.exitCode,
+      durationMs,
+      notes,
+    };
   }
-  return { status: 'verdict', report, agentId: options.runner.id, exitCode: result.exitCode, notes };
+  return {
+    status: 'verdict',
+    report,
+    agentId: options.runner.id,
+    exitCode: result.exitCode,
+    durationMs,
+    notes,
+  };
 }

@@ -630,6 +630,25 @@ verification:
 | `checks+agent` | 检查 + 独立 Verifier 复核未覆盖项；agent 不可用时降级 |
 | `agent-required` | 必须由独立 Verifier 给出完整结论，不可用即失败 |
 
+Verifier 的 agent 解析顺序是 `--agent` → `verification.agent` → **项目默认 `agent`**；
+调用前先做可用性检查（`<agent> --version`）。不可用时按 `verifier_policy` 处理：
+
+| `verifier_policy` | 行为 |
+|---|---|
+| `skip` | 静默降级（旧行为） |
+| `warn`（默认） | 验证继续，把「本轮没有独立验证」写进 `verification.md` 与 `change journal` |
+| `fail` | 把「Verifier 不可用」升级为 violation，验证失败 |
+
+该策略只在 `mode` 为 `checks+agent` / `agent-required` 时生效；默认的 `checks` 模式不要求 Verifier，也不产生提示。
+`agent-required` 不受策略影响——没有 Verifier 就是失败。**注意**：`warn` 只改变「Verifier 缺失」的处理，
+「验收项没有 check、也没有人判」永远算失败（ADR 0013）。
+
+```yaml
+verification:
+  mode: checks+agent
+  verifier_policy: warn      # skip | warn | fail
+```
+
 ### 5.9 有界修复循环（停滞停机）
 
 `verify-fail` 不会无限重跑。每轮失败都会算一个**失败结论指纹**（只含未通过的验收项与越界项，不含理由措辞），
@@ -1286,6 +1305,7 @@ verification:                   # 验收判定方式
   agent: claude-code            # 独立 Verifier 使用的 agent
   model: claude-sonnet-4-5      # 可选，覆盖 Verifier 模型
   max_repair_attempts: 3        # 连续同一失败结论的轮数上限，超过即 blocked
+  verifier_policy: warn         # Verifier 不可用时的策略：skip | warn | fail
 git:                            # git 来源绑定
   allow_drift: false            # true = 允许在历史回退/分叉后继续推进
 ```

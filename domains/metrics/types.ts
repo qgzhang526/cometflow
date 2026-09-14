@@ -50,6 +50,12 @@ export interface RebuildMetrics {
   blocked_rate: number | null;
   verdict_sources: Record<VerdictSource, number>;
   check_coverage_rate: number | null;
+  /** 独立 Verifier 的调用次数与耗时——回答「引入独立验证要付多少代价」。 */
+  verifier: {
+    runs: number;
+    total_ms: number;
+    mean_ms: number | null;
+  };
   per_capability: RebuildBucket[];
   per_module: RebuildBucket[];
   samples: RebuildSample[];
