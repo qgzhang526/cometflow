@@ -13,6 +13,12 @@ export interface QueueTask {
   status: QueueTaskStatus;
   attempts: number;
   updated_at: string;
+  /**
+   * 租约：置为 running 时写下到期时间与持有者。
+   * 崩溃后没人续租，下一次启动或循环就能凭它把任务收回，而不是永久卡在 running。
+   */
+  lease_until?: string | null;
+  owner?: string | null;
 }
 
 export interface SchedulerQueue {
@@ -81,7 +87,13 @@ export function nextQueuedTask(queue: SchedulerQueue): QueueTask | null {
   return queue.tasks.find((task) => task.status === "queued") ?? null;
 }
 
-export function markQueueTask(queue: SchedulerQueue, taskId: string, status: QueueTaskStatus): SchedulerQueue {
+export function markQueueTask(
+  queue: SchedulerQueue,
+  taskId: string,
+  status: QueueTaskStatus,
+  options: { leaseMs?: number; now?: Date } = {},
+): SchedulerQueue {
+  const now = options.now ?? new Date();
   return {
     ...queue,
     tasks: queue.tasks.map((task) =>
@@ -90,9 +102,65 @@ export function markQueueTask(queue: SchedulerQueue, taskId: string, status: Que
             ...task,
             status,
             attempts: status === "running" ? task.attempts + 1 : task.attempts,
-            updated_at: new Date().toISOString(),
+            updated_at: now.toISOString(),
+            lease_until:
+              status === 'running'
+                ? new Date(now.getTime() + (options.leaseMs ?? DEFAULT_LEASE_MS)).toISOString()
+                : null,
+            owner: status === 'running' ? ownerTag() : null,
           }
         : task,
     ),
   };
+}
+
+/** 默认租约时长：要大于单任务超时，否则正常执行中就会被判定为过期。 */
+export const DEFAULT_LEASE_MS = 40 * 60_000;
+
+export function ownerTag(): string {
+  return process.pid + '@' + (process.env.COMPUTERNAME ?? process.env.HOSTNAME ?? 'unknown');
+}
+
+export interface ReclaimResult {
+  queue: SchedulerQueue;
+  reclaimed: QueueTask[];
+  exhausted: QueueTask[];
+}
+
+/**
+ * 回收过期租约。
+ *
+ * 语义是「至少一次」：被回收的任务会重新排队并 attempts+1；达到上限的直接标 failed 交人工，
+ * 不再自动重试——否则一个必然失败的任务会无限占用队列。
+ */
+export function reclaimExpiredLeases(
+  queue: SchedulerQueue,
+  options: { now?: Date; maxAttempts?: number } = {},
+): ReclaimResult {
+  const now = (options.now ?? new Date()).getTime();
+  const maxAttempts = options.maxAttempts ?? 3;
+  const reclaimed: QueueTask[] = [];
+  const exhausted: QueueTask[] = [];
+
+  const tasks = queue.tasks.map((task) => {
+    if (task.status !== 'running' || !task.lease_until) return task;
+    if (Date.parse(task.lease_until) > now) return task;
+
+    const gaveUp = task.attempts >= maxAttempts;
+    const next: QueueTask = {
+      ...task,
+      status: gaveUp ? 'failed' : 'queued',
+      // attempts 的口径是「启动过几次」，增量只发生在置为 running 时；
+      // 回收不再 +1，否则一次崩溃会被记成两次尝试。
+      attempts: task.attempts,
+      lease_until: null,
+      owner: null,
+      updated_at: new Date(now).toISOString(),
+    };
+    if (gaveUp) exhausted.push(next);
+    else reclaimed.push(next);
+    return next;
+  });
+
+  return { queue: { ...queue, tasks }, reclaimed, exhausted };
 }

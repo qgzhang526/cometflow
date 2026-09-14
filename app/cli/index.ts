@@ -58,7 +58,7 @@ import {
 } from '../commands/evolve.js';
 import { statusCommand } from '../commands/status.js';
 import { metricsCommand } from '../commands/metrics.js';
-import { daemonStartCommand } from '../commands/daemon.js';
+import { daemonBudgetCommand, daemonStartCommand } from '../commands/daemon.js';
 import { goalSyncCommand } from '../commands/goal.js';
 import { initCommand } from '../commands/init.js';
 import { runCommand } from '../commands/run.js';
@@ -523,6 +523,14 @@ daemon
   .option('--safety-bundle', 'Create a git bundle snapshot before running')
   .action(async (targetPath = '.', options) => {
     await daemonStartCommand(targetPath, options);
+  });
+
+daemon
+  .command('budget [path]')
+  .description('Show (or with --reset, clear) the accumulated scheduler budget usage')
+  .option('--reset', 'Reset used budget to zero')
+  .action(async (targetPath = '.', options) => {
+    await daemonBudgetCommand(targetPath, options);
   });
 
 const context = program.command('context').description('Project context commands');

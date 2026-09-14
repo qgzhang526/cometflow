@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { startDaemon } from '../../domains/scheduler/daemon.js';
+import { readBudgetUsage, resetBudgetUsage } from '../../domains/scheduler/budget.js';
 import type { SchedulerMode } from '../../domains/scheduler/idle-governor.js';
 import { resolveAgentId } from '../../domains/scheduler/flow-run.js';
 import { resolveModel } from '../../domains/project/config.js';
@@ -15,6 +16,21 @@ export interface DaemonCommandOptions {
   start?: string;
   end?: string;
   safetyBundle?: boolean;
+}
+
+/** 查看/清零跨重启累计的预算用量。 */
+export async function daemonBudgetCommand(
+  targetPath: string,
+  options: { reset?: boolean } = {},
+): Promise<void> {
+  const projectRoot = path.resolve(targetPath);
+  if (options.reset === true) {
+    const usage = await resetBudgetUsage(projectRoot);
+    console.log('budget usage reset (used_ms=0) at ' + usage.updated_at);
+    return;
+  }
+  const usage = await readBudgetUsage(projectRoot);
+  console.log('used_ms=' + usage.used_ms + ' updated_at=' + usage.updated_at);
 }
 
 export async function daemonStartCommand(targetPath: string, options: DaemonCommandOptions): Promise<void> {

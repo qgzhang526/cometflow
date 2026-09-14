@@ -1,11 +1,19 @@
 import { loadavg } from 'node:os';
 import { getBuiltInAgentRunner } from '../../platform/agents/registry.js';
 import type { AgentRunner } from '../../platform/agents/types.js';
-import { Budget } from './budget.js';
+import { addBudgetUsage, Budget, readBudgetUsage } from './budget.js';
 import { runFlowRun } from './flow-run.js';
 import { idleGovernorAllows, type SchedulerMode } from './idle-governor.js';
 import { buildRollbackGuidance, captureGitSafetySnapshot } from './git-safety.js';
-import { buildQueueFromPlans, markQueueTask, nextQueuedTask, readQueue, writeQueue } from './queue.js';
+import {
+  buildQueueFromPlans,
+  DEFAULT_LEASE_MS,
+  markQueueTask,
+  nextQueuedTask,
+  readQueue,
+  reclaimExpiredLeases,
+  writeQueue,
+} from './queue.js';
 
 export interface DaemonOptions {
   projectRoot: string;
@@ -18,7 +26,13 @@ export interface DaemonOptions {
   scheduleStartMinutes?: number;
   scheduleEndMinutes?: number;
   safetyBundle?: boolean;
+  /** 同一任务连续失败到该次数后不再自动重试（默认 3）。 */
+  maxAttempts?: number;
+  /** 单任务超时（默认 30 分钟）：没有它，挂起的 agent 会永久阻塞 daemon。 */
+  taskTimeoutMs?: number;
 }
+
+export const DEFAULT_TASK_TIMEOUT_MS = 30 * 60_000;
 
 export interface DaemonIteration {
   index: number;
@@ -64,9 +78,53 @@ export async function runDaemonIteration(
 
 export async function startDaemon(options: DaemonOptions): Promise<void> {
   const runner = getBuiltInAgentRunner(options.agentId);
-  const budget = new Budget({ budgetMs: options.budgetMs ?? 0 });
+  return runDaemonLoop({ ...options, runner });
+}
+
+export interface DaemonLoopOptions extends DaemonOptions {
+  runner: AgentRunner;
+}
+
+/**
+ * daemon 主循环。
+ *
+ * 与旧实现的区别（D 调度器健壮性）：
+ *  1. 启动与每轮都回收过期租约——崩在 running 的任务不再永久卡死；
+ *  2. 失败任务有上限，达到上限标 failed 交人工，而不是无限重试；
+ *  3. 预算跨重启累计（runtime/budget.json），进程重启不再重置额度；
+ *  4. 单任务带超时，挂起的 agent 不会永久阻塞循环。
+ */
+export async function runDaemonLoop(options: DaemonLoopOptions): Promise<void> {
+  const runner = options.runner;
+  const maxAttempts = options.maxAttempts ?? 3;
+  const taskTimeoutMs = options.taskTimeoutMs ?? DEFAULT_TASK_TIMEOUT_MS;
+  const totalBudgetMs = options.budgetMs ?? 0;
+  const usage = await readBudgetUsage(options.projectRoot);
+  const remainingMs = totalBudgetMs > 0 ? Math.max(0, totalBudgetMs - usage.used_ms) : 0;
+  if (totalBudgetMs > 0) {
+    console.log(
+      ['daemon', 'budget', 'used=' + usage.used_ms + 'ms', 'remaining=' + remainingMs + 'ms'].join(' '),
+    );
+    if (remainingMs === 0) {
+      console.log(['daemon', 'budget-exhausted', 'reset with cometflow daemon reset-budget'].join(' '));
+      return;
+    }
+  }
+  const budget = new Budget({ budgetMs: remainingMs });
   const intervalMs = options.intervalMs ?? 60_000;
   let queue = (await readQueue(options.projectRoot)) ?? (await buildQueueFromPlans(options.projectRoot));
+
+  // 启动时先回收：上一次进程可能崩在 running 上。
+  const startup = reclaimExpiredLeases(queue, { maxAttempts });
+  queue = startup.queue;
+  for (const task of startup.reclaimed) {
+    console.log(['daemon', 'reclaimed', task.id, 'attempts=' + task.attempts].join(' '));
+  }
+  for (const task of startup.exhausted) {
+    console.log(
+      ['daemon', 'giving-up', task.id, 'attempts=' + task.attempts, '—— 需人工介入后重新入队'].join(' '),
+    );
+  }
   await writeQueue(options.projectRoot, queue);
 
   const snapshot = await captureGitSafetySnapshot(options.projectRoot, { bundle: options.safetyBundle === true });
@@ -74,6 +132,14 @@ export async function startDaemon(options: DaemonOptions): Promise<void> {
 
   let index = 0;
   while (!budget.isExhausted()) {
+    // 每轮再回收一次：同一轮里也可能有别的进程留下的过期租约。
+    const swept = reclaimExpiredLeases(queue, { maxAttempts });
+    if (swept.reclaimed.length > 0 || swept.exhausted.length > 0) {
+      queue = swept.queue;
+      await writeQueue(options.projectRoot, queue);
+      for (const task of swept.reclaimed) console.log(['daemon', 'reclaimed', task.id].join(' '));
+      for (const task of swept.exhausted) console.log(['daemon', 'giving-up', task.id].join(' '));
+    }
     const task = nextQueuedTask(queue);
     if (!task) {
       console.log(['daemon', String(index), 'no-queued-task', 'stop'].join(' '));
@@ -95,18 +161,40 @@ export async function startDaemon(options: DaemonOptions): Promise<void> {
       continue;
     }
 
-    queue = markQueueTask(queue, task.id, 'running');
+    // 租约要长于单任务超时，否则正常执行中的任务会被误判为过期。
+    queue = markQueueTask(queue, task.id, 'running', {
+      leaseMs: Math.max(DEFAULT_LEASE_MS, taskTimeoutMs + 60_000),
+    });
     await writeQueue(options.projectRoot, queue);
+    const taskStartedAt = Date.now();
     const outcome = await runFlowRun(runner, {
       projectRoot: options.projectRoot,
       agentId: options.agentId,
       model: options.model,
+      timeoutMs: taskTimeoutMs,
     });
-    queue = markQueueTask(queue, task.id, outcome.result.exitCode === 0 ? 'done' : 'failed');
+    const elapsedMs = Date.now() - taskStartedAt;
+    const succeeded = outcome.result.exitCode === 0;
+    const gaveUp = !succeeded && task.attempts + 1 >= maxAttempts;
+    queue = markQueueTask(queue, task.id, succeeded ? 'done' : gaveUp ? 'failed' : 'queued');
     await writeQueue(options.projectRoot, queue);
-    console.log(['daemon', String(index), task.id, outcome.result.exitCode === 0 ? 'done' : 'failed'].join(' '));
+    await addBudgetUsage(options.projectRoot, elapsedMs);
+    console.log(
+      [
+        'daemon',
+        String(index),
+        task.id,
+        succeeded ? 'done' : 'failed',
+        outcome.result.timedOut ? 'timed-out' : '',
+        gaveUp ? '（已达重试上限，需人工介入）' : '',
+      ]
+        .filter(Boolean)
+        .join(' '),
+    );
     index += 1;
     if (budget.isExhausted()) break;
-    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    // 失败后退避：连续失败的尝试间隔递增，避免立刻重跑同一个必然失败的任务。
+    const backoff = succeeded ? intervalMs : Math.min(intervalMs * (task.attempts + 1), intervalMs * 4);
+    await new Promise((resolve) => setTimeout(resolve, backoff));
   }
 }
