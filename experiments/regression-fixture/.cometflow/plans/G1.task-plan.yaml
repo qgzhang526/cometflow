@@ -19,3 +19,4 @@ tasks:
     status: frozen
     anchor_hash: 9140a751b35e4374a2112b558172ef081307aefc9f30ab6728e709ab1859bcc1
     module: src/core
+plan_hash: 5f436633c339ad9e9b37e3d16445bb4a195daf8632a50a1ca925057c834904f2

@@ -29,6 +29,8 @@ export interface TaskPlan {
   goal: string;
   status: 'draft' | 'validated' | 'approved' | 'frozen';
   tasks: TaskRecord[];
+  /** 规范化内容哈希；由 writeTaskPlan 盖章，用于发现手工改写的计划。 */
+  plan_hash?: string;
 }
 
 export interface PlanFinding {

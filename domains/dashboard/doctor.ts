@@ -4,8 +4,10 @@ import { listSpecFiles } from '../spec/spec-index.js';
 import { validateSpecs } from '../spec/spec-validate.js';
 import { verifySpecIntegrity } from '../spec/spec-verify.js';
 import { listIncompleteSpecTransactions } from '../workflow/change-execution.js';
+import { listPendingTransitions } from '../workflow/change-transition-journal.js';
 import { listChangeStates } from '../workflow/change-list.js';
 import { loadProjectContext, validateProjectContext } from '../project/context.js';
+import { findOrphanTempFiles, removeOrphanTempFiles } from '../../platform/fs/atomic-write.js';
 import { collectProjectStatus } from './collector.js';
 
 export interface DoctorFinding {
@@ -23,7 +25,12 @@ async function exists(filePath: string): Promise<boolean> {
   return fs.access(filePath).then(() => true, () => false);
 }
 
-export async function runDoctor(projectRoot: string): Promise<DoctorReport> {
+export interface DoctorOptions {
+  /** 清理残留的原子写入临时文件（默认只报告不删除）。 */
+  cleanTemp?: boolean;
+}
+
+export async function runDoctor(projectRoot: string, options: DoctorOptions = {}): Promise<DoctorReport> {
   const findings: DoctorFinding[] = [];
 
   if (!(await exists(path.join(projectRoot, 'COMETFLOW.md')))) {
@@ -81,6 +88,52 @@ export async function runDoctor(projectRoot: string): Promise<DoctorReport> {
         ')：检查 specs/ 是否处于中间态，备份位于 ' +
         tx.dir,
     });
+  }
+
+  // 残留临时文件 = 上次写到一半被打断。默认只报告，`--clean-temp` 才删除。
+  // 滞留的两阶段迁移 = 崩溃在「已 prepare、未完成」之间，需要人工确认状态归属。
+  for (const pending of await listPendingTransitions(projectRoot)) {
+    findings.push({
+      severity: 'error',
+      code: 'pending-change-transition',
+      message:
+        'change ' +
+        pending.change +
+        ' 有未完成的迁移 ' +
+        pending.from +
+        ' → ' +
+        pending.to +
+        '（event=' +
+        pending.event +
+        '，prepared ' +
+        pending.preparedAt +
+        '）；当前状态与该迁移不匹配，请人工确认后删除 ' +
+        pending.path,
+    });
+  }
+
+  const orphans = await findOrphanTempFiles(path.join(projectRoot, '.cometflow'));
+  if (orphans.length > 0) {
+    if (options.cleanTemp) {
+      const removed = await removeOrphanTempFiles(orphans);
+      findings.push({
+        severity: 'info',
+        code: 'cleaned-atomic-temp',
+        message: '已清理 ' + removed.length + ' 个残留临时文件',
+      });
+    } else {
+      findings.push({
+        severity: 'warning',
+        code: 'orphan-atomic-temp',
+        message:
+          '发现 ' +
+          orphans.length +
+          ' 个残留的写入临时文件（上次写入被中断）：' +
+          orphans.slice(0, 3).map((entry) => entry.path).join(', ') +
+          (orphans.length > 3 ? ' 等' : '') +
+          '；确认无需保留后运行 cometflow doctor . --clean-temp',
+      });
+    }
   }
 
   return { healthy: findings.every((finding) => finding.severity !== "error"), findings };

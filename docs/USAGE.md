@@ -1044,7 +1044,10 @@ token: <random>
 
 ```bash
 cometflow status [path]              # 目标/计划/变更/进化 的 JSON 摘要
-cometflow doctor [path] [--json]     # 健康检查（缺使命/上下文/spec 错误/无计划/多活跃 change）
+cometflow doctor [path] [--json] [--clean-temp]
+                                     # 健康检查：使命/上下文/spec 错误/无计划/多活跃 change
+                                     # + spec 完整性（plan/state 内容哈希）
+                                     # + 残留写入临时文件与滞留迁移；--clean-temp 才删除
 cometflow dashboard [path] [--port]  # 只读 Dashboard（默认 4321，暴露 /api/status）
 cometflow project migrate [path]     # NIGHTSHIFT.md → COMETFLOW.md；.nightshift/config → .cometflow/config.yaml
 cometflow hook check <target> [path] --event write|edit   # 写保护判定

@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { readTextFile } from '../../platform/fs/read-file.js';
+import { atomicWriteText } from '../../platform/fs/atomic-write.js';
 import { listSpecFiles } from './spec-index.js';
 import { hashSpecText } from './spec-hash.js';
 
@@ -47,8 +48,7 @@ export async function computeSpecLock(projectRoot: string): Promise<SpecLock> {
 
 export async function writeSpecLock(projectRoot: string, lock: SpecLock): Promise<string> {
   const filePath = specLockPath(projectRoot);
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, JSON.stringify(lock, null, 2));
+  await atomicWriteText(filePath, JSON.stringify(lock, null, 2));
   return filePath;
 }
 

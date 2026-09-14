@@ -2,6 +2,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { parse, stringify } from 'yaml';
 import { readTextFile } from '../../platform/fs/read-file.js';
+import { atomicWriteText } from '../../platform/fs/atomic-write.js';
 
 export interface ProjectContext {
   schema: 'cometflow.project-context.v1';
@@ -146,8 +147,7 @@ export async function syncProjectContext(projectRoot: string): Promise<{ context
   const context = parseProjectContext(markdown);
   const errors = validateProjectContext(context);
   const filePath = projectContextPath(projectRoot);
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, stringify(context));
+  await atomicWriteText(filePath, stringify(context));
   return { context, written: filePath, errors };
 }
 

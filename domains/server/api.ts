@@ -37,7 +37,7 @@ import { listChangeStates } from '../workflow/change-list.js';
 import { createChangeFromTask } from '../workflow/change-create.js';
 import { archiveChange, runChange, verifyChange } from '../workflow/change-execution.js';
 import { applyChangeTransition } from '../workflow/change-transitions.js';
-import { readChangeState, writeChangeState } from '../workflow/change-store.js';
+import { commitTransition, readChangeState } from '../workflow/change-store.js';
 import { resumeChange } from '../workflow/change-resume.js';
 import type { ChangeEvent } from '../workflow/change-types.js';
 import {
@@ -517,7 +517,7 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
       const body = await readJsonBody(req);
       const state = await readChangeState(root, segments[1]);
       const next = applyChangeTransition(state, stringField(body.event) as ChangeEvent);
-      const filePath = await writeChangeState(root, next);
+      const filePath = await commitTransition(root, stringField(body.event) as ChangeEvent, state, next);
       jobs.stateChanged(projectId, '/api/changes/' + segments[1]);
       sendOk(res, { change: next, written: filePath });
       return true;

@@ -1,6 +1,6 @@
 # Comet 借鉴加固计划（012 的 9 项）
 
-状态：待开始
+状态：H1 已完成（M1 达成），H2/H3 待开始
 来源：[012-comet-borrowings.md](../design/012-comet-borrowings.md) 第二节「建议后续」
 前置依赖：ADR 0012（spec 版本即产物）、ADR 0013（验收可执行且不可自证）
 
@@ -21,9 +21,9 @@
 
 | 012 编号 | 机制 | 价值排序 | 批次 | 规模 |
 |---|---|---|---|---|
-| 12 | 原子写入（fsync + rename） | 5 | H1 | M |
-| 11 | 两阶段状态迁移日志 | 4 | H1 | M |
-| 8 | 规范 JSON 哈希（带域标签） | 1 | H1 | S |
+| 12 | 原子写入（fsync + rename） | 5 | H1 ✅ | M |
+| 11 | 两阶段状态迁移日志 | 4 | H1 ✅ | M |
+| 8 | 规范 JSON 哈希（带域标签） | 1 | H1 ✅ | S |
 | 9 | 快照 manifest 记录 omission | 2 | H2 | S |
 | 13 | 凭证脱敏 | 6 | H2 | S |
 | 16 | 证据保留上限 | 9 | H2 | M |
@@ -35,27 +35,37 @@
 
 ## 批次 H1：写入与状态可靠性
 
-### H1-1 原子写入（012 #12）
+### H1-1 原子写入（012 #12）✅ 已完成
 
 - **目标**：任何状态文件在写入过程中被中断，读到的要么是旧内容、要么是新内容，不存在截断或半写。
 - **落点**：新增 `platform/fs/atomic-write.ts`（写临时文件 → fsync → rename → fsync 目录）；替换 `change-store.writeChangeState`、`task-plan-store.writeTaskPlan`、`spec-version.writeSpecHistory`、`implementation-scope` 基线、`change-spec-baseline`、`change-journal` 的追加写入。
 - **验收标准**：单测模拟「临时文件已写、rename 前失败」，目标文件保持旧内容且无残留临时文件；`doctor` 能列出孤儿临时文件并提供清理。
 - **风险**：Windows 与 Linux 的 rename 覆盖语义不同，需要在两个平台各跑一次回归；目录 fsync 在 Windows 上会失败，需要按平台降级。
+- **实现**：`platform/fs/atomic-write.ts`（含 `renameWithRetry` 处理 Windows 的 EPERM/EBUSY），接入 change 状态、任务计划、spec 版本 blob、spec-lock、spec 基线、实现范围基线、审计流水与 project-context。
+- **证据**：`test/platform/atomic-write.test.ts`（7 例，含并发读期间不间断、提交前失败保留旧内容、孤儿临时文件识别与清理）。
 
-### H1-2 两阶段状态迁移日志（012 #11）
+### H1-2 两阶段状态迁移日志（012 #11）✅ 已完成
 
 - **目标**：`comet-state.yaml` 的每一次迁移都可恢复，崩溃后不需要人工判断「停在哪一半」。
 - **落点**：新增 `domains/workflow/change-transition-journal.ts`；`change-transitions.ts` 改为 prepare → apply → continue 三段式；`change-store` 读取时先 settle 未完成迁移。
 - **验收标准**：单测在 prepare 之后、apply 之前注入中断，下一次读取能自动补完（或回退）并留下 journal 记录；`doctor` 对滞留的 pending 迁移给出 error。
 - **依赖**：H1-1（日志条目本身必须原子落盘）。
 - **风险**：迁移从「纯函数 + 覆盖写」变成「有副作用的流程」，需要保证重复执行幂等。
+- **实现**：`domains/workflow/change-transition-journal.ts`；`change transition`、`run`、`verify`、`archive` 与 serve API 全部改走 `commitTransition`，`readChangeState` 读取前自动收敛。
+- **证据**：`test/domains/change-transition-journal.test.ts`（5 例，含写状态前后两种崩溃、冲突交由 doctor、重复收敛幂等）。
 
-### H1-3 规范 JSON 哈希（012 #8）
+### H1-3 规范 JSON 哈希（012 #8）✅ 已完成
 
 - **目标**：结构化状态有确定的内容身份，可以精确回答「哪一版计划/哪一版 change 状态」。
 - **落点**：新增 `domains/state/canonical-hash.ts`（稳定键序 + 域标签，参考 comet `native-canonical-hash`）；`plan freeze` 记录 `plan_hash`；`change new` 记录 `state_hash`；`spec verify` / `change verify` 校验计划与状态未被静默改写。
 - **验收标准**：键顺序与空白不同的等价对象得到同一哈希；不同域标签的相同内容得到不同哈希；单测覆盖数组顺序敏感、缺失字段、非 JSON 值报错。
 - **风险**：`plan_hash` 的引入会让历史 plan 文件在校验时缺字段，需要像 `anchor_hash` 那样对老数据降级为警告。
+- **实现**：`domains/state/canonical-hash.ts`（键序无关、数组保序、域标签分隔、拒绝非 JSON 值）；`writeTaskPlan` / `writeChangeState` 写盘即盖章，`spec verify` 新增 `plan-integrity` 与 `change-state-integrity`。
+- **证据**：`test/domains/canonical-hash.test.ts`（9 例，含手工改写被检出、老数据降级）。
+
+### H1 附带修复
+
+- 老 change 没有实现范围基线时，`change scope` 曾把仓库内每个文件都算成「越界新增」；现在明确报告「无法判定实现范围」，不再产出误导性结论。
 
 ---
 
@@ -113,7 +123,7 @@
 
 | 里程碑 | 内容 | 完成标志 |
 |---|---|---|
-| M1 | H1 全部落地 | 崩溃注入单测通过；`doctor` 能识别孤儿临时文件与滞留迁移；plan/state 有内容哈希 |
+| M1 | H1 全部落地 ✅ | 崩溃注入单测通过；`doctor` 能识别孤儿临时文件与滞留迁移；plan/state 有内容哈希（48 测试文件 / 230 例） |
 | M2 | H2 全部落地 | 快照 omission 可见；脱敏单测覆盖常见凭证形态；journal 轮转与 `gc` 可用 |
 | M3 | H3 全部落地 | 停滞自动停机；分支漂移阻断；多 change 场景按指针精确路由 |
 

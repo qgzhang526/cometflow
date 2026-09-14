@@ -1,6 +1,8 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { parse, stringify } from 'yaml';
+import { atomicWriteText } from '../../platform/fs/atomic-write.js';
+import { hashTaskPlan } from '../state/canonical-hash.js';
 import type { TaskPlan } from './types.js';
 
 export function planFilePath(projectRoot: string, goalId: string): string {
@@ -15,8 +17,9 @@ export async function readTaskPlan(projectRoot: string, goalId: string): Promise
 
 export async function writeTaskPlan(projectRoot: string, plan: TaskPlan): Promise<string> {
   const filePath = planFilePath(projectRoot, plan.goal);
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, stringify(plan));
+  // 写盘即盖章：先算内容哈希，再连同哈希一起落盘（哈希本身不参与计算）。
+  const stamped: TaskPlan = { ...plan, plan_hash: hashTaskPlan(plan as unknown as Record<string, unknown>) };
+  await atomicWriteText(filePath, stringify(stamped));
   return filePath;
 }
 

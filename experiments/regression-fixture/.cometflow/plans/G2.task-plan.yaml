@@ -19,3 +19,4 @@ tasks:
     status: frozen
     anchor_hash: f3020fd52b05b90ef6d62dc47538329ab11e7c4fadc82dbbdd4f2d59bbea2b41
     module: src/auth
+plan_hash: 288493f2f7b6300809533cb117d9dabeaa98489dc33ddd8c2168ec55cb761eb4

@@ -9,11 +9,13 @@ echo "== read-only checks =="
 $CF doctor .
 $CF context sync .
 $CF spec validate .
+$CF spec verify .
 $CF spec scaffold --list .
 $CF spec drift .
 $CF change list --all .
 $CF evolve review-list .
 $CF status .
+$CF doctor . --clean-temp
 $ROOT/node_modules/.bin/tsx $ROOT/scripts/dashboard-smoke.ts .
 
 echo "== mutating checks in temp copy =="
@@ -48,6 +50,16 @@ $CF bundle distribute . --platform codex
 $CF change run build-change . --agent mock
 $CF change verify verify-change .
 $CF change archive archive-change .
+
+# 两阶段迁移：正常提交后不应残留 pending 记录，spec verify 必须仍然干净
+test -f .cometflow/runtime/changes/shape-change/transition-pending.json && {
+  echo "pending transition left behind"; exit 1;
+}
+$CF change transition shape-change confirm-acceptance .
+test ! -f .cometflow/runtime/changes/shape-change/transition-pending.json || {
+  echo "pending transition not cleared"; exit 1;
+}
+$CF spec verify .
 
 $CF classic status classic-open .
 $CF classic transition classic-open open-complete .

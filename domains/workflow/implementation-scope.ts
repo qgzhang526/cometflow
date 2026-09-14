@@ -2,6 +2,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { toPosix } from '../../platform/paths/relative.js';
 import { readTextFile } from '../../platform/fs/read-file.js';
+import { atomicWriteText } from '../../platform/fs/atomic-write.js';
 import { hashSpecText } from '../spec/spec-hash.js';
 import { readProjectConfig } from '../project/config.js';
 import { loadProjectContext } from '../project/context.js';
@@ -159,8 +160,7 @@ export async function captureImplementationBaseline(
     files: state.files,
   };
   const filePath = implementationBaselinePath(projectRoot, name);
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, JSON.stringify(baseline, null, 2));
+  await atomicWriteText(filePath, JSON.stringify(baseline, null, 2));
   return baseline;
 }
 
@@ -235,7 +235,24 @@ export async function collectImplementationScope(
   const current = { files: {} as Record<string, ImplementationFileIdentity>, complete: true, count: 0 };
   await walk(projectRoot, projectRoot, current);
 
-  const baselineFiles = baseline?.files ?? {};
+  // 没有基线就等于没有参照物：不能拿「空快照」去比，否则仓库里每个文件都会被算成越界新增。
+  // 这类 change（在实现范围机制之前创建）只能报告「无法判定」，把判断权交回给人。
+  if (baseline === null) {
+    return {
+      schema: IMPLEMENTATION_SCOPE_SCHEMA,
+      change: name,
+      module: options.module,
+      allow,
+      baseline_captured_at: null,
+      complete: false,
+      file_count: Object.keys(current.files).length,
+      changes: [],
+      attributed: [],
+      unattributed: [],
+    };
+  }
+
+  const baselineFiles = baseline.files;
   const changes: ImplementationChange[] = [];
   const paths = new Set([...Object.keys(baselineFiles), ...Object.keys(current.files)]);
 
@@ -263,8 +280,8 @@ export async function collectImplementationScope(
     module: options.module,
     allow,
     baseline_captured_at: baseline?.captured_at ?? null,
-    // baseline 缺失或不完整时不能宣称范围完整（否则会把「没比对过」当成「没越界」）。
-    complete: Boolean(baseline) && baseline!.complete && current.complete && unattributed.length === 0,
+    // baseline 不完整时不能宣称范围完整（否则会把「没比对过」当成「没越界」）。
+    complete: baseline.complete && current.complete && unattributed.length === 0,
     file_count: Object.keys(current.files).length,
     changes,
     attributed,

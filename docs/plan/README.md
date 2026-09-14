@@ -19,6 +19,7 @@
 | 计划 | 目标 | 状态 | 详细文档 |
 |---|---|---|---|
 | Comet 借鉴加固 | 落地 012 的 9 项：原子写入、两阶段迁移、规范哈希、快照 omission、脱敏、证据上限、有界修复循环、git 来源绑定、Hook 路由 | 待开始 | [comet-hardening-plan.md](./comet-hardening-plan.md) |
+| Web 前端补齐 | 收敛「后端有能力、前端看不见」的差异：修 P0 正确性缺陷，补齐 spec 内核与 change 审计的可视化 | 调研完成，待实施 | [web-ui-enrichment-plan.md](./web-ui-enrichment-plan.md) |
 
 ## 阶段顺序原则
 

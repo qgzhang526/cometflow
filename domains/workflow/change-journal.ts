@@ -1,5 +1,6 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
+import { appendLineAtomic } from '../../platform/fs/atomic-write.js';
 
 export const CHANGE_JOURNAL_SCHEMA = 'cometflow.change-journal.v1';
 
@@ -12,6 +13,8 @@ export type ChangeJournalEventType =
   | 'verify-started'
   | 'verify-result'
   | 'rebase'
+  | 'transition'
+  | 'transition-settled'
   | 'archive-started'
   | 'spec-applied'
   | 'spec-version-recorded'
@@ -54,8 +57,7 @@ export async function appendChangeEvent(
     ...(Object.keys(data).length > 0 ? { data } : {}),
   };
   const filePath = changeJournalPath(projectRoot, name);
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.appendFile(filePath, JSON.stringify(record) + '\n');
+  await appendLineAtomic(filePath, JSON.stringify(record) + '\n');
   return record;
 }
 

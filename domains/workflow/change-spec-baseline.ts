@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { pathExists, readTextFile } from '../../platform/fs/read-file.js';
+import { atomicWriteText } from '../../platform/fs/atomic-write.js';
 import { listSpecFiles } from '../spec/spec-index.js';
 import { hashSpecText } from '../spec/spec-hash.js';
 
@@ -48,8 +49,7 @@ export async function captureChangeSpecBaseline(
     files,
   };
   const filePath = changeSpecBaselinePath(projectRoot, name);
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, JSON.stringify(baseline, null, 2));
+  await atomicWriteText(filePath, JSON.stringify(baseline, null, 2));
   return baseline;
 }
 

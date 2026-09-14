@@ -11,7 +11,7 @@ import { hashSpecText } from '../spec/spec-hash.js';
 import { readSpecBlob, recordSpecVersion, refreshSpecBaseline } from '../spec/spec-version.js';
 import { readTextFile } from '../../platform/fs/read-file.js';
 import { readProjectConfig, type VerificationMode } from '../project/config.js';
-import { readChangeState, writeChangeState } from './change-store.js';
+import { commitTransition, readChangeState, writeChangeState } from './change-store.js';
 import { applyChangeTransition } from './change-transitions.js';
 import { appendChangeEvent } from './change-journal.js';
 import { runAcceptanceChecks, type AcceptanceCheckReport } from './change-checks.js';
@@ -157,7 +157,7 @@ export async function runChange(projectRoot: string, name: string, runner: Agent
     return { state, agentExitCode: result.exitCode };
   }
   const next = applyChangeTransition(state, 'submit-candidate');
-  await writeChangeState(projectRoot, next);
+  await commitTransition(projectRoot, 'submit-candidate', state, next);
   await appendChangeEvent(projectRoot, name, 'run-completed', {
     agent: runner.id,
     exitCode: result.exitCode,
@@ -355,7 +355,7 @@ export async function verifyChange(
   }, { phase: state.phase, now: options.now });
 
   const next = applyChangeTransition(state, reportPassed ? 'verify-pass' : 'verify-fail');
-  await writeChangeState(projectRoot, next);
+  await commitTransition(projectRoot, reportPassed ? 'verify-pass' : 'verify-fail', state, next);
   return { state: next, reportPassed, verdicts, checks, scope, verifierAgent };
 }
 
@@ -680,7 +680,7 @@ export async function archiveChange(projectRoot: string, name: string): Promise<
     const applied = refreshed.lock.files.find((entry) => entry.path === state.spec_ref);
     if (applied) next.spec_hash = applied.hash;
   }
-  await writeChangeState(projectRoot, next);
+  await commitTransition(projectRoot, 'archive-complete', state, next);
   await appendChangeEvent(projectRoot, name, 'archive-completed', {
     appliedSpecs,
     versions: appliedVersions,

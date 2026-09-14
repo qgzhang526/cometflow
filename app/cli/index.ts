@@ -324,6 +324,7 @@ program
   .command('doctor [path]')
   .description('Diagnose CometFlow project health')
   .option('--json', 'Output as JSON')
+  .option('--clean-temp', 'Remove leftover atomic-write temporary files')
   .action(async (targetPath = '.', options) => {
     await doctorCommand(targetPath, options);
   });

@@ -64,17 +64,17 @@ CometFlow 的 `verification.mode` 提供三档：
 
 ## 二、建议后续（未实施）
 
-| # | comet 机制 | 为什么值得做 |
-|---|---|---|
-| 8 | 结构化状态用 `canonicalHash(tag, value)` | 现在 plan/change 状态只有文件哈希；带域标签的规范 JSON 哈希可以精确回答「哪一版计划/状态」，也能做字段级 CAS |
-| 9 | 快照 manifest 记录 omission | 我们跳过超大文件却没有记录，`complete` 只能靠猜；comet 把每一项省略都写进 manifest |
-| 10 | 有界修复循环 + 停滞检测 | `verify-fail` 现在无条件回 build，可能反复失败；comet 在无进展时停机交还人工 |
-| 11 | 两阶段状态迁移日志 | `comet-state.yaml` 目前直接覆盖写；崩溃可能停在中间态 |
-| 12 | 原子写入（fsync + rename） | 我们全部用 `writeFile`，掉电/被杀可能写出截断文件 |
-| 13 | 凭证脱敏 | journal / 提示词可能带出 token；comet 有 `native-redaction` |
-| 14 | git 来源绑定 | 记录 change 的 base commit，分支漂移时阻止推进 |
-| 15 | Hook Router 单一归属 | 我们用「有多个 active change 就拒绝」，comet 用 current-change 指针路由且歧义时 fail-closed |
-| 16 | 证据保留上限 | journal / verification.md / evidence 会无限增长，需要按大小或条数裁剪 |
+| # | comet 机制 | 状态 | 落点 / 说明 |
+|---|---|---|---|
+| 8 | 结构化状态用 `canonicalHash(tag, value)` | 已落地 | `domains/state/canonical-hash.ts`；计划与 change 状态盖 `plan_hash` / `state_hash`，`spec verify` 校验 |
+| 9 | 快照 manifest 记录 omission | 待办（H2） | 跳过超大文件却没有记录，`complete` 只能靠猜 |
+| 10 | 有界修复循环 + 停滞检测 | 待办（H3） | `verify-fail` 现在无条件回 build，可能反复失败 |
+| 11 | 两阶段状态迁移日志 | 已落地 | `domains/workflow/change-transition-journal.ts`；prepare → 写状态 → 记账 → 清记录，读取前自动收敛 |
+| 12 | 原子写入（fsync + rename） | 已落地 | `platform/fs/atomic-write.ts`；rename 在 Windows 上做有界重试，`doctor` 报告并清理残留 |
+| 13 | 凭证脱敏 | 待办（H2） | journal / 提示词可能带出 token |
+| 14 | git 来源绑定 | 待办（H3） | 记录 change 的 base commit，分支漂移时阻止推进 |
+| 15 | Hook Router 单一归属 | 待办（H3） | 我们用「有多个 active change 就拒绝」，comet 用 current-change 指针路由 |
+| 16 | 证据保留上限 | 待办（H2） | journal / verification.md / evidence 会无限增长 |
 
 ## 三、明确不照搬
 

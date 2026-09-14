@@ -38,3 +38,4 @@
 | [0011-init-kind-scaffolding.md](../decisions/0011-init-kind-scaffolding.md) | Init 按项目类型裁剪生成 spec kind |
 | [0012-spec-version-as-artifact.md](../decisions/0012-spec-version-as-artifact.md) | spec 内容是可寻址产物，版本引用可回放 |
 | [0013-verification-must-be-executable.md](../decisions/0013-verification-must-be-executable.md) | 验收必须可执行，且不能由实现者自证 |
+| [0014-atomic-and-recoverable-state.md](../decisions/0014-atomic-and-recoverable-state.md) | 状态写入必须原子，迁移必须可恢复 |

@@ -2,6 +2,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { readTextFile } from '../../platform/fs/read-file.js';
 import { toPosix } from '../../platform/paths/relative.js';
+import { atomicWriteText } from '../../platform/fs/atomic-write.js';
 import { hashSpecText, normalizeSpecText } from './spec-hash.js';
 import { listSpecFiles } from './spec-index.js';
 import { computeSpecLock, writeSpecLock, type SpecLock } from './spec-lock.js';
@@ -110,8 +111,7 @@ export async function readSpecHistory(projectRoot: string): Promise<SpecHistory>
 
 async function writeSpecHistory(projectRoot: string, history: SpecHistory): Promise<string> {
   const filePath = specHistoryPath(projectRoot);
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, JSON.stringify(history, null, 2));
+  await atomicWriteText(filePath, JSON.stringify(history, null, 2));
   return filePath;
 }
 
@@ -154,8 +154,8 @@ export async function storeSpecBlob(projectRoot: string, content: string): Promi
   const hash = hashSpecText(normalized);
   if (await resolveBlobPath(projectRoot, hash)) return hash;
   const blobPath = specVersionBlobPath(projectRoot, hash);
-  await fs.mkdir(path.dirname(blobPath), { recursive: true });
-  await fs.writeFile(blobPath, normalized);
+  // 内容寻址：半写的 blob 会让「按冻结版本重建」永久失效，必须原子落盘。
+  await atomicWriteText(blobPath, normalized);
   return hash;
 }
 

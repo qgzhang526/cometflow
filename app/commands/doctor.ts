@@ -1,9 +1,12 @@
 import path from 'node:path';
 import { runDoctor } from '../../domains/dashboard/doctor.js';
 
-export async function doctorCommand(targetPath: string, options: { json?: boolean }): Promise<void> {
+export async function doctorCommand(
+  targetPath: string,
+  options: { json?: boolean; cleanTemp?: boolean } = {},
+): Promise<void> {
   const projectRoot = path.resolve(targetPath);
-  const report = await runDoctor(projectRoot);
+  const report = await runDoctor(projectRoot, { cleanTemp: options.cleanTemp === true });
   if (options.json) {
     console.log(JSON.stringify(report, null, 2));
     return;

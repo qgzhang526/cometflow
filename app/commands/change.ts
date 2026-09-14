@@ -14,7 +14,11 @@ import { readChangeJournal } from '../../domains/workflow/change-journal.js';
 import { readProjectConfig, type VerificationMode } from '../../domains/project/config.js';
 import { listChangeStates } from '../../domains/workflow/change-list.js';
 import { resumeChange } from '../../domains/workflow/change-resume.js';
-import { readChangeState, writeChangeState } from '../../domains/workflow/change-store.js';
+import {
+  commitTransition,
+  readChangeState,
+  writeChangeState,
+} from '../../domains/workflow/change-store.js';
 import { applyChangeTransition } from '../../domains/workflow/change-transitions.js';
 import type { ChangeEvent } from '../../domains/workflow/change-types.js';
 import { getBuiltInAgentRunner } from '../../platform/agents/registry.js';
@@ -141,6 +145,13 @@ export async function changeScopeCommand(
   console.log('change: ' + name);
   console.log('module: ' + (scope.module ?? '(unbounded)'));
   console.log('baseline: ' + (scope.baseline_captured_at ?? '(missing)'));
+  if (scope.baseline_captured_at === null) {
+    console.log(
+      '无法判定实现范围：该 change 创建于实现范围基线机制之前；如需校验请重建 change（或对该 change 重新执行 change rebase）。',
+    );
+    console.log('tracked files: ' + scope.file_count);
+    return;
+  }
   for (const change of scope.changes) {
     console.log(
       [change.kind, change.path, change.attributed ? '[' + change.attribution + ']' : '[OUTSIDE]'].join(' '),
@@ -207,6 +218,7 @@ export async function changeTransitionCommand(
   const projectRoot = root(targetPath);
   const state = await readChangeState(projectRoot, name);
   const next = applyChangeTransition(state, event as ChangeEvent);
-  const filePath = await writeChangeState(projectRoot, next);
+  // 阶段迁移走两阶段提交：崩溃后 `readChangeState` 能自动收敛。
+  const filePath = await commitTransition(projectRoot, event as ChangeEvent, state, next);
   console.log('wrote ' + filePath + ' phase=' + next.phase + ' archived=' + next.archived);
 }

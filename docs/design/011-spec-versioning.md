@@ -193,6 +193,8 @@ plan regenerate ──┘ 把受影响任务重新绑定到新版本，旧任务
 | `acceptance-drift` | 冻结的验收项（含文本）与当前不一致 |
 | `frozen-anchor-missing` | 任务引用的 spec 文件或 anchor 已不存在 |
 | `change-base-conflict` | 活跃 change 的 spec 基线已被外部改动 |
+| `plan-integrity` | 任务计划内容与写入时盖的 `plan_hash` 不符（被手工改写） |
+| `change-state-integrity` | change 状态内容与写入时盖的 `state_hash` 不符（被手工改写） |
 
 ## 重建代码的流程
 
@@ -231,4 +233,8 @@ reconciliation change 的自动创建仍按 004 保留为人工决策。
 
 验收可执行、实现范围强制、独立 Verifier、归档事务与审计流水已落地，细节见
 [012-comet-borrowings.md](./012-comet-borrowings.md) 与 [ADR 0013](../decisions/0013-verification-must-be-executable.md)；
-结构化状态哈希、快照 omission、有界修复循环、两阶段状态迁移、原子写入、凭证脱敏、git 来源绑定、证据保留上限列为后续项。
+
+可靠性加固的第一批也已落地（见 [ADR 0014](../decisions/0014-atomic-and-recoverable-state.md)）：
+原子写入（含 Windows rename 重试）、两阶段状态迁移日志、计划与 change 状态的内容哈希；
+快照 omission、有界修复循环、凭证脱敏、git 来源绑定、Hook 路由、证据保留上限仍为后续项
+（[comet-hardening-plan.md](../plan/comet-hardening-plan.md) 的 H2/H3）。

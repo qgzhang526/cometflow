@@ -28,4 +28,6 @@ export interface ChangeState {
   module?: string | null;
   created_at: string;
   archived: boolean;
+  /** 规范化内容哈希；由写入方盖章，用于发现被手工改写的 change 状态。 */
+  state_hash?: string;
 }

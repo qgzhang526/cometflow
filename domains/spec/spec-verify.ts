@@ -9,6 +9,7 @@ import { diffSpecs, readSpecLock } from './spec-lock.js';
 import { hasSpecBlob, latestSpecVersion, readSpecBlob } from './spec-version.js';
 import { listChangeStates } from '../workflow/change-list.js';
 import { diffChangeSpecBaseline, readChangeSpecBaseline } from '../workflow/change-spec-baseline.js';
+import { verifyChangeStateHash, verifyPlanHash } from '../state/canonical-hash.js';
 import type { TaskPlan } from '../task-plan/types.js';
 
 export const SPEC_VERIFY_SCHEMA = 'cometflow.spec-verify.v1';
@@ -22,7 +23,9 @@ export type SpecVerifyCode =
   | 'anchor-drift'
   | 'acceptance-drift'
   | 'frozen-anchor-missing'
-  | 'change-base-conflict';
+  | 'change-base-conflict'
+  | 'plan-integrity'
+  | 'change-state-integrity';
 
 export interface SpecVerifyFinding {
   severity: 'error' | 'warning';
@@ -143,6 +146,16 @@ export async function verifySpecIntegrity(projectRoot: string): Promise<SpecVeri
     } catch {
       continue;
     }
+    // 计划被手工改写（内容与 plan_hash 不符）意味着「冻结关联」不再可信。
+    const planIssue = verifyPlanHash(plan as unknown as Record<string, unknown>);
+    if (planIssue) {
+      findings.push({
+        severity: 'error',
+        code: 'plan-integrity',
+        subject: file,
+        message: planIssue + '；计划被改写后必须重新 validate/freeze，不要直接编辑机器生成文件',
+      });
+    }
     for (const task of plan.tasks) {
       if (task.status !== 'frozen' && task.status !== 'approved') continue;
       if (!task.spec_ref || !task.spec_hash) continue;
@@ -226,6 +239,15 @@ export async function verifySpecIntegrity(projectRoot: string): Promise<SpecVeri
   }
 
   for (const change of await listChangeStates(projectRoot)) {
+    const stateIssue = verifyChangeStateHash(change as unknown as Record<string, unknown>);
+    if (stateIssue) {
+      findings.push({
+        severity: 'error',
+        code: 'change-state-integrity',
+        subject: change.name,
+        message: stateIssue + '；change 状态被改写，请改用 cometflow change transition 推进',
+      });
+    }
     if (change.archived) continue;
     const baseline = await readChangeSpecBaseline(projectRoot, change.name);
     if (baseline) {
