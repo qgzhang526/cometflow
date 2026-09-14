@@ -62,6 +62,7 @@ import {
   specChecksCommand,
   specDiffCommand,
   specDriftCommand,
+  specGraphCommand,
   specImportCommand,
   specIndexCommand,
   specLockCommand,
@@ -609,6 +610,14 @@ spec
   .description('Generate .cometflow/spec-index projection files')
   .action(async (targetPath = '.') => {
     await specIndexCommand(targetPath);
+  });
+
+spec
+  .command('graph [path]')
+  .description('Print the cross-file reference graph (projection only; spec validate owns the gate)')
+  .option('--json', 'Output as JSON')
+  .action(async (targetPath = '.', options) => {
+    await specGraphCommand(targetPath, options);
   });
 
 spec

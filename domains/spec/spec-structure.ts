@@ -19,6 +19,104 @@ export interface FlowStep {
   apiRefs: ApiReference[];
 }
 
+export type SpecRefKind = 'model' | 'error' | 'config' | 'header' | 'status' | 'api';
+
+/**
+ * 一行里的一个可解析引用。
+ *
+ * `value` 是归一化后的引用目标（如 `Colony` / `E001` / `POST /buildings`），
+ * `start`/`end` 是它在**该行内**的位置（左闭右开），供编辑器高亮与图的定位使用。
+ * 引用图（spec-graph）与编辑器高亮（spec references）都从这里取值，避免两套语法。
+ */
+export interface SpecRefSpan {
+  kind: SpecRefKind;
+  value: string;
+  start: number;
+  end: number;
+}
+
+const API_CALL_PATTERN = /调用\s*`?([A-Z]{3,8})\s+([^\s`]+)`?/gu;
+
+/** 每个引用类型：匹配整段的模式 + 从匹配里取出「值」与它在行内的区间。 */
+const REF_RULES: Array<{
+  kind: SpecRefKind;
+  pattern: RegExp;
+  extract: (match: RegExpExecArray) => { value: string; start: number; end: number } | null;
+}> = [
+  {
+    kind: 'model',
+    pattern: /^\s*(?:[-*]\s+)?(?:模型|实体)[:：]\s*([^\s，,]+)/u,
+    extract: (match) => valueSpan(match, 1),
+  },
+  {
+    kind: 'error',
+    pattern: /^\s*(?:[-*]\s+)?(?:错误码|错误)[:：]\s*([A-Z0-9_]+)/u,
+    extract: (match) => valueSpan(match, 1),
+  },
+  {
+    kind: 'config',
+    pattern: /^\s*(?:[-*]\s+)?(?:配置键|配置)[:：]\s*([A-Za-z0-9_.]+)/u,
+    extract: (match) => valueSpan(match, 1),
+  },
+  {
+    kind: 'header',
+    pattern: /^\s*(?:[-*]\s+)?协议头[:：]\s*([^\s，,]+)/u,
+    extract: (match) => valueSpan(match, 1),
+  },
+  {
+    kind: 'status',
+    pattern: /^\s*(?:[-*]\s+)?状态码[:：]\s*(\d{3})/u,
+    extract: (match) => valueSpan(match, 1),
+  },
+  {
+    kind: 'api',
+    // 值归一化为 `METHOD /path`，与 capability 锚点标题的归一化结果一致，便于解析。
+    pattern: API_CALL_PATTERN,
+    extract: (match) => {
+      const methodStart = match.index + match[0].indexOf(match[1]);
+      const pathStart = match.index + match[0].lastIndexOf(match[2]);
+      return {
+        value: match[1].toUpperCase() + ' ' + match[2],
+        start: methodStart,
+        end: pathStart + match[2].length,
+      };
+    },
+  },
+];
+
+function valueSpan(match: RegExpExecArray, group: number): { value: string; start: number; end: number } | null {
+  const value = match[group];
+  if (value === undefined) return null;
+  const offset = match[0].lastIndexOf(value);
+  if (offset < 0) return null;
+  return { value, start: match.index + offset, end: match.index + offset + value.length };
+}
+
+/** 按出现顺序返回一行里的全部引用（同一位置只算一次）。 */
+export function extractRefSpans(line: string): SpecRefSpan[] {
+  const spans: SpecRefSpan[] = [];
+  for (const rule of REF_RULES) {
+    const pattern = new RegExp(rule.pattern.source, rule.pattern.flags.includes('g') ? rule.pattern.flags : rule.pattern.flags + 'g');
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(line)) !== null) {
+      const span = rule.extract(match);
+      if (span !== null) spans.push({ kind: rule.kind, ...span });
+      if (match[0] === '') pattern.lastIndex += 1;
+    }
+  }
+  return spans.sort((left, right) => left.start - right.start);
+}
+
+function valuesOfKind(content: string, kind: SpecRefKind): string[] {
+  const values: string[] = [];
+  for (const line of content.split(/\r?\n/u)) {
+    for (const span of extractRefSpans(line)) {
+      if (span.kind === kind) values.push(span.value);
+    }
+  }
+  return values;
+}
+
 export function extractEntities(content: string): EntityDef[] {
   const out: EntityDef[] = [];
   content.split(/\r?\n/u).forEach((line, index) => {
@@ -97,48 +195,23 @@ export function normalizeApiHeading(heading: string): string {
 
 // Explicit cross-file references, written as "模型：Name" / "错误码：CODE" / "配置：key".
 export function extractModelRefs(content: string): string[] {
-  const refs: string[] = [];
-  for (const line of content.split(/\r?\n/u)) {
-    const match = /^\s*(?:[-*]\s+)?(?:模型|实体)[:：]\s*([^\s，,]+)/u.exec(line);
-    if (match) refs.push(match[1]);
-  }
-  return refs;
+  return valuesOfKind(content, 'model');
 }
 
 export function extractErrorCodeRefs(content: string): string[] {
-  const refs: string[] = [];
-  for (const line of content.split(/\r?\n/u)) {
-    const match = /^\s*(?:[-*]\s+)?(?:错误码|错误)[:：]\s*([A-Z0-9_]+)/u.exec(line);
-    if (match) refs.push(match[1]);
-  }
-  return refs;
+  return valuesOfKind(content, 'error');
 }
 
 export function extractConfigKeyRefs(content: string): string[] {
-  const refs: string[] = [];
-  for (const line of content.split(/\r?\n/u)) {
-    const match = /^\s*(?:[-*]\s+)?(?:配置键|配置)[:：]\s*([A-Za-z0-9_.]+)/u.exec(line);
-    if (match) refs.push(match[1]);
-  }
-  return refs;
+  return valuesOfKind(content, 'config');
 }
 
 export function extractHeaderRefs(content: string): string[] {
-  const refs: string[] = [];
-  for (const line of content.split(/\r?\n/u)) {
-    const match = /^\s*(?:[-*]\s+)?协议头[:：]\s*([^\s，,]+)/u.exec(line);
-    if (match) refs.push(match[1]);
-  }
-  return refs;
+  return valuesOfKind(content, 'header');
 }
 
 export function extractStatusRefs(content: string): string[] {
-  const refs: string[] = [];
-  for (const line of content.split(/\r?\n/u)) {
-    const match = /^\s*(?:[-*]\s+)?状态码[:：]\s*(\d{3})/u.exec(line);
-    if (match) refs.push(match[1]);
-  }
-  return refs;
+  return valuesOfKind(content, 'status');
 }
 
 function extractTableFirstColumn(content: string): string[] {
