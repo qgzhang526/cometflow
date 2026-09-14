@@ -44,3 +44,5 @@
 | [0017-git-provenance-binding.md](../decisions/0017-git-provenance-binding.md) | change 绑定 git 来源，漂移时阻断 |
 | [0018-current-change-routing.md](../decisions/0018-current-change-routing.md) | 多 change 并存时按 current-change 指针路由写入 |
 | [0019-web-client-vue-vite.md](../decisions/0019-web-client-vue-vite.md) | Web 客户端采用 Vue 3 + Vite + TypeScript，产物为 web/dist |
+| [0020-ui-edit-spec-semantics.md](../decisions/0020-ui-edit-spec-semantics.md) | UI 编辑 spec：保存即版本，草稿只有 change 提案一种形态 |
+| [0021-concurrent-write-protection.md](../decisions/0021-concurrent-write-protection.md) | 并发写保护：单文件 CAS + 多文件锁，warn 是有期限的过渡态 |
