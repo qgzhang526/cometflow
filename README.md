@@ -59,7 +59,7 @@ pnpm build          # tsc（CLI）+ vite build（Web 客户端 → web/dist）
 pnpm package-e2e
 ```
 
-Web 客户端（Vue 3 + Vite + TypeScript，ADR 0016）：
+Web 客户端（Vue 3 + Vite + TypeScript，ADR 0019）：
 
 ```bash
 pnpm web:dev        # 开发：Vite dev server，/api 代理到本机 serve

@@ -1,4 +1,4 @@
-# ADR 0016：Web 客户端采用 Vue 3 + Vite + TypeScript
+# ADR 0019：Web 客户端采用 Vue 3 + Vite + TypeScript
 
 状态：已批准
 日期：2026-09-14

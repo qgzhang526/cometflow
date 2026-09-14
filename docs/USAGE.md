@@ -1120,7 +1120,7 @@ token: <random>
 - 设置页保存是**增量合并**：只渲染部分字段的界面不会删掉 `verification` / `scope` 等未展示配置，
   也不会把全局默认固化进项目文件；`GET .../config/project` 可查看项目层真正覆盖了哪些键。
 
-前端为 Vue 3 + Vite + TypeScript（ADR 0016）。开发与构建：
+前端为 Vue 3 + Vite + TypeScript（ADR 0019）。开发与构建：
 
 ```bash
 pnpm install                 # 同时安装 CLI 与 Web 依赖
