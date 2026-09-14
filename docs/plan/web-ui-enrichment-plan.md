@@ -305,6 +305,9 @@ ADR 0013（验收必须可执行）、ADR 0014（状态原子可恢复）、[008
 
 ## 8. 开放问题（需要决策后再动手）
 
+> 本节五项与 §5 的 P2 收尾项已独立成 [web-ui-followup-plan.md](./web-ui-followup-plan.md)（N1–N6），
+> 本文只保留结论性记录。
+
 1. ~~**前端技术选型**~~：**已决策**——Vue 3 + Vite + TypeScript，见 ADR 0016；迁移与 W1 一并完成。
 2. **UI 是否有权改 canonical spec**：`POST/PUT /api/specs` 会立即 `refreshSpecBaseline`（登记新版本）。
    这是「UI 编辑即新版本」的强语义，需要确认是否要加草稿态。
