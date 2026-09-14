@@ -50,6 +50,14 @@ export interface JobEvent {
   at: string;
 }
 
+/**
+ * 内存里保留的任务上限。
+ *
+ * serve 是长驻进程，任务只增不减会让「任务中心」越用越慢；超限时从**已结束**的任务里
+ * 淘汰最旧的，正在排队/运行的任务永远不动（淘汰它们等于丢证据）。
+ */
+export const MAX_RETAINED_JOBS = 200;
+
 export class JobManager {
   private jobs = new Map<string, JobRecord>();
   private listeners = new Set<(event: JobEvent) => void>();
@@ -67,7 +75,29 @@ export class JobManager {
     };
     this.jobs.set(job.id, job);
     this.emit({ type: 'job.queued', jobId: job.id, projectId, at: new Date().toISOString() });
+    this.evictFinished();
     return job;
+  }
+
+  private evictFinished(): void {
+    const finished = [...this.jobs.values()]
+      .filter((job) => job.status === 'succeeded' || job.status === 'failed')
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    const overflow = this.jobs.size - MAX_RETAINED_JOBS;
+    for (let index = 0; index < overflow && index < finished.length; index += 1) {
+      this.jobs.delete(finished[index].id);
+    }
+  }
+
+  /** 清理已结束的任务，返回清理条数；排队/运行中的任务不受影响。 */
+  clearFinished(): number {
+    let removed = 0;
+    for (const job of [...this.jobs.values()]) {
+      if (job.status !== 'succeeded' && job.status !== 'failed') continue;
+      this.jobs.delete(job.id);
+      removed += 1;
+    }
+    return removed;
   }
 
   get(id: string): JobRecord | undefined {

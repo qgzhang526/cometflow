@@ -243,6 +243,10 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
       sendOk(res, { jobs: jobs.list() });
       return true;
     }
+    if (pathname === '/api/jobs' && method === 'DELETE') {
+      sendOk(res, { removed: jobs.clearFinished() });
+      return true;
+    }
 
     const jobMatch = /^\/api\/jobs\/([^/]+)$/u.exec(pathname);
     if (jobMatch && method === 'GET') {
