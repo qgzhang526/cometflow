@@ -60,6 +60,18 @@
 - **Windows runner 较慢**：回归在双平台跑会拉长总时长；用 `concurrency` 取消旧运行来抵消。
 - **基线需要人工更新**：指标变好不会自动改基线，用 `--update-baseline` 显式更新并在提交里体现。
 
+## 维护记录
+
+- **2026-09-14 首轮 CI（run #1/#2/#3）**：三轮才绿，暴露的问题全部是「只在本机成立」的假设：
+  1. 两个测试硬编码开发机绝对路径 `D:/zqg/...`；
+  2. `spawn-shim` 用例测的是 Windows `.cmd` shim 解析，未按平台跳过；
+  3. `findOrphanTempFiles` 在 `maxAgeMs=0`（默认「不过滤」）时会漏报 mtime 略新于 `Date.now()` 的文件；
+  4. 两个测试硬编码了旧版版本仓路径 `.cometflow/spec-versions/`——本机因 fixture 里残留旧副本而通过，干净检出上直接失败。
+  第 4 条只有靠 **clean-room 复现**（`git clone` 到临时目录再跑同一条命令）才定位得到，本机全绿与 CI 红并存时这是最快的定位手段。
+- **action 版本**：`actions/checkout@v7` / `actions/setup-node@v7` / `pnpm/action-setup@v6`（均 `using: node24`），消除 Node 20 弃用警告；升级前已核对这三个版本仍支持本项目用到的 `node-version` / `cache: pnpm` / `version` 输入。
+- **手动触发**：workflow 增加 `workflow_dispatch`，重跑不必空提交。
+- **状态徽章**：README 顶部接入 CI badge。
+
 ## 完成状态
 
 已实施（除「GitHub 上首次运行」需推送后确认）。
