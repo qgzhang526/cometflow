@@ -10,19 +10,22 @@ import { ref } from 'vue';
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string;
+  /** 结构化错误细节（例如 spec 基线冲突的 conflicts 列表）。 */
+  readonly details: unknown;
 
-  constructor(message: string, status: number, code: string) {
+  constructor(message: string, status: number, code: string, details?: unknown) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
     this.code = code;
+    this.details = details;
   }
 }
 
 interface Envelope<T> {
   ok: boolean;
   data: T;
-  error?: { code: string; message: string };
+  error?: { code: string; message: string; details?: unknown };
 }
 
 const TOKEN_KEY = 'cometflow_token';
@@ -112,7 +115,7 @@ export async function api<T>(path: string, options: RequestOptions = {}): Promis
     if (response.status === 401) tokenRejected.value = true;
     // 失败请求带路径落一条 warn，便于在浏览器控制台定位是哪个端点在报错。
     console.warn('[api] ' + (options.method ?? 'GET') + ' ' + path + ' → ' + response.status + ' ' + message);
-    throw new ApiError(message, response.status, payload?.error?.code ?? 'http-error');
+    throw new ApiError(message, response.status, payload?.error?.code ?? 'http-error', payload?.error?.details);
   }
   return payload.data;
 }
