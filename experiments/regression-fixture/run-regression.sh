@@ -116,9 +116,15 @@ $CF classic transition classic-open archive-complete .
 $CF daemon start . --mode manual --budget 1 --safety-bundle
 
 
-# hook guard: multiple active changes must fail closed
-if $CF hook check src/core/index.ts . --event write; then
-  echo "hook guard expected denial"
+# hook guard：有指针时按指针路由，没有指针时必须 fail closed
+$CF change select stall-demo .
+if ! $CF hook check src/auth/index.ts . --event write; then
+  echo "pointer routing should allow a write inside the selected change module"
+  exit 1
+fi
+$CF change select stall-demo . --clear
+if $CF hook check src/auth/index.ts . --event write; then
+  echo "hook guard expected denial without a current-change pointer"
   exit 1
 fi
 echo "regression: PASS"

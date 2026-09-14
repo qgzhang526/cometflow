@@ -73,7 +73,7 @@ CometFlow 的 `verification.mode` 提供三档：
 | 12 | 原子写入（fsync + rename） | 已落地 | `platform/fs/atomic-write.ts`；rename 在 Windows 上做有界重试，`doctor` 报告并清理残留 |
 | 13 | 凭证脱敏 | 已落地 | `platform/io/redact.ts`；提示词用高置信档，落盘证据额外启用通用键值档 |
 | 14 | git 来源绑定 | 已落地 | `change new` 记录 `base_commit`；run/verify/archive 按祖先关系校验，回退/分叉阻断，`--allow-drift` 或 `git.allow_drift` 可显式放行并留痕 |
-| 15 | Hook Router 单一归属 | 待办（H3） | 我们用「有多个 active change 就拒绝」，comet 用 current-change 指针路由 |
+| 15 | Hook Router 单一归属 | 已落地 | `.cometflow/current-change.json` 指针 + `change select`；多 change 时按指针路由，无指针/指针失效一律 fail closed |
 | 16 | 证据保留上限 | 已落地 | journal 超阈值轮转（保留一代）+ `change gc [--apply]` 回收 runtime 证据，doctor 报告占用 |
 
 ## 三、明确不照搬

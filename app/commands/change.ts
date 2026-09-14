@@ -13,6 +13,7 @@ import {
 } from '../../domains/workflow/implementation-scope.js';
 import { readChangeJournal } from '../../domains/workflow/change-journal.js';
 import { checkGitDrift } from '../../domains/workflow/git-provenance.js';
+import { clearCurrentChange, readCurrentChange, selectCurrentChange } from '../../domains/workflow/current-change.js';
 import {
   applyEvidenceGc,
   collectEvidenceUsage,
@@ -92,6 +93,40 @@ export async function changeStatusCommand(name: string, targetPath: string): Pro
   const drift = await checkGitDrift(projectRoot, state);
   console.log(
     'git: ' + drift.status + (drift.blocking ? ' [BLOCKING]' : '') + ' — ' + drift.detail,
+  );
+  const pointer = await readCurrentChange(projectRoot);
+  console.log(
+    'current-change: ' +
+      (pointer ? pointer.change + ' (' + pointer.source + ')' : '(none)') +
+      (pointer && pointer.change === name ? '  ← 本 change' : ''),
+  );
+}
+
+/**
+ * 指定「当前 change」。
+ *
+ * 多个活跃 change 并存时，hook 无法自行判断一次写入归属谁；这条命令补上那份归属信息。
+ */
+export async function changeSelectCommand(
+  name: string,
+  targetPath: string,
+  options: { clear?: boolean } = {},
+): Promise<void> {
+  const projectRoot = root(targetPath);
+  if (options.clear === true) {
+    const cleared = await clearCurrentChange(projectRoot, name, { force: true });
+    console.log(cleared ? 'cleared current change' : '(no current change pointer)');
+    return;
+  }
+
+  const states = await listChangeStates(projectRoot);
+  const target = states.find((state) => state.name === name);
+  if (!target) throw new Error('Unknown change: ' + name);
+  if (target.archived) throw new Error('Change is archived and cannot be selected: ' + name);
+
+  const pointer = await selectCurrentChange(projectRoot, name, { source: 'manual' });
+  console.log(
+    'current change = ' + pointer.change + ' (phase=' + target.phase + ', module=' + (target.module ?? 'unbounded') + ')',
   );
 }
 

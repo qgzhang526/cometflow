@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgentRunner } from '../../platform/agents/types.js';
 import { runCommand } from '../../platform/process/spawn-command.js';
 import { generateTaskPlan } from '../../domains/task-plan/task-plan-generate.js';
@@ -61,6 +61,9 @@ const spec = [
 const changeName = 'email-login';
 let tmp: string;
 
+// 每个用例都要起若干 git 子进程；并行跑整个套件时 5s 默认超时不够用。
+vi.setConfig({ testTimeout: 30_000 });
+
 async function git(args: string[], cwd = tmp): Promise<string> {
   const result = await runCommand('git', args, { cwd, timeoutMs: 20_000 });
   if (result.exitCode !== 0) {
@@ -117,8 +120,26 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await fs.rm(tmp, { recursive: true, force: true });
+  await removeWithRetry(tmp);
 });
+
+/**
+ * Windows 上删除刚跑过 git 的临时目录会被系统句柄短暂占用（EBUSY/EPERM），
+ * 重试几次即可；仍失败时留下临时目录也不影响测试结论。
+ */
+async function removeWithRetry(directory: string): Promise<void> {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    try {
+      await fs.rm(directory, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code ?? '';
+      if (!['EBUSY', 'EPERM', 'ENOTEMPTY', 'EMFILE'].includes(code)) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 25 * (attempt + 1)));
+    }
+  }
+  await fs.rm(directory, { recursive: true, force: true }).catch(() => undefined);
+}
 
 describe('git provenance capture', () => {
   it('binds the change to the commit it started from', async () => {

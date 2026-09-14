@@ -14,6 +14,7 @@ import { readProjectConfig, type VerificationMode } from '../project/config.js';
 import { redactSecrets } from '../../platform/io/redact.js';
 import { canonicalHash } from '../state/canonical-hash.js';
 import { describeDriftFailure, enforceGitProvenance } from './git-provenance.js';
+import { clearCurrentChange } from './current-change.js';
 import { commitTransition, readChangeState, writeChangeState } from './change-store.js';
 import { applyChangeTransition } from './change-transitions.js';
 import { appendChangeEvent } from './change-journal.js';
@@ -829,6 +830,8 @@ export async function archiveChange(
     if (applied) next.spec_hash = applied.hash;
   }
   await commitTransition(projectRoot, 'archive-complete', state, next);
+  // 归档后把它从「当前 change」上摘掉，避免指针指向已结束的变更。
+  await clearCurrentChange(projectRoot, name);
   await appendChangeEvent(projectRoot, name, 'archive-completed', {
     appliedSpecs,
     versions: appliedVersions,

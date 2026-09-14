@@ -683,6 +683,26 @@ git:
 漂移的 change 会在 `doctor` 里报 `git-provenance-drift`。恢复路径是回到基准提交或从基准拉出分支重做；
 放行只应作为例外，且每次放行都会记进 `change journal`。
 
+### 5.11 多 change 并存：current-change 指针
+
+同时存在多个活跃 change 时，hook 无法判断一次写入属于谁，所以需要显式归属：
+
+```bash
+cometflow change select <name> .          # 指定当前 change
+cometflow change select <name> . --clear  # 清除（回到 fail-closed）
+```
+
+| 活跃 change 数 | 指针 | 行为 |
+|---|---|---|
+| 0 | — | 放行 |
+| 1 | 不需要 | 直接用那个 change（与只有一个 change 时一致） |
+| 多 | 有效 | 按指针那个 change 的 phase 与 module 判定 |
+| 多 | 缺失 | 拒绝 `multiple-active-changes`，提示运行 `change select` |
+| 多 | 指向已归档/不存在 | 拒绝 `stale-current-change`，提示重新指定 |
+
+`change new` 会自动把新建的 change 设为当前，`change archive` 归档后自动摘除；
+`change status` 会打印 `current-change:` 行便于确认归属。指针写在 `.cometflow/current-change.json`（机器状态，不入库）。
+
 Verifier 使用独立会话、只读提示词，必须对每一条验收项给出 `passed | failed | blocked` 与理由；重复、未知或遗漏任何一条，整份结论作废。失败的 check 不能被 Verifier 判成通过。
 
 ```bash

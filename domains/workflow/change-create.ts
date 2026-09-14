@@ -7,6 +7,7 @@ import { captureChangeSpecBaseline } from './change-spec-baseline.js';
 import { captureGitProvenance } from '../../platform/process/git.js';
 import { captureImplementationBaseline } from './implementation-scope.js';
 import { appendChangeEvent } from './change-journal.js';
+import { selectCurrentChange } from './current-change.js';
 import { changeDir, changeStateFile, writeChangeState } from './change-store.js';
 import type { ChangeState } from './change-types.js';
 
@@ -62,6 +63,8 @@ export async function createChangeFromTask(options: {
     archived: false,
   };
   await writeChangeState(options.projectRoot, state);
+  // 新建的 change 自动成为「当前 change」：多活跃 change 时 hook 靠它路由写入。
+  await selectCurrentChange(options.projectRoot, options.changeName, { source: 'auto' });
   await appendChangeEvent(options.projectRoot, options.changeName, 'change-created', {
     goal: options.goalId,
     task: options.taskId,

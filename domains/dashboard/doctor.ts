@@ -6,6 +6,7 @@ import { verifySpecIntegrity } from '../spec/spec-verify.js';
 import { listIncompleteSpecTransactions } from '../workflow/change-execution.js';
 import { listPendingTransitions } from '../workflow/change-transition-journal.js';
 import { checkGitDrift } from '../workflow/git-provenance.js';
+import { readCurrentChange } from '../workflow/current-change.js';
 import { listChangeStates } from '../workflow/change-list.js';
 import { loadProjectContext, validateProjectContext } from '../project/context.js';
 import { findOrphanTempFiles, removeOrphanTempFiles } from '../../platform/fs/atomic-write.js';
@@ -74,7 +75,20 @@ export async function runDoctor(projectRoot: string, options: DoctorOptions = {}
   }
   const activeChanges = (await listChangeStates(projectRoot)).filter((change) => !change.archived);
   if (activeChanges.length > 1) {
-    findings.push({ severity: 'warning', code: 'multiple-active-changes', message: activeChanges.length + ' active changes' });
+    const pointer = await readCurrentChange(projectRoot);
+    const pointsAtActive = pointer
+      ? activeChanges.some((change) => change.name === pointer.change)
+      : false;
+    findings.push({
+      severity: pointsAtActive ? 'info' : 'warning',
+      code: 'multiple-active-changes',
+      message:
+        activeChanges.length +
+        ' active changes' +
+        (pointsAtActive
+          ? '；current-change = ' + pointer!.change + '，hook 按该指针路由写入'
+          : '；未指定 current-change，hook 会拒绝归属不明的写入，运行 cometflow change select <name>'),
+    });
   }
 
   // git 来源漂移：历史回退/分叉会让 change 在错误的基础上继续推进。

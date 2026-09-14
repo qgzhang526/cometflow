@@ -1,6 +1,6 @@
 # Comet 借鉴加固计划（012 的 9 项）
 
-状态：H1、H2、H3-1、H3-2 已完成（M1、M2 达成），H3-3 待开始
+状态：H1、H2、H3 全部完成（M1、M2、M3 达成）
 来源：[012-comet-borrowings.md](../design/012-comet-borrowings.md) 第二节「建议后续」
 前置依赖：ADR 0012（spec 版本即产物）、ADR 0013（验收可执行且不可自证）
 
@@ -29,7 +29,7 @@
 | 16 | 证据保留上限 | 9 | H2 ✅ | M |
 | 10 | 有界修复循环 + 停滞检测 | 3 | H3 ✅ | M |
 | 14 | git 来源绑定 | 7 | H3 ✅ | M |
-| 15 | Hook Router 单一归属 | 8 | H3 | L |
+| 15 | Hook Router 单一归属 | 8 | H3 ✅ | L |
 
 ---
 
@@ -120,12 +120,14 @@
 - **实现**：新增 `platform/process/git.ts`（只读、永不抛错的 git 封装）与 `domains/workflow/git-provenance.ts`；`change new` 记录 `base_commit`/`base_branch`；run/verify/archive 推进前按祖先关系判定（ok / head-rewound / diverged），非 git、未绑定、基准缺失一律降级为提示；`--allow-drift` 与 `git.allow_drift` 可放行并写 `git-drift-overridden` 流水；`doctor` 报 `git-provenance-drift`。
 - **证据**：`test/domains/git-provenance.test.ts`（10 例：绑定、正常推进、历史回退、分叉、非 git 降级、未绑定、阻断与恢复路径、flag 放行、配置放行、doctor 报告）。
 
-### H3-3 Hook Router 单一归属（012 #15）
+### H3-3 Hook Router 单一归属（012 #15）✅ 已完成
 
 - **目标**：多个 active change 时不再一律拒绝，而是按「当前 change 指针」精确路由；指针缺失或失效时仍然 fail closed。
 - **落点**：新增 `.cometflow/current-change.json`（机器状态）；`hook check` 先读指针，命中则只按该 change 的 phase/module 判定；`change new` / `change transition` 自动维护指针；新增 `cometflow change select <name>`。
 - **验收标准**：两个 active change + 有效指针时，写入按指针 change 的规则判定（不再报 multiple-active-changes）；指针指向已归档/不存在的 change 时回退到 fail closed 并提示修复命令；单测覆盖三态。
 - **风险**：指针本身是新的可变状态，必须与 H1-1/H1-2 一起做，否则会引入新的半写风险。
+- **实现**：新增 `domains/workflow/current-change.ts`（原子写指针）；`change new` 自动选中、`change archive` 自动摘除、`change select [--clear]` 手动控制；hook 路由拆成 0/1/多 三态，多个时按指针取 change 的 phase 与 module，无指针或指针失效一律 fail closed 并给修复命令；`doctor` 在有指针时降级为 info。
+- **证据**：`test/domains/current-change.test.ts`（9 例：指针读写与损坏降级、多 change 按指针路由到正确模块、无指针拒绝、指针失效拒绝、单 change 忽略失效指针、创建即选中/归档即摘除、doctor 提示分级）。
 
 ---
 
@@ -135,7 +137,7 @@
 |---|---|---|
 | M1 | H1 全部落地 ✅ | 崩溃注入单测通过；`doctor` 能识别孤儿临时文件与滞留迁移；plan/state 有内容哈希（48 测试文件 / 230 例） |
 | M2 | H2 全部落地 ✅ | 快照 omission 可见；脱敏单测覆盖常见凭证形态；journal 轮转与 `gc` 可用（50 测试文件 / 250 例） |
-| M3 | H3 全部落地 | 停滞自动停机；分支漂移阻断；多 change 场景按指针精确路由 |
+| M3 | H3 全部落地 ✅ | 停滞自动停机；分支漂移阻断；多 change 场景按指针精确路由（55 测试文件 / 292 例） |
 
 ## 完成定义（DoD）
 

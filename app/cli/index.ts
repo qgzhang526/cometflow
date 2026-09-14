@@ -11,6 +11,7 @@ import {
   changeResumeCommand,
   changeRunCommand,
   changeScopeCommand,
+  changeSelectCommand,
   changeStatusCommand,
   changeTransitionCommand,
   changeUnblockCommand,
@@ -225,6 +226,14 @@ change
   .option('--note <text>', 'Why it is safe to retry')
   .action(async (name, targetPath = '.', options) => {
     await changeUnblockCommand(name, targetPath, options);
+  });
+
+change
+  .command('select <name> [path]')
+  .description('Set the current change used by the hook guard when several changes are active')
+  .option('--clear', 'Remove the current-change pointer')
+  .action(async (name, targetPath = '.', options) => {
+    await changeSelectCommand(name, targetPath, options);
   });
 
 change

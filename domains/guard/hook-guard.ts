@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { attributionFor, resolveScopeAllow } from '../workflow/implementation-scope.js';
 import { listChangeStates } from '../workflow/change-list.js';
+import { readCurrentChange } from '../workflow/current-change.js';
 import type { ChangeState } from '../workflow/change-types.js';
 
 export type HookEvent = 'write' | 'edit';
@@ -22,6 +23,59 @@ function isInside(relative: string | null, prefix: string): boolean {
   return relative !== null && (relative === prefix || relative.startsWith(prefix + "/"));
 }
 
+/**
+ * 决定这次写入归属哪个 change。
+ *
+ * 只有一个活跃 change 时没有歧义，不需要指针；多个时必须靠
+ * `.cometflow/current-change.json` 精确路由，指针缺失或失效一律 fail closed——
+ * 猜错归属比拒绝写入危险得多。
+ */
+async function resolveOwningChange(
+  projectRoot: string,
+  activeChanges: ChangeState[],
+): Promise<{ change: ChangeState | null; decision: HookDecision | null }> {
+  if (activeChanges.length === 0) {
+    return { change: null, decision: { allowed: true, reason: 'no-active-change' } };
+  }
+  if (activeChanges.length === 1) {
+    return { change: activeChanges[0], decision: null };
+  }
+
+  const pointer = await readCurrentChange(projectRoot);
+  if (!pointer) {
+    return {
+      change: null,
+      decision: {
+        allowed: false,
+        reason: 'multiple-active-changes',
+        hint:
+          '同时存在 ' +
+          activeChanges.length +
+          ' 个活跃 change（' +
+          activeChanges.map((entry) => entry.name).join(', ') +
+          '），无法判断这次写入属于谁；先运行 cometflow change select <name> 指定当前 change',
+      },
+    };
+  }
+  const target = activeChanges.find((entry) => entry.name === pointer.change);
+  if (!target) {
+    return {
+      change: null,
+      decision: {
+        allowed: false,
+        reason: 'stale-current-change',
+        hint:
+          'current-change 指针指向 ' +
+          pointer.change +
+          '，但它不存在或已归档；运行 cometflow change select <name> 重新指定（可选：' +
+          activeChanges.map((entry) => entry.name).join(', ') +
+          '）',
+      },
+    };
+  }
+  return { change: target, decision: null };
+}
+
 export async function evaluateHook(projectRoot: string, event: HookEvent, target: string): Promise<HookDecision> {
   void event;
   const relative = relativePath(path.resolve(projectRoot), path.resolve(target));
@@ -34,14 +88,9 @@ export async function evaluateHook(projectRoot: string, event: HookEvent, target
   }
 
   const activeChanges = (await listChangeStates(projectRoot)).filter((change) => !change.archived);
-  if (activeChanges.length === 0) {
-    return { allowed: true, reason: "no-active-change" };
-  }
-  if (activeChanges.length > 1) {
-    return { allowed: false, reason: "multiple-active-changes" };
-  }
-
-  const change = activeChanges[0];
+  const routing = await resolveOwningChange(projectRoot, activeChanges);
+  if (routing.decision) return routing.decision;
+  const change = routing.change!;
   if (isInside(relative, "changes/" + change.name)) {
     return { allowed: true, reason: "change-workspace" };
   }
