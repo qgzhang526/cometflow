@@ -16,9 +16,9 @@
 |---|---|---|
 | A 初始化 | `init --interactive` | 12 类 spec kind 按项目类型自动裁剪 |
 | B 写契约 | `COMETFLOW.md` + `specs/` | anchor / acceptance / 跨文件引用（错误码） |
-| C 校验 | `spec validate` / `lock` / `index` | 结构与跨文件引用校验、可追踪基线 |
+| C 校验 | `spec validate` / `lock` / `index` / `checks` | 结构与跨文件引用校验、可追踪基线、验收判据清单 |
 | D 拆解 | `plan generate/validate/review/approve/freeze/trace` | 3 个 capability → 5 个任务，acceptance 精确落位 |
-| E 执行 | `change new/transition/run/verify/archive` | Builder 与 Verifier 分离，独立验收才准归档 |
+| E 执行 | `change new/transition/run/verify/scope/journal/archive` | 执行 spec 里的 `- check:` 判据；Builder 与 Verifier 分离，越界或未判定都不准归档 |
 | F 收尾 | `change resume` / `doctor` / `status` | 断点续作与可观测 |
 | G 门禁 | `eval` | Pass@k / Pass^k，回归可拦截 |
 | H 进化 | `evolve propose/verify/submit/approve` | 有终态、可回滚的改进闭环 |
@@ -264,7 +264,7 @@ cp -r <cometflow 仓库>/experiments/todoscan/tests .
 cometflow context sync .     # 技术栈/运行环境 → .cometflow/project-context.yaml
 cometflow goal sync .        # 任务目标 → .cometflow/goals/G1.yaml
 cometflow spec validate .    # 结构 + anchor + acceptance + 跨文件引用
-cometflow spec lock .        # 快照 spec hash 基线
+cometflow spec lock .        # 登记 spec 版本（.cometflow-history/）+ 刷新 hash 基线
 cometflow spec index .       # 生成 spec-index 投影
 ```
 

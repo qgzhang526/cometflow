@@ -11,9 +11,11 @@ tasks:
     acceptance_ids:
       - A1
     spec_version: 1
-    spec_hash: "e3a6cdd98fb3777e9b797c33cc265b3f42436daf08b78253321c99a7921ea71c"
+    spec_hash: 8d69ac154c5c663d4833db2157f69e43334e87b961f7fb28071b47d07a6a1690
     depends_on: []
     test_scope: src/core
     definition_of_done:
       - node -e "process.exit(0)"
     status: frozen
+    anchor_hash: 9140a751b35e4374a2112b558172ef081307aefc9f30ab6728e709ab1859bcc1
+    module: src/core

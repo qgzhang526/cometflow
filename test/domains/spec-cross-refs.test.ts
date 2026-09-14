@@ -80,6 +80,32 @@ describe('spec cross-file references', () => {
     await fs.rm(tmp, { recursive: true, force: true });
   });
 
+  it('resolves error codes kept in the protocol 错误码 table', async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'cometflow-xref-'));
+    await writeProject(tmp, {
+      'COMETFLOW.md': COMETFLOW,
+      'specs/protocol.md': '# 通信协议\n\n## 状态码总表\n\n| 状态码 | 含义 |\n|--------|------|\n| 200 | OK |\n\n## 错误码\n\n| code | 语义 | 触发接口 |\n|------|------|----------|\n| INVALID_CODE | 无效 | POST /login |\n',
+      'specs/auth/spec.md': '# auth\n\n## POST /login\n\n错误码：INVALID_CODE\n\n## Acceptance\n\n- A1：ok\n',
+    });
+    const result = await validateSpecs(tmp);
+    expect(result.findings.filter((finding) => finding.severity === 'error')).toHaveLength(0);
+    expect(result.valid).toBe(true);
+    await fs.rm(tmp, { recursive: true, force: true });
+  });
+
+  it('flags a code missing from both errors.md and the protocol table', async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'cometflow-xref-'));
+    await writeProject(tmp, {
+      'COMETFLOW.md': COMETFLOW,
+      'specs/protocol.md': '# 通信协议\n\n## 错误码\n\n| code | 语义 |\n|------|------|\n| OTHER_CODE | 其他 |\n',
+      'specs/auth/spec.md': '# auth\n\n## POST /login\n\n错误码：MISSING_CODE\n\n## Acceptance\n\n- A1：ok\n',
+    });
+    const result = await validateSpecs(tmp);
+    expect(result.findings.some((finding) => finding.code === 'unresolved-error-reference')).toBe(true);
+    expect(result.findings.some((finding) => finding.code === 'missing-reference-target')).toBe(false);
+    await fs.rm(tmp, { recursive: true, force: true });
+  });
+
   it('flags unresolved process config-key reference', async () => {
     const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'cometflow-xref-'));
     await writeProject(tmp, {

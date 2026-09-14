@@ -1,5 +1,7 @@
 # 004 Spec 变更对已完成任务的影响
 
+状态：已实施（影响分析与分级见 [011-spec-versioning.md](./011-spec-versioning.md)）
+
 ## 核心原则
 
 **已完成任务是历史，历史不可变。**
@@ -22,6 +24,8 @@ acceptance_ids: [A1, A2, A3]
 ```bash
 cometflow spec diff --impact
 ```
+
+（实现为 `cometflow spec diff <path> --impact`，另支持 `--change <name>` 在归档前预览提案 spec 的影响。）
 
 变更分类：
 
@@ -96,6 +100,6 @@ specs/auth/spec.md v3 → v4
 ```bash
 cometflow spec diff --impact
 cometflow spec drift
-cometflow change revise <change>
+cometflow change rebase <change>
 cometflow plan regenerate <goal> --preserve-approved
 ```

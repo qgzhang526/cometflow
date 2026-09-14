@@ -11,7 +11,14 @@ export interface TaskRecord {
   acceptance_ids: string[];
   spec_version: number | null;
   spec_hash: string | null;
+  /**
+   * 该任务绑定 anchor 的段落哈希（不含标题行与 Acceptance 段）。
+   * 用于把漂移定位到「哪个接口/流程变了」，而不是整份文件变了。
+   */
+  anchor_hash?: string | null;
   depends_on: string[];
+  /** 由 spec front-matter `module` 声明的代码模块边界。 */
+  module?: string | null;
   test_scope: string;
   definition_of_done: string[];
   status: TaskStatus;

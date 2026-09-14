@@ -6,6 +6,7 @@ import { pathExists, readTextFile } from '../../platform/fs/read-file.js';
 import { kindForSpecFile, ROOT_KIND_FILES, type SpecKind } from './kind.js';
 import { readInitManifest } from '../project/scaffold.js';
 import { parseCapability, parseModels } from './spec-model.js';
+import { normalizeModulePath, parseSpecMeta } from './spec-meta.js';
 import {
   extractApiPathRefs,
   extractApiReferences,
@@ -21,6 +22,7 @@ import {
   extractProcesses,
   extractProtocolHeaders,
   extractProtocolStatusCodes,
+  extractSectionErrorCodes,
   extractStatusRefs,
   normalizeApiHeading,
 } from './spec-structure.js';
@@ -56,6 +58,15 @@ async function readRootKind(projectRoot: string, kind: SpecKind): Promise<string
   return readTextFile(absolutePath);
 }
 
+// Error codes are owned by specs/errors.md, or by the `## 错误码` table of
+// specs/protocol.md when a small project keeps a single contract file.
+function collectErrorCodes(errorsContent: string | null, protocolContent: string | null): Set<string> {
+  const codes = new Set<string>();
+  if (errorsContent) for (const code of extractErrorCodes(errorsContent)) codes.add(code);
+  if (protocolContent) for (const code of extractSectionErrorCodes(protocolContent)) codes.add(code);
+  return codes;
+}
+
 async function validateManifest(projectRoot: string, findings: SpecValidationFinding[]): Promise<void> {
   const manifest = await readInitManifest(projectRoot);
   if (!manifest) return;
@@ -85,11 +96,12 @@ function checkModelRefs(content: string, relativePath: string, findings: SpecVal
 
 function checkErrorCodeRefs(content: string, relativePath: string, findings: SpecValidationFinding[], index: CrossRefIndex): void {
   for (const code of extractErrorCodeRefs(content)) {
-    if (!index.errorsContent) {
-      findings.push(warning(relativePath, 'missing-reference-target', '引用了错误码 ' + code + '，但 specs/errors.md 不存在'));
-    } else if (!index.errorCodes.has(code)) {
-      findings.push(error(relativePath, 'unresolved-error-reference', '引用的错误码未在 specs/errors.md 定义: ' + code));
+    if (index.errorCodes.has(code)) continue;
+    if (!index.errorsContent && !index.protocolContent) {
+      findings.push(warning(relativePath, 'missing-reference-target', '引用了错误码 ' + code + '，但 specs/errors.md 与 specs/protocol.md 都不存在'));
+      continue;
     }
+    findings.push(error(relativePath, 'unresolved-error-reference', '引用的错误码未在 specs/errors.md 或 specs/protocol.md 的「错误码」表定义: ' + code));
   }
 }
 
@@ -154,10 +166,48 @@ async function validateCapabilityFile(
   if (parsed.anchors.length === 0) {
     findings.push(error(relativePath, 'no-anchors', 'spec 中没有可绑定的 anchor（需要至少一个二级或三级标题）'));
   }
+  const headingCounts = new Map<string, number>();
+  for (const anchor of parsed.anchors) {
+    headingCounts.set(anchor.heading, (headingCounts.get(anchor.heading) ?? 0) + 1);
+  }
+  for (const [heading, count] of headingCounts) {
+    if (count > 1) {
+      findings.push(
+        error(
+          relativePath,
+          'duplicate-anchor',
+          'anchor 标题重复 ' + count + ' 次: ' + heading + '（anchor 必须唯一，否则任务绑定会指向错误段落）',
+        ),
+      );
+    }
+  }
   if (parsed.acceptance.length === 0) {
     findings.push(error(relativePath, 'no-acceptance', 'spec 中没有 Acceptance 验收项'));
   }
   const content = await readTextFile(path.join(projectRoot, relativePath));
+  if (!normalizeModulePath(parseSpecMeta(content).module)) {
+    findings.push(
+      warning(
+        relativePath,
+        'missing-module-declaration',
+        '未声明代码模块边界；建议在 front-matter 加 module: <项目相对路径>，拆解时任务会继承该边界',
+      ),
+    );
+  }
+  // 可执行验收是「重建质量可判定」的前提：没有 check 的验收项只能靠人判断。
+  const unchecked = parsed.acceptance.filter((item) => !item.check).length;
+  if (parsed.acceptance.length > 0 && unchecked > 0) {
+    findings.push(
+      warning(
+        relativePath,
+        'acceptance-without-check',
+        unchecked +
+          '/' +
+          parsed.acceptance.length +
+          ' 个验收项没有 `- check: <command>`；这些项在 change verify 时只能由独立 Verifier 或人工判定',
+      ),
+    );
+  }
   checkModelRefs(content, relativePath, findings, index);
   checkErrorCodeRefs(content, relativePath, findings, index);
   checkHeaderRefs(content, relativePath, findings, index);
@@ -287,7 +337,7 @@ export async function validateSpecs(projectRoot: string): Promise<SpecValidation
     modelsEntities: new Set(modelsContent ? extractEntities(modelsContent).map((entry) => entry.name) : []),
     modelsFields: new Map(modelsContent ? parseModels(modelsContent).entities.map((entity) => [entity.name, new Set(entity.fields.map((field) => field.name))] as [string, Set<string>]) : []),
     errorsContent,
-    errorCodes: new Set(errorsContent ? extractErrorCodes(errorsContent) : []),
+    errorCodes: collectErrorCodes(errorsContent, protocolContent),
     configContent,
     configKeys: new Set(configContent ? extractConfigKeys(configContent) : []),
     protocolContent,

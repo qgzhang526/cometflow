@@ -69,11 +69,20 @@ function firstLayer(value: string | undefined, presentReason: string, absentReas
 }
 
 export function detectKindNeeds(stack: StackHints, answers: ScaffoldAnswers = {}): Record<SpecKind, KindEntry> {
+  const databaseLayer = firstLayer(stack.database, 'database != none', 'database == none');
+  const frontendLayer = firstLayer(stack.frontend, 'frontend != none', 'frontend == none');
+  const backendLayer = firstLayer(stack.backend, 'backend present', 'no backend');
+  const stackKnown = [databaseLayer, frontendLayer, backendLayer].some((entry) => entry.status !== 'deferred');
+
   const kinds: Record<SpecKind, KindEntry> = {
     project: { status: 'present', reason: 'always' },
-    models: firstLayer(stack.database, 'database != none', 'database == none'),
-    pages: firstLayer(stack.frontend, 'frontend != none', 'frontend == none'),
-    constraints: firstLayer(stack.backend, 'backend present', 'no backend'),
+    models: databaseLayer,
+    pages: frontendLayer,
+    // Non-functional constraints apply to every project, including frontend-only
+    // and CLI-only ones, so they are not gated on having a backend.
+    constraints: stackKnown
+      ? { status: 'present', reason: 'non-functional constraints apply to all projects' }
+      : { status: 'deferred', reason: 'unknown: fill COMETFLOW.md then run spec scaffold' },
     capability: { status: 'absent', reason: 'derived from goals, not init' },
     protocol: { status: 'deferred', reason: 'use --interactive' },
     errors: { status: 'deferred', reason: 'use --interactive' },
@@ -116,8 +125,8 @@ export function detectKindNeeds(stack: StackHints, answers: ScaffoldAnswers = {}
   }
   if (answers.manyErrors !== undefined) {
     kinds.errors = answers.manyErrors
-      ? { status: 'present', reason: 'many error codes' }
-      : { status: 'absent', reason: 'merged into protocol' };
+      ? { status: 'present', reason: 'dedicated error catalogue requested' }
+      : { status: 'absent', reason: 'merged into the 错误码 table of specs/protocol.md' };
   }
 
   return kinds;
@@ -261,6 +270,42 @@ const TEMPLATE_PAGES = `# 前端页面
 - 状态：
 `;
 
+// Unicode letters/digits so Chinese capability names (工标章节名) are usable as
+// directory names; path separators, leading dots and traversal stay rejected.
+const CAPABILITY_NAME_PATTERN = /^[\p{L}\p{N}][\p{L}\p{N}._-]*$/u;
+
+// Capability specs are never authored by init: they come from the project's goals
+// (`plan generate` emits a spec-authoring task) or from a fixed external standard
+// that the human transcribes verbatim. This stub only seeds the canonical shape.
+export function capabilitySpecPath(capability: string): string | null {
+  if (!CAPABILITY_NAME_PATTERN.test(capability)) return null;
+  return 'specs/' + capability + '/spec.md';
+}
+
+function capabilityTemplate(capability: string): string {
+  return `---
+capability: ${capability}
+# 该 capability 的实现模块边界（项目相对路径）；拆解时任务会继承它
+module: internal/${capability}
+---
+
+# ${capability}
+
+接口契约：一个接口一个 \`## METHOD /path\` anchor；字段引用 specs/models.md，错误码引用 specs/errors.md（或 specs/protocol.md 的「错误码」表），不在此重述。
+
+## GET /example
+
+- 认证：<机器认证 / 角色 / 无>
+- 请求：<字段名，引用 specs/models.md>
+- 响应：<字段名>
+- 错误码：<CODE>
+
+## Acceptance
+
+- A1：<可验证的验收标准>
+`;
+}
+
 function permissionsTemplate(auth: ScaffoldAnswers['auth']): string {
   if (auth === 'roles') {
     return `# 认证与鉴权
@@ -347,6 +392,42 @@ export async function scaffoldKinds(
   }
 
   return { created, skipped };
+}
+
+export interface CapabilityScaffoldResult {
+  created: string[];
+  skipped: string[];
+  invalid: string[];
+}
+
+// Seeds `specs/<capability>/spec.md` for capabilities that are already decided by
+// goals or by an external standard. Idempotent: existing files are never touched.
+export async function scaffoldCapabilities(
+  projectRoot: string,
+  capabilities: string[],
+): Promise<CapabilityScaffoldResult> {
+  const created: string[] = [];
+  const skipped: string[] = [];
+  const invalid: string[] = [];
+
+  for (const capability of capabilities) {
+    const relativePath = capabilitySpecPath(capability);
+    if (!relativePath) {
+      invalid.push(capability);
+      continue;
+    }
+    const absolutePath = path.join(projectRoot, relativePath);
+    try {
+      await fs.access(absolutePath);
+      skipped.push(relativePath);
+    } catch {
+      await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+      await fs.writeFile(absolutePath, capabilityTemplate(capability));
+      created.push(relativePath);
+    }
+  }
+
+  return { created, skipped, invalid };
 }
 
 export async function readInitManifest(projectRoot: string): Promise<InitManifest | null> {

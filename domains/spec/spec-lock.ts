@@ -1,8 +1,8 @@
-import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { readTextFile } from '../../platform/fs/read-file.js';
 import { listSpecFiles } from './spec-index.js';
+import { hashSpecText } from './spec-hash.js';
 
 export interface SpecLockEntry {
   path: string;
@@ -19,10 +19,6 @@ export interface SpecDiff {
   modified: SpecLockEntry[];
   removed: SpecLockEntry[];
   unchanged: SpecLockEntry[];
-}
-
-function sha256(text: string): string {
-  return createHash('sha256').update(text.replace(/\r\n/g, '\n')).digest('hex');
 }
 
 export function specLockPath(projectRoot: string): string {
@@ -44,7 +40,7 @@ export async function computeSpecLock(projectRoot: string): Promise<SpecLock> {
   const entries: SpecLockEntry[] = [];
   for (const relativePath of files) {
     const content = await readTextFile(path.join(projectRoot, relativePath));
-    entries.push({ path: relativePath, hash: sha256(content) });
+    entries.push({ path: relativePath, hash: hashSpecText(content) });
   }
   return { schema: 'cometflow.spec-lock.v1', files: entries };
 }

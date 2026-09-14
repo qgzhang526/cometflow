@@ -10,12 +10,13 @@
 
 ## 决策
 
-1. `init` 按「项目类型」裁剪生成 spec kind：第一层从 `COMETFLOW.md` 的 `## 技术栈` 推断（前端≠无 → pages；数据库≠无 → models；有后端 → constraints），第二层由 `--interactive` 的 7 个问题补齐（protocol/config/flow/process/rules/permissions/errors）。
-2. 非交互 `init` 使用保守默认：只生成 project +（有 DB 的）models +（有后端的）constraints，其余标 `deferred`。
+1. `init` 按「项目类型」裁剪生成 spec kind：第一层从 `COMETFLOW.md` 的 `## 技术栈` 推断（前端≠无 → pages；数据库≠无 → models；技术栈已知 → constraints），第二层由 `--interactive` 的 7 个问题补齐（protocol/config/flow/process/rules/permissions/errors）。
+2. 非交互 `init` 使用保守默认：只生成 project +（有 DB 的）models +（技术栈已知的）constraints，其余标 `deferred`。
 3. 生成结论写入 `.cometflow/init-manifest.yaml`（机器投影），记录每个 kind 的 `present/deferred/absent` 与原因。
-4. `spec validate` / `doctor` 读 manifest：`present:false` 缺席不报错，`present:true` 缺失报错。
+4. `spec validate` / `doctor` 读 manifest：`present:false` 缺席不报错，`present:true` 缺失报错，`deferred` 只告警。错误码有两个合法来源：`specs/errors.md`，或小项目的 `specs/protocol.md` `## 错误码` 表；`errors` kind 标 `absent`（并入 protocol）时，校验器按后者解析，不产生假缺失。
 5. 新增 `cometflow spec scaffold` 增量补 kind，幂等、存在即跳过、不覆盖人类修改。
-6. `capability` kind 不由 init 生成，由 `plan generate` 的 spec-authoring 任务或 `spec scaffold` 产生。
+6. `capability` kind 不由 init 生成内容：由 `plan generate` 的 spec-authoring 任务起草，或 `spec scaffold --capability <name>` 建骨架后由人类填写/誊写。对照已定标准开发时，标准文本本身就是该 spec 的内容，工具只提供骨架与后续的 `spec lock` 冻结。
+7. 既有接口清单（工标、外部规范）走 `cometflow spec import <文件> [--module]` 批量落地：任意来源统一归一为「接口清单」中间形态，再确定性渲染为 `specs/<capability>/spec.md` 草稿并自动跑 `spec validate`，人工对照原文审核后再 `spec lock`。已支持的输入形态：CSV / TSV / markdown 表格、`.docx`（内置解析，识别接口表格与「请求方式／请求地址」标签式章节，章节标题用于推断 capability）。PDF 等需 OCR 的来源暂由外部工具抽取后走同一通道。抽取可自动化，判定标准内容是否正确只能由人负责，因此导入默认不覆盖已有 spec。
 
 ## 理由
 

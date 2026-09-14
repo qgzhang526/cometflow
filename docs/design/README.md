@@ -18,6 +18,8 @@
 | [008-client-visualization.md](./008-client-visualization.md) | 客户端可视化（serve + Web UI）架构 |
 | [009-spec-artifact-taxonomy.md](./009-spec-artifact-taxonomy.md) | Spec 工件分类（kind 模型）与事实所有权 |
 | [010-init-scaffolding.md](./010-init-scaffolding.md) | Init 按项目类型裁剪生成 spec kind |
+| [011-spec-versioning.md](./011-spec-versioning.md) | Spec 版本管理、anchor 级影响分析与代码重建 |
+| [012-comet-borrowings.md](./012-comet-borrowings.md) | 从 comet 借鉴的机制与落地评估 |
 
 ## 决策记录
 
@@ -34,3 +36,5 @@
 | [0009-agent-model-config.md](../decisions/0009-agent-model-config.md) | Agent/模型配置分层，凭证不代管 |
 | [0010-spec-artifact-kind-model.md](../decisions/0010-spec-artifact-kind-model.md) | Spec 工件分类（kind 模型），project=COMETFLOW.md |
 | [0011-init-kind-scaffolding.md](../decisions/0011-init-kind-scaffolding.md) | Init 按项目类型裁剪生成 spec kind |
+| [0012-spec-version-as-artifact.md](../decisions/0012-spec-version-as-artifact.md) | spec 内容是可寻址产物，版本引用可回放 |
+| [0013-verification-must-be-executable.md](../decisions/0013-verification-must-be-executable.md) | 验收必须可执行，且不能由实现者自证 |

@@ -1,5 +1,6 @@
 ---
 capability: scan
+module: src/scan
 ---
 
 # scan capability
@@ -19,7 +20,9 @@ capability: scan
 ### Acceptance
 
 - A1：运行 `node bin/todoscan.mjs tests/fixtures`，命中 6 条，路径顺序为 app.js → lib/util.js → notes.md → vendor/legacy.js
+  - check: node tests/acceptance.mjs A1
 - A2：运行 `node bin/todoscan.mjs no-such-dir`，stderr 含 `E_NO_PATH` 且退出码为 2
+  - check: node tests/acceptance.mjs A2
 
 ## 过滤
 
@@ -32,3 +35,4 @@ capability: scan
 ### Acceptance
 
 - A3：`--tag FIXME` 只输出 1 条；`--exclude vendor` 输出 5 条
+  - check: node tests/acceptance.mjs A3

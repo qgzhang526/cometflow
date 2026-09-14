@@ -294,19 +294,23 @@ my-project/
 |---|---|
 | `前端 ≠ 无` | `pages` |
 | `数据库 ≠ 无` | `models` |
-| 有任意后端 | `constraints` |
+| 技术栈已填写（任意一维非占位） | `constraints` |
+
+> `constraints` 是非功能约束（安全/性能/部署/离线依赖），对纯前端、CLI 同样适用，因此不依赖「有没有后端」。
 
 **第二层（`--interactive` 或 `spec scaffold --interactive` 的 7 个问题）**
 
 | # | 问题 | 对应 kind |
 |---|---|---|
-| Q1 | 有对外网络接口/通信协议？ | `protocol` |
+| Q1 | 有对外网络接口，或需调用外部 HTTP/网络接口？ | `protocol` |
 | Q2 | 有运行时配置键（端口/密钥/连接串）？ | `config` |
 | Q3 | 有跨接口/跨模块的业务场景？ | `flow`（建 `specs/flows/`） |
 | Q4 | 有常驻后台进程或定时循环？ | `process`（`specs/processes.md`） |
-| Q5 | 有领域 DSL 或业务不变量？ | `rules` |
+| Q5 | 有领域规则/业务不变量（策略、匹配判定、外部 DSL 语义）？ | `rules` |
 | Q6 | 鉴权方式？（无需 / 机机 / 角色矩阵） | `permissions` |
-| Q7 | 错误码是否 > 20 个？ | `errors`（否则并入 `protocol`） |
+| Q7 | 是否需要独立的错误码目录（跨接口错误码较多时选是）？ | `errors`（否则并入 `protocol` 的「错误码」表） |
+
+> Q7 选「否」时错误码写在 `specs/protocol.md` 的 `## 错误码` 表里，`spec validate` 会把它当作与 `specs/errors.md` 同等的错误码来源解析，不会报缺失。
 
 **完整 kind 表**
 
@@ -325,18 +329,69 @@ my-project/
 | `permissions` | 认证鉴权：角色×API 矩阵 / 机机认证 | `specs/permissions.md` |
 | `pages` | 前端页面/交互规格 | `specs/pages.md` |
 
-> `capability` 不由 `init` 生成，而是由 `plan generate` 的 spec-authoring 任务或 `spec scaffold` 产生。
+> `capability` 不由 `init` 生成，也不会由工具凭空撰写内容：它由 `plan generate` 的 spec-authoring 任务起草，或由 `spec scaffold --capability <name>` 建骨架后填写。对照已定标准（工标/接口规范）开发时，直接把标准里的接口与工作流誊写进这些 spec 作为唯一真相源，再 `spec lock` 冻结、`plan generate` 派生实现任务。
 > 「本项目不需要」也会留痕：`init-manifest.yaml` 记录 pending 状态，让 `spec validate` 能区分「有意缺席」与「遗漏」。
 
 ### 4.2 增量补 spec kind
 
 ```bash
-cometflow spec scaffold .                # 按技术栈推断，补缺失 kind（不覆盖已有文件）
-cometflow spec scaffold . --interactive  # 逐项问答
-cometflow spec scaffold --list .         # 只列出各 kind 状态
+cometflow spec scaffold .                          # 按技术栈推断，补缺失 kind（不覆盖已有文件）
+cometflow spec scaffold . --interactive            # 逐项问答
+cometflow spec scaffold --list .                   # 只列出各 kind 状态
+cometflow spec scaffold . --capability order       # 建 specs/order/spec.md 骨架（可重复）
+cometflow spec scaffold . --capability order --capability payment
 ```
 
-`scaffold` 对已存在的目标文件一律跳过，幂等可重跑。
+`scaffold` 对已存在的目标文件一律跳过，幂等可重跑；`--capability` 只建骨架，不写任何业务语义。
+
+### 4.3 批量导入既有接口清单
+
+对照已定标准（工标 / 外部接口规范）开发时，接口与工作流是给定的，不应由 agent 发明。把清单整理成表格后一次导入：
+
+```bash
+cometflow spec import <清单文件> [path] [--force] [--module <代码模块>]
+```
+
+支持 **CSV / TSV / markdown 表格 / .docx**——把 Excel、企业标准表格里的内容复制出来即可，Word 文档直接传文件。列名中英文均可识别：
+
+| 字段 | 可识别的列名 | 必填 |
+|---|---|---|
+| 能力（capability） | 能力 / 模块 / 功能 / 领域 / capability / module / domain | 否（缺省归入 `api`） |
+| 方法 | 方法 / 请求方法 / method | 是 |
+| 路径 | 路径 / 接口 / 接口路径 / 接口地址 / url / path / endpoint | 是 |
+| 认证 | 认证 / 鉴权 / auth | 否 |
+| 请求 / 响应 | 请求 / 入参 / 请求体 / 响应 / 出参 / 响应体 / request / response | 否 |
+| 错误码 | 错误码 / 异常 / errors（多个用逗号分隔） | 否 |
+| 代码模块 | 代码模块 / 模块路径 / code_module（或 `--module`） | 否，但建议填 |
+| 说明 | 说明 / 描述 / 备注 / notes | 否 |
+
+样例：
+
+```csv
+模块,方法,路径,认证,请求,响应,错误码,代码模块
+order,POST,/api/orders,机机,items[],orderId,DUP_ORDER,internal/order
+order,GET,/api/orders/{id},机机,,orderId;status,NOT_FOUND,internal/order
+```
+
+导入行为：
+
+- 按「模块」列分组，每组生成一个 `specs/<模块>/spec.md`，每个接口一个 `## METHOD /path` anchor，并自动补 `## Acceptance`。
+- 生成的文件带 `capability:` / `module:` front-matter，`module` 会成为拆解时任务的代码边界（不填会得到 `missing-module-declaration` 警告）。
+- 默认**不覆盖**已存在的 spec（加 `--force` 覆盖），幂等可重跑。
+- 导入后自动跑 `spec validate`：字段/错误码/API 引用对不上会直接报出来。
+
+#### Word（.docx）
+
+`.docx` 走内置的 Word 解析，无需 Office 或额外依赖（ZIP 解包用 Node 内置 zlib，正文直接走 WordprocessingML），识别两种常见写法：
+
+1. **接口表格**：文档里的表格若含 `方法` + `路径` 列，按上面的列名规则整表导入。
+2. **标签式章节**：`请求方式：POST` / `请求地址：/pay` 这类标签行（标签与值可同行也可分行，`POST /pay` 简写也认）；其后的「请求参数 / 响应参数」表格会取第一列字段名，折叠进 `- 请求：` / `- 响应：`。
+
+章节标题用于推断 capability：`3.2 订单模块` → `specs/订单模块/spec.md`（自动去掉章节号，中文章节名直接作为目录名）。无法识别的表格和缺少方法/路径的接口会以 issue 形式打印出来，不会静默丢弃。
+
+#### 其他来源（PDF、扫描件、图片）
+
+PDF 与扫描件需要 OCR，且表格结构容易串行，本项目暂不内置。正确姿势是先用对应工具抽成表格或文本，再走同一条 `spec import` 通道。不要让 agent 直接从 PDF 生成 spec 而跳过人工核对——标准一旦被抄错，后面所有实现都会错，所以流程固定为「抽取 → 导入为草稿 → 人工对照原文审核 → `spec lock` 冻结」。
 
 ---
 
@@ -347,16 +402,23 @@ cometflow spec scaffold --list .         # 只列出各 kind 状态
 ```bash
 cometflow spec validate [path]              # 校验结构、acceptance、跨文件引用
 cometflow spec anchors [path]               # 列出所有可绑定 anchor
-cometflow spec lock [path]                  # 快照 hash → .cometflow/spec-lock.json
+cometflow spec lock [path]                  # 登记版本 + 刷新 .cometflow/spec-lock.json
 cometflow spec diff [path]                  # 对比当前 spec 与 lock（added/modified/removed）
+cometflow spec diff [path] --impact         # 锚点级影响分析（可加 --change <name> 预览提案）
 cometflow spec drift [path] [--json]        # 找出已冻结但 spec 内容已漂移的任务
-cometflow spec scaffold [path] [--list] [--interactive]
+cometflow spec checks [path] [--json]       # 列出验收项与其可执行 check
+cometflow spec versions [path] [--spec <ref>]   # spec 版本历史
+cometflow spec show <path>@<n>|<hash> [path]    # 打印历史版本原文
+cometflow spec restore <path>@<n>|<hash> [path] # 从版本仓恢复 canonical spec
+cometflow spec verify [path] [--json]       # 一致性门禁（失败退出码 1）
+cometflow spec scaffold [path] [--list] [--interactive] [--capability <name>]
+cometflow spec import <file> [path] [--force] [--module <代码模块>]   # file: .csv/.tsv/.md/.docx
 cometflow spec index [path]                 # 生成 .cometflow/spec-index/*.yaml 投影
 ```
 
 ### 5.2 Spec Anchor 与 Acceptance
 
-**anchor** = capability spec 中的二级/三级标题，任务通过它绑定 spec：
+**anchor** = capability spec 中的二级标题（如 `## POST /api/auth/email-login`），任务通过它绑定 spec。若整份文件没有二级标题，则退化为三级标题：
 
 ```markdown
 ---
@@ -375,9 +437,9 @@ capability: auth
 - A2：验证码错误返回 401 INVALID_CODE
 ```
 
-- `## POST /api/auth/email-login` 是一个 anchor（建议用 `METHOD /path` 形式，便于交叉引用校验）。
+- `## POST /api/auth/email-login` 是一个 anchor（建议用 `METHOD /path` 形式，便于交叉引用校验）；`### 请求`、`### 响应` 属于它的正文，不是独立 anchor。
 - `## Acceptance`（或 `## 验收`）段落内的 `- A1：...` / `- A1: ...` 会被提取为验收项。
-- `plan freeze` 时把 anchor 的 acceptance 提取为 `A1..An` 并连同 `spec_hash` 一起锁定。
+- `plan freeze` 时把 anchor 的 acceptance 提取为 `A1..An`，并连同 `spec_version`、`spec_hash`、`anchor_hash` 一起锁定。
 
 ### 5.3 跨文件引用规则
 
@@ -395,6 +457,8 @@ capability: auth
 `spec validate` 会据此报出 `unresolved-model-reference` / `unresolved-error-reference` /
 `unresolved-config-reference` / `unresolved-api-reference` 等错误或警告。
 
+错误码有两个合法来源：`specs/errors.md`，或小项目 `specs/protocol.md` 的 `## 错误码` 表（两者都会被解析，`unresolved-error-reference` 表示两边都查不到）。
+
 ### 5.4 常见 validate 结果
 
 | code | 级别 | 含义 |
@@ -403,9 +467,165 @@ capability: auth
 | `missing-kind-file` | error | manifest 标记 present 但文件缺失 |
 | `deferred-kind-file` | warning | manifest 标记 deferred，可 `spec scaffold --interactive` 补 |
 | `no-anchors` / `no-acceptance` | error | capability spec 缺 anchor 或缺验收项 |
+| `duplicate-anchor` | error | 同文件 anchor 标题重复（任务绑定会指向错误段落） |
+| `missing-module-declaration` | warning | capability spec 未声明 `module` 代码模块边界 |
+| `module-scope-mismatch` | error（plan validate） | 任务 `test_scope` 与 spec 声明模块不一致 |
 | `missing-coverage` | error（plan validate） | spec 的某个 anchor 没有对应任务 |
 | `dependency-cycle` | error（plan validate） | 任务依赖成环 |
 | `stack-command-mismatch` | error（plan validate） | DoD 里出现了与技术栈不符的命令（如 Go 项目写 `npm test`） |
+
+---
+
+### 5.5 Spec 版本管理（spec 即产物）
+
+`specs/` 是唯一事实源，但「唯一事实源」要成立，被引用的那一版内容必须真的能取回来。因此 CometFlow 把 spec 正文按内容哈希存档：
+
+```text
+.cometflow/spec-versions/<sha256>.md   # 正文，同内容只存一份
+.cometflow/spec-history.json           # 版本链：spec_version / hash / parent / change / note
+```
+
+| 概念 | 含义 |
+|---|---|
+| `spec_version` | 每个 spec 文件独立递增，从 1 开始；内容不变不产生新版本 |
+| `hash` | 行尾归一化后的 sha256，同时是版本仓里的地址 |
+| `change` | 该版本由哪个 change 产出，用于溯源 |
+| `spec_hash` | 冻结任务记录的文件级哈希 |
+| `anchor_hash` | 冻结任务记录的 anchor 正文哈希（不含标题与 Acceptance 段） |
+
+记账时机：`spec lock`（人工建立基线）、`plan freeze`（冻结任务）、`change archive`（归档写回 canonical spec）。归档会自动刷新 `spec-lock.json`，不会再出现「归档完 lock 立刻过期」。
+
+**anchor 规则**：可绑定的 anchor 是二级标题（如 `## POST /api/auth/email-login`）；`### 请求`、`### 响应` 是段落而非 anchor；`## Acceptance` 是验收容器。同一文件里 anchor 标题重复会直接报 `duplicate-anchor`。
+
+**模块边界由 spec 声明**：capability spec 可用 front-matter 指定实现放在哪个代码模块，拆解、校验与 Builder 提示词都会继承它：
+
+```markdown
+---
+capability: auth
+module: internal/auth
+---
+```
+
+`plan generate` 把 `module` 写进任务的 `module` 与 `test_scope`；`plan validate` 在 `test_scope` 与声明不一致时报 `module-scope-mismatch`；`change run` 会要求在 `internal/auth` 内实现。未声明时 `spec validate` 给 `missing-module-declaration` 警告。
+
+**影响分级**（`spec diff --impact`）：
+
+| 变化 | severity |
+|---|---|
+| 新增 anchor、同文件其他位置变化 | low |
+| anchor 改名、anchor 正文变化、新增验收项 | medium |
+| 删除 anchor 或 spec 文件、删除或改写验收项 | high |
+
+`--impact` 出现 high 时命令返回退出码 1，适合放进 CI 或 pre-commit。
+
+**归档冲突（CAS）**：`change new` 时会拍一份 canonical spec 全量基线；`change archive` 前重新比对。若本 change 会写入或绑定的 spec 被外部改过，归档会被拒绝并打印冲突文件，必须先评估再决定：
+
+```bash
+cometflow spec diff . --impact
+cometflow change rebase <name> .    # 确认无影响：重新冻结到新版本（退回 build，需重新验证）
+# 有影响：按 ADR 0004 创建 reconciliation change，不要 rebase
+```
+
+**一致性门禁**：`cometflow spec verify` 一次性检查 lock 新鲜度、版本仓完整性、anchor 唯一性与漂移、验收项漂移、活跃 change 的基线冲突。任何 error 都会让退出码为 1。
+
+**代码丢失后的重建**：
+
+```bash
+cometflow spec verify .                          # 确认版本仓完整、任务绑定可解析
+cometflow spec restore specs/auth/spec.md@3 .    # 需要时先恢复 spec
+cometflow goal sync .
+cometflow plan regenerate G1 . --preserve-approved
+cometflow plan validate G1 . && cometflow plan freeze G1 .
+cometflow change new auth-login-v4 --goal G1 --task T1 --path .
+cometflow change run auth-login-v4 . --agent <agent>
+cometflow change verify auth-login-v4 .
+cometflow change archive auth-login-v4 .
+```
+
+Builder 的提示词里会直接带上冻结版本的 anchor 原文与全部 acceptance，因此重建的目标与当初冻结时一致，而不是「照当前工作区猜」。
+
+---
+
+### 5.6 可执行验收（acceptance check）
+
+spec 的验收项可以直接携带可执行命令，让「代码能不能用」有客观答案：
+
+```markdown
+## Acceptance
+
+- A1：验证码正确时可以登录
+  - check: go test ./internal/auth -run TestEmailLogin
+- A2：验证码错误返回 401
+  - check: go test ./internal/auth -run TestWrongCode
+- A3：登录日志不落敏感字段
+  # 暂时无法自动化：留空，由独立 Verifier 或人工判定
+```
+
+- 缩进 2 空格以上的 `- check: <command>` 属于上一个验收项。
+- 命令在项目根目录执行，退出码 0 视为通过，支持引号（`node -e "..."`）。
+- `spec validate` 会对没有 check 的验收项给出 `acceptance-without-check` 警告；`spec checks` 列出全部未覆盖项。
+
+`change verify` 的判定优先级：
+
+| 优先级 | 来源 | 说明 |
+|---|---|---|
+| 1 | `check` 命令 | 机器事实，任何 agent 与文档都不能推翻 |
+| 2 | 独立 Verifier | 覆盖 check 未覆盖的验收项 |
+| 3 | `changes/<name>/verification.yaml` | 兼容既有流程 |
+| 4 | 项目 eval | 兜底 |
+| 5 | 都没有 | `blocked`，判定为不通过 |
+
+### 5.7 模块边界强制与实现范围
+
+`spec front-matter` 的 `module` 会一路传导到写入守卫与归档闸门：
+
+| 环节 | 行为 |
+|---|---|
+| `plan generate` | 任务继承 `module` 与 `test_scope` |
+| `plan validate` | `test_scope` 与声明模块不一致 → `module-scope-mismatch` |
+| `change run` | 提示词要求只在 `module` 内实现 |
+| `hook check` | build 阶段写模块外文件 → `outside-module-scope` 拒绝 |
+| `change scope` | 列出本次改动，标出越界文件（越界时退出码 1） |
+| `change verify` | 越界改动导致验证不通过 |
+| `change archive` | 越界改动直接拒绝归档 |
+
+仓库级共享文件（`package.json` 等）通过项目配置放行：
+
+```yaml
+scope:
+  allow:
+    - package.json
+    - pnpm-lock.yaml
+```
+
+### 5.8 独立 Verifier 与审计流水
+
+```yaml
+# .cometflow/config.yaml
+verification:
+  mode: checks+agent     # checks | checks+agent | agent-required
+  agent: claude-code     # 独立 Verifier 使用的 agent
+```
+
+| 模式 | 行为 |
+|---|---|
+| `checks` | 只跑确定性检查，离线可用（默认） |
+| `checks+agent` | 检查 + 独立 Verifier 复核未覆盖项；agent 不可用时降级 |
+| `agent-required` | 必须由独立 Verifier 给出完整结论，不可用即失败 |
+
+Verifier 使用独立会话、只读提示词，必须对每一条验收项给出 `passed | failed | blocked` 与理由；重复、未知或遗漏任何一条，整份结论作废。失败的 check 不能被 Verifier 判成通过。
+
+```bash
+cometflow change verify <name> . --mode checks+agent --agent claude-code
+cometflow change scope <name> .          # 本次改动与越界情况
+cometflow change journal <name> .        # 追加式审计流水
+```
+
+change 的生命周期事件（创建、基线快照、run、验证结论、rebase、spec 应用、归档、回滚）都会写入
+`.cometflow/runtime/changes/<name>/journal.jsonl`。
+
+归档写入是事务化的：先 stage 提案与被覆盖文件备份，再逐个提交；任一步失败会回滚已写入的目标，
+并把事务停在 `rolled-back`。未完成的事务会被 `cometflow doctor` 报为 `incomplete-spec-transaction`。
 
 ---
 
@@ -512,7 +732,7 @@ archive ──archive-complete──► done + archived
 | `change resume` | — | 按当前 phase 给出下一步事件与建议命令（断点续作） |
 | `change run` | `phase=build` | 用 Builder prompt 调外部 Agent；exit 0 → `verify` |
 | `change verify` | `phase=verify` | 见 7.3；pass → `archive`，fail → 回到 `build` |
-| `change archive` | `phase=archive` | 把 `changes/<name>/specs/<cap>/spec.md` 覆盖到 `specs/<cap>/spec.md`，标记 archived |
+| `change archive` | `phase=archive` | 把 `changes/<name>/specs/**` 落地到 `specs/**`（支持 `<capability>/spec.md`、`flows/<name>.md` 与根级 kind 文件），标记 archived |
 
 ### 7.2 断点恢复
 
@@ -867,6 +1087,14 @@ scheduler:                      # daemon 默认参数
   idleCpuThreshold: 1.0
   scheduleStartMinutes: 540     # 09:00
   scheduleEndMinutes: 1080      # 18:00
+scope:                          # 允许在 spec 声明模块之外改动的路径
+  allow:
+    - package.json
+    - pnpm-lock.yaml
+verification:                   # 验收判定方式
+  mode: checks                  # checks | checks+agent | agent-required
+  agent: claude-code            # 独立 Verifier 使用的 agent
+  model: claude-sonnet-4-5      # 可选，覆盖 Verifier 模型
 ```
 
 ### 14.2 环境变量
@@ -930,8 +1158,18 @@ bash run-regression.sh
 acceptance id 与冻结的 `acceptance_ids` 不一致。
 
 **`spec drift` 报出漂移**
-冻结任务的 `spec_hash` 与当前 spec 内容不一致。不要改历史：走
-`plan regenerate --preserve-approved`（未开始）或创建 reconciliation change（已完成）。
+冻结任务的 `spec_hash` / `anchor_hash` 与当前 spec 不一致。输出里的 `kind` 说明漂移类型：
+`anchor-modified` / `anchor-renamed` / `acceptance-changed` / `file-changed-anchor-unchanged`。
+不要改历史：走 `plan regenerate --preserve-approved`（未开始）或创建 reconciliation change（已完成）。
+先跑 `cometflow spec verify .` 可以看到同一条问题的门禁视图。
+
+**`change archive` 报 spec conflict**
+change 存续期间 canonical spec 被外部改动过，归档会覆盖那次变更所以被拦下。
+先 `cometflow spec diff . --impact` 评估影响；确认无影响再 `cometflow change rebase <name> .`，
+有影响则按 ADR 0004 创建 reconciliation change。
+
+**`spec versions` 为空**
+还没有登记过版本。运行 `cometflow spec lock .` 建立基线；`plan freeze` 与 `change archive` 也会自动登记。
 
 **`serve` 打开后页面空白 / 401**
 用启动时打印的 `?token=<token>` 访问一次；若用 npm 包安装且缺少 `web/`，需指定 `--web-dir`。
@@ -956,3 +1194,4 @@ acceptance id 与冻结的 `acceptance_ids` 不一致。
 - 决策记录：[`docs/decisions/`](./decisions)
 - 演示脚本（用 CometFlow 实现 todoscan）：[`docs/demo/todoscan-demo.md`](./demo/todoscan-demo.md)
 - 演示命令对照说明：[`docs/demo/todoscan-demo-cli-notes.md`](./demo/todoscan-demo-cli-notes.md)
+- 演示脚本（用 CometFlow 设计 CBB 应急运维接入）：[`docs/demo/cbb-emergency-access-demo.md`](./demo/cbb-emergency-access-demo.md)

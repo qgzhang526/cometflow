@@ -1,4 +1,6 @@
 import path from 'node:path';
+import { readProjectConfig } from '../project/config.js';
+import { attributionFor, normalizeAllow } from '../workflow/implementation-scope.js';
 import { listChangeStates } from '../workflow/change-list.js';
 import type { ChangeState } from '../workflow/change-types.js';
 
@@ -7,6 +9,8 @@ export type HookEvent = 'write' | 'edit';
 export interface HookDecision {
   allowed: boolean;
   reason: string;
+  /** 被拒时给出可直接执行的修复建议。 */
+  hint?: string;
 }
 
 function relativePath(projectRoot: string, target: string): string | null {
@@ -53,6 +57,25 @@ export async function evaluateHook(projectRoot: string, event: HookEvent, target
 
   if (change.phase === "verify") {
     return { allowed: false, reason: "verify-is-read-only" };
+  }
+
+  // 模块边界是硬约束：spec 用 front-matter module 声明实现位置后，
+  // build 阶段写模块外的文件会被拒绝，而不是只靠提示词请求 agent 自觉。
+  if (change.phase === 'build' && change.module) {
+    const allow = normalizeAllow((await readProjectConfig(projectRoot)).scope?.allow ?? []);
+    const attribution = attributionFor(relative, change.module, allow);
+    if (attribution === 'unattributed') {
+      return {
+        allowed: false,
+        reason: 'outside-module-scope',
+        hint:
+          '当前 change 声明的模块是 ' +
+          change.module +
+          '，写入 ' +
+          relative +
+          ' 越界；若确有必要，请在 spec front-matter 调整 module 或在 .cometflow/config.yaml 的 scope.allow 中显式放行',
+      };
+    }
   }
 
   return { allowed: true, reason: "implementation-allowed-in-phase-" + change.phase };

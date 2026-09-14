@@ -1,6 +1,6 @@
 schema: cometflow.task-plan.v1
 goal: G2
-status: approved
+status: frozen
 tasks:
   - id: T1
     title: 实现 auth - POST /login
@@ -11,9 +11,11 @@ tasks:
     acceptance_ids:
       - A1
     spec_version: 1
-    spec_hash: "bc058d59147325cee9d55bb5f550bb488321615d5ec4a6648224eefb3745822d"
+    spec_hash: e7e1aa381c1f33a5bde0d7a88d089c426dd3338568967b8ef72e0e989fcf47be
     depends_on: []
     test_scope: src/auth
     definition_of_done:
       - node -e "process.exit(0)"
-    status: approved
+    status: frozen
+    anchor_hash: f3020fd52b05b90ef6d62dc47538329ab11e7c4fadc82dbbdd4f2d59bbea2b41
+    module: src/auth

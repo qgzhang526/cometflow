@@ -21,6 +21,31 @@ todoscan/
 └─ tests/fixtures/       # 确定性夹具：共 6 条待办注释
 ```
 
+## spec 判据（module + check）
+
+每个 capability spec 的 front-matter 声明了实现应落在哪个模块，Acceptance 项带上了可执行判据：
+
+| capability | module | 判据 |
+|---|---|---|
+| scan | `src/scan` | `node tests/acceptance.mjs A1|A2|A3` |
+| report | `src/report` | `node tests/acceptance.mjs A4|A5` |
+| settings | `src/settings` | `node tests/acceptance.mjs A6|A7` |
+
+`tests/acceptance.mjs` 是判据实现，只依赖 Node 内置模块；它按 A1–A7 驱动 `bin/todoscan.mjs` 并断言退出码、stderr 错误码与输出格式。
+
+> 实现完成前这些 check 会失败，这是设计意图：spec 先定义「怎么算通过」，实现再去满足它。
+> 用 `cometflow change verify <name> .` 可以看到逐条判定来源：
+> `check` 失败的项不会被任何 Verifier 或文档判成通过。
+
+```bash
+node tests/acceptance.mjs A1     # 单独跑一条判据
+cometflow spec checks .          # 列出全部判据与未覆盖项
+```
+
+`bin/todoscan.mjs` 是 CLI 入口，属于跨 capability 的共享文件；
+若某个 change 需要改动它，请在项目配置的 `scope.allow` 中显式放行
+（注意：`.cometflow/` 在当前仓库被 gitignore，配置本身不随文件分发，换环境后需要重建）。
+
 演示时的用法是「把种子复制进一个新项目」，而不是直接在这里跑：
 
 ```bash

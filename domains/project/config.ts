@@ -20,6 +20,14 @@ export interface SchedulerConfig {
   scheduleEndMinutes?: number;
 }
 
+export interface ScopeConfig {
+  /**
+   * 允许在 spec 声明的模块之外改动的路径（项目相对，支持目录前缀）。
+   * 典型用途：package.json / lockfile / tsconfig.json 这类仓库级共享文件。
+   */
+  allow?: string[];
+}
+
 export interface ProjectConfig {
   schema: string;
   default_workflow?: string;
@@ -28,6 +36,22 @@ export interface ProjectConfig {
   model?: string;
   agents?: Record<string, AgentModelConfig>;
   scheduler?: SchedulerConfig;
+  scope?: ScopeConfig;
+  verification?: VerificationConfig;
+}
+
+export type VerificationMode = 'checks' | 'checks+agent' | 'agent-required';
+
+export interface VerificationConfig {
+  /**
+   * checks：只跑确定性 acceptance 检查（默认，可离线）。
+   * checks+agent：确定性检查 + 独立 Verifier agent 复核未覆盖项。
+   * agent-required：必须由独立 Verifier agent 给出完整结论，agent 不可用即失败。
+   */
+  mode?: VerificationMode;
+  /** 独立 Verifier 使用的 agent id，默认与 Builder 相同（但用独立会话与只读提示词）。 */
+  agent?: string;
+  model?: string;
 }
 
 export const DEFAULT_CONFIG: ProjectConfig = {
@@ -146,6 +170,24 @@ export function validateProjectConfig(config: ProjectConfig): string[] {
       if (value !== undefined && (typeof value !== 'number' || Number.isNaN(value) || value < 0)) {
         errors.push('scheduler.' + key + ' must be a non-negative number');
       }
+    }
+  }
+
+  if (config.scope?.allow !== undefined) {
+    if (!Array.isArray(config.scope.allow) || config.scope.allow.some((entry) => typeof entry !== 'string')) {
+      errors.push('scope.allow must be an array of project-relative paths');
+    }
+  }
+
+  if (config.verification) {
+    const modes: VerificationMode[] = ['checks', 'checks+agent', 'agent-required'];
+    const mode = config.verification.mode;
+    if (mode !== undefined && !modes.includes(mode)) {
+      errors.push('verification.mode must be one of: ' + modes.join(', '));
+    }
+    const verifierAgent = config.verification.agent;
+    if (verifierAgent !== undefined && !agentIds.has(verifierAgent)) {
+      errors.push('verification.agent must be one of: ' + [...agentIds].join(', '));
     }
   }
 

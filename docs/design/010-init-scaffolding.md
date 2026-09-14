@@ -30,25 +30,27 @@
 |---|---|
 | `frontend` ≠ `无` | `pages` |
 | `database` ≠ `无` | `models` |
-| `backend` 非空（任何后端） | `constraints`（默认给安全/性能骨架） |
+| 技术栈已填写（任意一维非占位） | `constraints`（默认给安全/性能骨架） |
+
+`constraints` 是非功能约束（安全/性能/数据/高可用/部署/离线依赖），对纯前端、CLI 同样适用，因此不依赖「有没有后端」；仅当技术栈整体未知（占位或未填）时标 `deferred`。
 
 ### 第二层：交互问题（仅 `--interactive` 或推断不了时）
 
 | # | 问题 | 生成 kind |
 |---|---|---|
-| Q1 | 是否有对外网络接口 / 通信协议？ | `protocol` |
+| Q1 | 是否有对外网络接口，或需调用外部 HTTP/网络接口？ | `protocol` |
 | Q2 | 是否有运行时配置键（端口/密钥/连接串）？ | `config` |
 | Q3 | 是否有跨接口/跨模块的业务场景？ | `flow`（创建 `specs/flows/` 目录） |
 | Q4 | 是否有常驻后台进程或定时循环？ | `process`（`specs/processes.md`） |
-| Q5 | 是否有领域 DSL 或业务不变量？ | `rules` |
+| Q5 | 是否有领域规则/业务不变量（策略、匹配判定、外部 DSL 语义）？ | `rules` |
 | Q6 | 鉴权方式？(无需/机机/角色矩阵) | `permissions` |
-| Q7 | 错误码是否较多（>20 个）？ | `errors`（否则并入 `protocol`） |
+| Q7 | 是否需要独立的错误码目录（跨接口错误码较多时选是）？ | `errors`（否则并入 `protocol` 的「错误码」表） |
 
 ### 非交互默认
 
 `cometflow init [path]`（不带 `--interactive`）使用保守默认：
 
-- 只生成 `project` +（有 DB 时的）`models` +（有后端时的）`constraints`；
+- 只生成 `project` +（有 DB 时的）`models` +（技术栈已知时的）`constraints`；
 - 其余 kind 标记为 `deferred`（待定），`spec validate` 对其只告警、不报错；
 - 人类之后可 `cometflow spec scaffold --interactive` 补。
 
@@ -62,9 +64,9 @@
     │  ├─ models.md              # 数据库≠无 → 生成
     │  ├─ protocol.md            # Q1=是 → 生成
     │  ├─ config.md              # Q2=是 → 生成
-    │  ├─ constraints.md         # 后端 → 生成
+    │  ├─ constraints.md         # 技术栈已知 → 生成
     │  ├─ permissions.md         # Q6=机机 → 生成
-    │  ├─ errors.md              # Q7=否 → 并入 protocol，不单独生成
+    │  ├─ errors.md              # Q7=否 → 并入 protocol 的「错误码」表，不单独生成
     │  └─ flows/                 # Q3=否 → 目录留空（或按需后补）
     ├─ .cometflow/
     │  ├─ config.yaml
@@ -82,12 +84,12 @@
       models:     { present: true,  reason: "database != none" }
       protocol:   { present: true,  reason: "network: yes" }
       config:     { present: true,  reason: "runtime config: yes" }
-      constraints:{ present: true,  reason: "backend present" }
+      constraints:{ present: true,  reason: "non-functional constraints apply to all projects" }
       permissions:{ present: true,  reason: "auth: machine" }
       rules:      { present: false, reason: "no domain dsl" }
       process:    { present: false, reason: "no background loop" }
       pages:      { present: false, reason: "frontend == none" }
-      errors:     { present: false, reason: "merged into protocol" }
+      errors:     { present: false, reason: "merged into the 错误码 table of specs/protocol.md" }
       flow:       { present: false, reason: "no cross-api scenario" }
       capability: { present: false, reason: "derived from goals, not init" }
 
@@ -110,7 +112,7 @@
 | `process` | `# 后台进程` + `## 进程：<Name>`（触发/输入/处理/输出/异常） |
 | `pages` | `# 前端页面` + 页面/交互/路由（无前端则不生成） |
 | `flow` | 目录 `specs/flows/` + 可选模板（前置/步骤/后置） |
-| `capability` | **init 不生成**；由 `plan generate` 的 spec-authoring 任务或 `spec scaffold` 产生 |
+| `capability` | **init 不生成内容**；由 `plan generate` 的 spec-authoring 任务起草，或 `spec scaffold --capability <name>` 建骨架后由人类誊写（工标/固定接口规范场景直接照抄） |
 
 ## CLI 形态
 
@@ -118,6 +120,7 @@
     cometflow init [path] --interactive      # 交互：推断 + 逐项问答
     cometflow spec scaffold [--interactive]  # 增量补 kind（不覆盖已有文件）
     cometflow spec scaffold --list           # 列出当前各 kind 状态
+    cometflow spec scaffold --capability <n> # 建 specs/<n>/spec.md 骨架（可重复）
 
 ## 与现有 init 的差异
 

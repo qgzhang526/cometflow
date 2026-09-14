@@ -22,6 +22,7 @@ import { readTextFile } from '../../platform/fs/read-file.js';
 import { listSpecEntries } from '../spec/spec-index.js';
 import { buildSpecIndex } from '../spec/spec-project.js';
 import { validateSpecs } from '../spec/spec-validate.js';
+import { refreshSpecBaseline } from '../spec/spec-version.js';
 import { generateTaskPlan } from '../task-plan/task-plan-generate.js';
 import { validateTaskPlan } from '../task-plan/task-plan-validate.js';
 import { freezeTaskPlan } from '../task-plan/task-plan-freeze.js';
@@ -396,6 +397,9 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
       }
       await fs.mkdir(path.dirname(absolute), { recursive: true });
       await fs.writeFile(absolute, content);
+      // 通过 Web 编辑 spec 同样是一次 canonical spec 变更：立即登记版本并刷新 lock，
+      // 否则 spec verify 会立刻报 stale-spec-lock，活跃 change 的 CAS 基线也会失真。
+      await refreshSpecBaseline(root, { note: 'web edit' });
       jobs.stateChanged(projectId, '/api/specs');
       sendOk(res, { path: relativePath, created: absolute });
       return true;
@@ -410,6 +414,7 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
       if (method === 'PUT') {
         const body = await readJsonBody(req);
         await fs.writeFile(absolute, stringField(body.content));
+        await refreshSpecBaseline(root, { note: 'web edit' });
         jobs.stateChanged(projectId, '/api/specs');
         sendOk(res, { written: absolute });
         return true;
@@ -545,9 +550,9 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
       return true;
     }
     if (segments[0] === 'changes' && segments.length === 3 && segments[2] === 'archive' && method === 'POST') {
-      const state = await archiveChange(root, segments[1]);
+      const { state, appliedSpecs } = await archiveChange(root, segments[1]);
       jobs.stateChanged(projectId, '/api/changes/' + segments[1]);
-      sendOk(res, { change: state });
+      sendOk(res, { change: state, appliedSpecs });
       return true;
     }
 

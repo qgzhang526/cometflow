@@ -181,6 +181,12 @@ export function extractErrorCodes(content: string): string[] {
   return extractTableFirstColumn(content).filter((cell) => /^[A-Z0-9_]+$/u.test(cell));
 }
 
+// Small projects keep their error catalogue in the `## 错误码` table of
+// specs/protocol.md instead of a dedicated specs/errors.md (see 009 taxonomy).
+export function extractSectionErrorCodes(content: string): string[] {
+  return extractTableSectionFirstColumn(content, '错误码').filter((cell) => /^[A-Z0-9_]+$/u.test(cell));
+}
+
 export function extractConfigKeys(content: string): string[] {
   return extractTableFirstColumn(content).filter((cell) => /^[A-Za-z0-9_.-]+$/u.test(cell) && !/^-+$/u.test(cell));
 }

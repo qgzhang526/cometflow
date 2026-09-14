@@ -3,10 +3,13 @@ import { Command } from 'commander';
 import { agentCheckCommand, agentListCommand } from '../commands/agent.js';
 import {
   changeArchiveCommand,
+  changeJournalCommand,
   changeListCommand,
   changeNewCommand,
+  changeRebaseCommand,
   changeResumeCommand,
   changeRunCommand,
+  changeScopeCommand,
   changeStatusCommand,
   changeTransitionCommand,
   changeVerifyCommand,
@@ -52,13 +55,19 @@ import { initCommand } from '../commands/init.js';
 import { runCommand } from '../commands/run.js';
 import {
   specAnchorsCommand,
+  specChecksCommand,
   specDiffCommand,
   specDriftCommand,
+  specImportCommand,
   specIndexCommand,
   specLockCommand,
+  specRestoreCommand,
   specScaffoldCommand,
   specScaffoldListCommand,
+  specShowCommand,
   specValidateCommand,
+  specVerifyCommand,
+  specVersionsCommand,
 } from '../commands/spec.js';
 import {
   planApproveCommand,
@@ -192,8 +201,26 @@ change
 change
   .command('verify <name> [path]')
   .description('Run deterministic checks and apply acceptance verdict')
-  .action(async (name, targetPath = '.') => {
-    await changeVerifyCommand(name, targetPath);
+  .option('--agent <agent>', 'Independent verifier agent id')
+  .option('--mode <mode>', 'checks | checks+agent | agent-required')
+  .action(async (name, targetPath = '.', options) => {
+    await changeVerifyCommand(name, targetPath, options);
+  });
+
+change
+  .command('scope <name> [path]')
+  .description('Show which files this change touched and whether they stay inside the declared module')
+  .option('--json', 'Output as JSON')
+  .action(async (name, targetPath = '.', options) => {
+    await changeScopeCommand(name, targetPath, options);
+  });
+
+change
+  .command('journal <name> [path]')
+  .description('Show the append-only audit trail of a change')
+  .option('--json', 'Output as JSON')
+  .action(async (name, targetPath = '.', options) => {
+    await changeJournalCommand(name, targetPath, options);
   });
 
 change
@@ -201,6 +228,13 @@ change
   .description('Archive a verified change and apply proposed specs')
   .action(async (name, targetPath = '.') => {
     await changeArchiveCommand(name, targetPath);
+  });
+
+change
+  .command('rebase <name> [path]')
+  .description('Re-freeze a change against the current canonical spec version')
+  .action(async (name, targetPath = '.') => {
+    await changeRebaseCommand(name, targetPath);
   });
 
 const skill = program.command('skill').description('Skill package commands');
@@ -455,6 +489,14 @@ spec
   });
 
 spec
+  .command('checks [path]')
+  .description('List acceptance items and their executable checks')
+  .option('--json', 'Output as JSON')
+  .action(async (targetPath = '.', options) => {
+    await specChecksCommand(targetPath, options);
+  });
+
+spec
   .command('lock [path]')
   .description('Snapshot spec hashes to .cometflow/spec-lock.json')
   .action(async (targetPath = '.') => {
@@ -463,9 +505,12 @@ spec
 
 spec
   .command('diff [path]')
-  .description('Diff current specs against the spec lock')
-  .action(async (targetPath = '.') => {
-    await specDiffCommand(targetPath);
+  .description('Diff current specs against the spec lock, or analyze impact with --impact')
+  .option('--impact', 'Analyze which anchors and frozen tasks are affected')
+  .option('--change <name>', 'With --impact: preview a change\'s proposed specs before archiving')
+  .option('--json', 'Output as JSON')
+  .action(async (targetPath = '.', options) => {
+    await specDiffCommand(targetPath, options);
   });
 
 spec
@@ -477,13 +522,45 @@ spec
   });
 
 spec
+  .command('versions [path]')
+  .description('List recorded spec versions')
+  .option('--spec <path>', 'Only show versions for one spec path')
+  .option('--json', 'Output as JSON')
+  .action(async (targetPath = '.', options) => {
+    await specVersionsCommand(targetPath, options);
+  });
+
+spec
+  .command('show <version-ref> [path]')
+  .description('Print a recorded spec version (<path>@<version> or <hash>)')
+  .action(async (versionRef, targetPath = '.') => {
+    await specShowCommand(versionRef, targetPath);
+  });
+
+spec
+  .command('restore <version-ref> [path]')
+  .description('Restore a canonical spec from the version store')
+  .action(async (versionRef, targetPath = '.') => {
+    await specRestoreCommand(versionRef, targetPath);
+  });
+
+spec
+  .command('verify [path]')
+  .description('Check spec/version/lock/task consistency (exit 1 on failure)')
+  .option('--json', 'Output as JSON')
+  .action(async (targetPath = '.', options) => {
+    await specVerifyCommand(targetPath, options);
+  });
+
+spec
   .command('scaffold [path]')
   .description('Scaffold missing spec kinds from project type (non-destructive)')
   .option('--interactive', 'Ask interactive questions for deferred kinds')
   .option('--list', 'List spec kind states instead of scaffolding')
+  .option('--capability <name>', 'Scaffold specs/<name>/spec.md (repeatable)', (value, previous: string[]) => previous.concat([value]), [] as string[])
   .action(async (targetPath = '.', options) => {
     if (options.list) await specScaffoldListCommand(targetPath);
-    else await specScaffoldCommand(targetPath, options);
+    else await specScaffoldCommand(targetPath, { interactive: options.interactive === true, capabilities: options.capability });
   });
 
 spec
@@ -491,6 +568,15 @@ spec
   .description('Generate .cometflow/spec-index projection files')
   .action(async (targetPath = '.') => {
     await specIndexCommand(targetPath);
+  });
+
+spec
+  .command('import <file> [path]')
+  .description('Import a table-shaped interface inventory (CSV/TSV/markdown) into capability specs')
+  .option('--force', 'Overwrite existing capability specs')
+  .option('--module <path>', 'Default code module boundary for imported capabilities')
+  .action(async (file, targetPath = '.', options) => {
+    await specImportCommand(file, targetPath, { force: options.force === true, module: options.module });
   });
 
 const plan = program.command('plan').description('Task plan commands');

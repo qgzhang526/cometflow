@@ -22,6 +22,7 @@ CometFlow 没有数据库、也没有常驻服务端。所谓「状态」就是�
 COMETFLOW.md  ──►  context sync          ──► .cometflow/project-context.yaml
 COMETFLOW.md  ──►  goal sync             ──► .cometflow/goals/G1.yaml
 specs/**      ──►  spec lock             ──► .cometflow/spec-lock.json
+                                        └─► .cometflow-history/spec-versions/<sha256>.md
 specs/**      ──►  spec index            ──► .cometflow/spec-index/*.yaml
 specs/**      ──►  plan generate         ──► .cometflow/plans/G1.task-plan.yaml
                                                changes/<名>/**
@@ -67,7 +68,7 @@ specs/**      ──►  plan generate         ──► .cometflow/plans/G1.tas
 | `cometflow context sync .` | `COMETFLOW.md` 的「技术栈」「运行环境」两张表 | `.cometflow/project-context.yaml` | 把技术栈变成机器可读上下文 |
 | `cometflow goal sync .` | `COMETFLOW.md` 的「任务目标」段落 | `.cometflow/goals/G1.yaml` 等 | 把 G1/G2… 拆成目标记录 |
 | `cometflow spec validate .` | `COMETFLOW.md`、`specs/**`、`init-manifest.yaml` | 无 | 校验结构、anchor、acceptance、跨文件引用 |
-| `cometflow spec lock .` | `specs/**` 所有 `.md` | `.cometflow/spec-lock.json` | 给 spec 拍一张 hash 基线快照 |
+| `cometflow spec lock .` | `specs/**` 所有 `.md` | `.cometflow/spec-lock.json`、`.cometflow-history/` | 登记 spec 版本（内容寻址）+ 刷新 hash 基线 |
 | `cometflow spec index .` | `specs/**` | `.cometflow/spec-index/{models,apis,flows,errors,config}.yaml` | 生成可被程序消费的 spec 投影 |
 
 ### 步骤 D：拆解到冻结
@@ -78,7 +79,7 @@ specs/**      ──►  plan generate         ──► .cometflow/plans/G1.tas
 | `cometflow plan validate G1 .` | 计划 + specs + project-context | 无 | 查覆盖度、依赖环、命令与技术栈是否匹配 |
 | `cometflow plan review G1 .` | 计划 | 计划（`draft → validated`） | 标记「已评审」 |
 | `cometflow plan approve G1 .` | 计划 | 计划（`→ approved`） | 标记「已批准」 |
-| `cometflow plan freeze G1 .` | 计划 + spec 文件内容 | 计划（`→ frozen`，补 `acceptance_ids` / `spec_hash`） | 锁死每个任务的验收项与 spec 版本 |
+| `cometflow plan freeze G1 .` | 计划 + spec 文件内容 | 计划（`→ frozen`，补 `acceptance_ids` / `spec_version` / `spec_hash` / `anchor_hash`） | 锁死每个任务的验收项与 spec 版本 |
 | `cometflow plan trace G1 .` | 计划 | 无 | 打印「任务 ↔ spec ↔ anchor ↔ acceptance」追踪表 |
 
 ### 步骤 E / F：执行 change
@@ -290,7 +291,11 @@ plan approve : draft | validated → approved
 1. 打开它引用的 spec 文件，找到对应 anchor；
 2. 取该 anchor 下的 acceptance（`### Acceptance` 下的 `- A1：…`）；
 3. 写入 `acceptance_ids: [A1, A2]`；
-4. 对整个 spec 文件算 sha256 写入 `spec_hash`，`spec_version` 记为 1。
+4. 把当前 spec 内容登记为一个版本，写入真实的 `spec_version`、整文件 `spec_hash` 与 anchor 段落 `anchor_hash`；
+5. 同时刷新 `spec-lock.json`，让 `spec diff` / `spec verify` 的基线跟着走。
+
+验收项若在 spec 里写了 `- check: <command>`，`cometflow change verify` 会真的执行它，
+并把退出码作为该项的结论——这类结论不能被 Verifier 或文档推翻。
 
 演示里的实测映射：
 

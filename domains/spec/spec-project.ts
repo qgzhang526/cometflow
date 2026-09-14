@@ -4,7 +4,7 @@ import { stringify } from 'yaml';
 import { listSpecEntries } from './spec-index.js';
 import { parseSpecContent } from './spec-parse.js';
 import { parseCapability, parseFlow, parseModels, type CapFieldDef, type EntityDef, type FlowStepDef, type StateMachineDef } from './spec-model.js';
-import { extractConfigKeys, extractErrorCodes } from './spec-structure.js';
+import { extractConfigKeys, extractErrorCodes, extractSectionErrorCodes } from './spec-structure.js';
 import { pathExists, readTextFile } from '../../platform/fs/read-file.js';
 import { ROOT_KIND_FILES } from './kind.js';
 
@@ -90,11 +90,16 @@ export async function buildSpecIndex(projectRoot: string): Promise<SpecIndexProj
     }
   }
 
-  let errors: string[] = [];
+  const errorCodes = new Set<string>();
   const errorsRel = ROOT_KIND_FILES.errors;
   if (errorsRel && (await pathExists(path.join(projectRoot, errorsRel)))) {
-    errors = extractErrorCodes(await readTextFile(path.join(projectRoot, errorsRel)));
+    for (const code of extractErrorCodes(await readTextFile(path.join(projectRoot, errorsRel)))) errorCodes.add(code);
   }
+  const protocolRel = ROOT_KIND_FILES.protocol;
+  if (protocolRel && (await pathExists(path.join(projectRoot, protocolRel)))) {
+    for (const code of extractSectionErrorCodes(await readTextFile(path.join(projectRoot, protocolRel)))) errorCodes.add(code);
+  }
+  const errors = [...errorCodes];
 
   let config: string[] = [];
   const configRel = ROOT_KIND_FILES.config;

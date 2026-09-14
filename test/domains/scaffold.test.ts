@@ -4,8 +4,10 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   INIT_MANIFEST_SCHEMA,
+  capabilitySpecPath,
   detectKindNeeds,
   readInitManifest,
+  scaffoldCapabilities,
   scaffoldKinds,
   scaffoldProject,
   writeInitManifest,
@@ -37,6 +39,16 @@ describe('spec scaffold', () => {
     expect(kinds.pages.status).toBe('deferred');
     expect(kinds.models.status).toBe('deferred');
     expect(kinds.constraints.status).toBe('deferred');
+  });
+
+  it('keeps constraints for projects without a backend', () => {
+    const frontendOnly = detectKindNeeds({ frontend: 'Vue', backend: '无', database: '无' });
+    expect(frontendOnly.pages.status).toBe('present');
+    expect(frontendOnly.models.status).toBe('absent');
+    expect(frontendOnly.constraints.status).toBe('present');
+
+    const noStackAtAll = detectKindNeeds({});
+    expect(noStackAtAll.constraints.status).toBe('deferred');
   });
 
   it('applies interactive answers for second-layer kinds', () => {
@@ -131,6 +143,25 @@ describe('spec scaffold', () => {
     expect(result.manifestPath).toContain('init-manifest.yaml');
     const manifest = await readInitManifest(tmp);
     expect(manifest?.kinds.models.status).toBe('present');
+    await fs.rm(tmp, { recursive: true, force: true });
+  });
+
+  it('scaffolds capability stubs idempotently and rejects unsafe names', async () => {
+    const tmp = await tmpdir('cometflow-scaffold-');
+    const first = await scaffoldCapabilities(tmp, ['auth', '../escape']);
+    expect(first.created).toEqual(['specs/auth/spec.md']);
+    expect(first.invalid).toEqual(['../escape']);
+
+    const stub = await fs.readFile(path.join(tmp, 'specs', 'auth', 'spec.md'), 'utf8');
+    expect(stub).toContain('# auth');
+    expect(stub).toContain('## Acceptance');
+
+    const second = await scaffoldCapabilities(tmp, ['auth']);
+    expect(second.created).toHaveLength(0);
+    expect(second.skipped).toEqual(['specs/auth/spec.md']);
+
+    expect(capabilitySpecPath('a/b')).toBeNull();
+    expect(capabilitySpecPath('.hidden')).toBeNull();
     await fs.rm(tmp, { recursive: true, force: true });
   });
 });

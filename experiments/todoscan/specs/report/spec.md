@@ -1,5 +1,6 @@
 ---
 capability: report
+module: src/report
 ---
 
 # report capability
@@ -17,6 +18,7 @@ capability: report
 ### Acceptance
 
 - A4：对 `tests/fixtures` 运行，stdout 每行符合 `<path>:<line>:<TAG> <text>`，最后一行是 `total: 6`
+  - check: node tests/acceptance.mjs A4
 
 ## report json
 
@@ -28,3 +30,4 @@ capability: report
 ### Acceptance
 
 - A5：`--json` 的输出可被 `JSON.parse` 解析，且 `items` 长度等于 `total`
+  - check: node tests/acceptance.mjs A5

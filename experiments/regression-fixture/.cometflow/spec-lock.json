@@ -3,15 +3,19 @@
   "files": [
     {
       "path": "specs/auth/spec.md",
-      "hash": "bc058d59147325cee9d55bb5f550bb488321615d5ec4a6648224eefb3745822d"
+      "hash": "e7e1aa381c1f33a5bde0d7a88d089c426dd3338568967b8ef72e0e989fcf47be"
+    },
+    {
+      "path": "specs/constraints.md",
+      "hash": "bdb67e4f2bf4e2cbdcd334b815cb481c7257d5275e65d628d39ef4a3fad9b43f"
     },
     {
       "path": "specs/core/spec.md",
-      "hash": "e3a6cdd98fb3777e9b797c33cc265b3f42436daf08b78253321c99a7921ea71c"
+      "hash": "8d69ac154c5c663d4833db2157f69e43334e87b961f7fb28071b47d07a6a1690"
     },
     {
       "path": "specs/report/spec.md",
-      "hash": "d45c177373a8f9f93c520010a0a69c8a473de851bcca5d12738d21bd4fe46cbe"
+      "hash": "2cc23149793040f4f53802a66e7848b348f8c9760bd8fc71a2906c23957fe854"
     }
   ]
 }

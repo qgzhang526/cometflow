@@ -67,8 +67,54 @@ describe('phase 5 native workflow', () => {
     await fs.mkdir(path.join(tmp, 'changes', 'auth-email-login', 'specs', 'auth'), { recursive: true });
     await fs.writeFile(path.join(tmp, 'changes', 'auth-email-login', 'specs', 'auth', 'spec.md'), 'proposed auth spec');
     const archived = await archiveChange(tmp, 'auth-email-login');
-    expect(archived.archived).toBe(true);
+    expect(archived.state.archived).toBe(true);
+    expect(archived.appliedSpecs).toEqual(['specs/auth/spec.md']);
     expect(await fs.readFile(path.join(tmp, 'specs', 'auth', 'spec.md'), 'utf8')).toContain('proposed auth spec');
+
+    await fs.rm(tmp, { recursive: true, force: true });
+  });
+
+  it('applies root kind files, flow files, and capability specs on archive', async () => {
+    const tmp = await makeTemp();
+    await toBuild(tmp);
+    await runChange(tmp, 'auth-email-login', fakeRunner(0));
+    await writeEval(tmp, true);
+    await verifyChange(tmp, 'auth-email-login');
+
+    const proposed = path.join(tmp, 'changes', 'auth-email-login', 'specs');
+    await fs.mkdir(path.join(proposed, 'flows'), { recursive: true });
+    await fs.mkdir(path.join(proposed, 'newcap'), { recursive: true });
+    await fs.writeFile(path.join(proposed, 'errors.md'), '# errors\n\n## 错误码\n\n| code | 语义 | 触发接口 |\n|------|------|----------|\n| E_NEW | 新错误 | newcap |\n');
+    await fs.writeFile(path.join(proposed, 'flows', 'login.md'), '# login flow\n');
+    await fs.writeFile(path.join(proposed, 'newcap', 'spec.md'), '# newcap\n');
+
+    const archived = await archiveChange(tmp, 'auth-email-login');
+    expect(archived.appliedSpecs).toEqual([
+      'specs/errors.md',
+      'specs/flows/login.md',
+      'specs/newcap/spec.md',
+    ]);
+    expect(await fs.readFile(path.join(tmp, 'specs', 'errors.md'), 'utf8')).toContain('E_NEW');
+    expect(await fs.readFile(path.join(tmp, 'specs', 'flows', 'login.md'), 'utf8')).toContain('login flow');
+    expect(await fs.readFile(path.join(tmp, 'specs', 'newcap', 'spec.md'), 'utf8')).toContain('newcap');
+
+    await fs.rm(tmp, { recursive: true, force: true });
+  });
+
+  it('rejects unsupported proposed spec paths instead of silently skipping them', async () => {
+    const tmp = await makeTemp();
+    await toBuild(tmp);
+    await runChange(tmp, 'auth-email-login', fakeRunner(0));
+    await writeEval(tmp, true);
+    await verifyChange(tmp, 'auth-email-login');
+
+    const proposed = path.join(tmp, 'changes', 'auth-email-login', 'specs');
+    await fs.mkdir(proposed, { recursive: true });
+    await fs.writeFile(path.join(proposed, 'notes.txt'), 'stray file');
+
+    await expect(archiveChange(tmp, 'auth-email-login')).rejects.toThrow(/unsupported proposed spec path/u);
+    const state = await readChangeState(tmp, 'auth-email-login');
+    expect(state.archived).toBe(false);
 
     await fs.rm(tmp, { recursive: true, force: true });
   });

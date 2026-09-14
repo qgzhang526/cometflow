@@ -1,5 +1,6 @@
 ---
 capability: settings
+module: src/settings
 ---
 
 # settings capability
@@ -18,4 +19,6 @@ capability: settings
 ### Acceptance
 
 - A6：`.todoscanrc.json` 不是合法 JSON 时，stderr 含 `E_BAD_CONFIG` 且退出码为 2
+  - check: node tests/acceptance.mjs A6
 - A7：配置 `{"exclude":["vendor"]}` 时不传 `--exclude` 命中 5 条；改传 `--exclude lib` 命中 4 条
+  - check: node tests/acceptance.mjs A7

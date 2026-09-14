@@ -2,6 +2,7 @@ import path from 'node:path';
 import { parseGoals } from '../goal/goal-sync.js';
 import { parseSpecFile } from '../spec/spec-parse.js';
 import { capabilitySpecFile, listSpecFiles } from '../spec/spec-index.js';
+import { normalizeModulePath, parseSpecMeta } from '../spec/spec-meta.js';
 import { readTextFile } from '../../platform/fs/read-file.js';
 import type { TaskPlan, TaskRecord } from './types.js';
 
@@ -40,6 +41,9 @@ export async function generateTaskPlan(projectRoot: string, goalId: string): Pro
       continue;
     }
 
+    const specContent = await readTextFile(path.join(projectRoot, specRef));
+    const meta = parseSpecMeta(specContent);
+    const module = normalizeModulePath(meta.module);
     const parsed = await parseSpecFile(projectRoot, specRef);
     for (const anchor of parsed.anchors) {
       tasks.push({
@@ -53,7 +57,9 @@ export async function generateTaskPlan(projectRoot: string, goalId: string): Pro
         spec_version: null,
         spec_hash: null,
         depends_on: [],
-        test_scope: 'internal/' + capability,
+        // 模块边界由 spec 声明（front-matter module），而不是拆解器猜。
+        module,
+        test_scope: module ?? 'internal/' + capability,
         definition_of_done: ['所有 acceptance 通过', '相关测试通过'],
         status: 'draft',
       });

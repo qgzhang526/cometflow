@@ -1,6 +1,9 @@
 import { parseSpecFile } from '../spec/spec-parse.js';
 import { listSpecFiles } from '../spec/spec-index.js';
+import { normalizeModulePath, parseSpecMeta } from '../spec/spec-meta.js';
 import { loadProjectContext } from '../project/context.js';
+import { readTextFile } from '../../platform/fs/read-file.js';
+import path from 'node:path';
 import type { PlanFinding, PlanValidationResult, TaskPlan, TaskRecord } from './types.js';
 
 export async function validateTaskPlan(projectRoot: string, plan: TaskPlan): Promise<PlanValidationResult> {
@@ -71,6 +74,21 @@ export async function validateTaskPlan(projectRoot: string, plan: TaskPlan): Pro
         severity: 'error',
         code: 'no-acceptance',
         message: '任务关联的 spec 没有 acceptance',
+      });
+    }
+
+    // spec 声明的模块边界是权威：任务的 test_scope 必须落在其中，
+    // 否则「spec 控制模块化代码」会被人为改写的计划悄悄绕过。
+    const declaredModule = normalizeModulePath(
+      parseSpecMeta(await readTextFile(path.join(projectRoot, task.spec_ref))).module,
+    );
+    if (declaredModule && task.test_scope !== declaredModule) {
+      findings.push({
+        taskId: task.id,
+        severity: 'error',
+        code: 'module-scope-mismatch',
+        message:
+          'spec 声明模块 ' + declaredModule + '，但任务 test_scope 为 ' + task.test_scope,
       });
     }
 

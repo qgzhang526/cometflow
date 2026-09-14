@@ -1,0 +1,45 @@
+{
+  "schema": "cometflow.spec-history.v1",
+  "specs": {
+    "specs/auth/spec.md": [
+      {
+        "spec_version": 1,
+        "hash": "e7e1aa381c1f33a5bde0d7a88d089c426dd3338568967b8ef72e0e989fcf47be",
+        "recorded_at": "2026-09-14T07:10:14.052Z",
+        "change": null,
+        "parent": null,
+        "note": "spec lock"
+      }
+    ],
+    "specs/constraints.md": [
+      {
+        "spec_version": 1,
+        "hash": "bdb67e4f2bf4e2cbdcd334b815cb481c7257d5275e65d628d39ef4a3fad9b43f",
+        "recorded_at": "2026-09-14T07:10:14.063Z",
+        "change": null,
+        "parent": null,
+        "note": "spec lock"
+      }
+    ],
+    "specs/core/spec.md": [
+      {
+        "spec_version": 1,
+        "hash": "8d69ac154c5c663d4833db2157f69e43334e87b961f7fb28071b47d07a6a1690",
+        "recorded_at": "2026-09-14T07:10:14.070Z",
+        "change": null,
+        "parent": null,
+        "note": "spec lock"
+      }
+    ],
+    "specs/report/spec.md": [
+      {
+        "spec_version": 1,
+        "hash": "2cc23149793040f4f53802a66e7848b348f8c9760bd8fc71a2906c23957fe854",
+        "recorded_at": "2026-09-14T07:10:14.077Z",
+        "change": null,
+        "parent": null,
+        "note": "spec lock"
+      }
+    ]
+  }
+}
