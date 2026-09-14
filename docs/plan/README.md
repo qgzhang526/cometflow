@@ -21,7 +21,7 @@
 | Comet 借鉴加固 | 落地 012 的 9 项：原子写入、两阶段迁移、规范哈希、快照 omission、脱敏、证据上限、有界修复循环、git 来源绑定、Hook 路由 | **已完成**（H1–H3，M1–M3 达成；平台测试 55 文件 / 292 例） | [comet-hardening-plan.md](./comet-hardening-plan.md) |
 | 度量批次 | 把已有证据聚合成重建质量与 spec 健康度指标（`cometflow metrics`） | **已完成** | [metrics-plan.md](./metrics-plan.md) |
 | CI 门禁 | 回归执行器跨平台化 + spec 门禁 + 度量基线 + 三 job CI | **已完成**（待推送后首次运行确认） | [ci-plan.md](./ci-plan.md) |
-| Web 前端补齐 | 收敛「后端有能力、前端看不见」的差异：修 P0 正确性缺陷，补齐 spec 内核与 change 审计的可视化 | W1 已完成（Vue 3 迁移 + P0 修复） | [web-ui-enrichment-plan.md](./web-ui-enrichment-plan.md) |
+| Web 前端补齐 | 收敛「后端有能力、前端看不见」的差异：修 P0 正确性缺陷，补齐 spec 内核与 change 审计的可视化 | W1、W2 已完成 | [web-ui-enrichment-plan.md](./web-ui-enrichment-plan.md) |
 
 ## 阶段顺序原则
 

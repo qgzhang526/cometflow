@@ -1,0 +1,222 @@
+import { promises as fs } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { startServe } from '../../domains/server/serve.js';
+import type { ServeHandle } from '../../domains/server/serve.js';
+
+/**
+ * Spec 内核在 Web 端的投影：验收覆盖 / 一致性门禁 / 版本回放 / 影响分析。
+ *
+ * 用 regression fixture 作为被测项目，因为它同时具备 spec 版本仓、spec-lock、
+ * 冻结任务与多个 change——这些正是这些端点要回答的问题所依赖的事实。
+ */
+
+const FIXTURE = path.join(process.cwd(), 'experiments', 'regression-fixture');
+
+let server: ServeHandle;
+let workspace: string;
+let projectRoot: string;
+let webDir: string;
+let base: string;
+
+interface ApiEnvelope<T> {
+  ok: boolean;
+  data: T;
+  error?: { code: string; message: string };
+}
+
+function auth(): Record<string, string> {
+  return { Authorization: 'Bearer ' + server.token };
+}
+
+async function get<T>(suffix: string): Promise<{ status: number; body: ApiEnvelope<T> }> {
+  const res = await fetch(server.url + base + suffix, { headers: auth() });
+  return { status: res.status, body: (await res.json()) as ApiEnvelope<T> };
+}
+
+async function post<T>(suffix: string, payload: unknown): Promise<{ status: number; body: ApiEnvelope<T> }> {
+  const res = await fetch(server.url + base + suffix, {
+    method: 'POST',
+    headers: { ...auth(), 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  return { status: res.status, body: (await res.json()) as ApiEnvelope<T> };
+}
+
+beforeAll(async () => {
+  workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'cometflow-spec-api-ws-'));
+  webDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cometflow-spec-api-web-'));
+  projectRoot = path.join(await fs.mkdtemp(path.join(os.tmpdir(), 'cometflow-spec-api-proj-')), 'fixture');
+  await fs.cp(FIXTURE, projectRoot, { recursive: true });
+
+  server = await startServe({ workspaceRoot: workspace, webDir, port: 0, host: '127.0.0.1' });
+  const imported = await fetch(server.url + '/api/projects/import', {
+    method: 'POST',
+    headers: { ...auth(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path: projectRoot }),
+  });
+  const payload = (await imported.json()) as ApiEnvelope<{ project: { id: string } }>;
+  base = '/api/projects/' + payload.data.project.id;
+});
+
+afterAll(async () => {
+  await server.close();
+  await fs.rm(workspace, { recursive: true, force: true });
+  await fs.rm(webDir, { recursive: true, force: true });
+  await fs.rm(path.dirname(projectRoot), { recursive: true, force: true });
+});
+
+describe('spec kernel API', () => {
+  it('exposes acceptance coverage with executable checks', async () => {
+    const { status, body } = await get<{
+      anchors: Array<{ path: string; anchor: string; acceptance: Array<{ id: string; check: string | null }> }>;
+      total: number;
+      checked: number;
+      unchecked: number;
+    }>('/spec/checks');
+
+    expect(status).toBe(200);
+    expect(body.data.total).toBe(body.data.checked + body.data.unchecked);
+    expect(body.data.checked).toBeGreaterThan(0);
+
+    const auth = body.data.anchors.find((entry) => entry.path === 'specs/auth/spec.md');
+    expect(auth?.anchor).toBe('POST /login');
+    expect(auth?.acceptance[0].check).toContain('src/auth/index.ts');
+  });
+
+  it('exposes the integrity gate', async () => {
+    const { status, body } = await get<{ valid: boolean; findings: Array<{ code: string; severity: string }> }>(
+      '/spec/verify',
+    );
+    expect(status).toBe(200);
+    expect(typeof body.data.valid).toBe('boolean');
+    expect(Array.isArray(body.data.findings)).toBe(true);
+  });
+
+  it('diffs the current specs against the lock', async () => {
+    const { status, body } = await get<{ added: unknown[]; modified: unknown[]; removed: unknown[]; unchanged: unknown[] }>(
+      '/spec/diff',
+    );
+    expect(status).toBe(200);
+    expect(body.data.unchanged.length).toBe(4);
+    expect(body.data.modified).toHaveLength(0);
+
+    // 改一份 spec：diff 必须能看见，并且影响分析要指出受影响的冻结任务。
+    const corePath = path.join(projectRoot, 'specs', 'core', 'spec.md');
+    const original = await fs.readFile(corePath, 'utf8');
+    await fs.writeFile(corePath, original.replace('核心加法能力。', '核心加法能力（语义已变更）。'));
+
+    const after = await get<{ modified: Array<{ path: string }>; unchanged: unknown[] }>('/spec/diff');
+    expect(after.body.data.modified.map((entry) => entry.path)).toEqual(['specs/core/spec.md']);
+    expect(after.body.data.unchanged.length).toBe(3);
+
+    const drift = await get<{ drift: Array<{ goal: string; task: string; kind: string; severity: string }> }>('/spec/drift');
+    expect(drift.status).toBe(200);
+    expect(drift.body.data.drift.some((entry) => entry.goal === 'G1' && entry.task === 'T1')).toBe(true);
+
+    await fs.writeFile(corePath, original);
+  });
+
+  it('previews the impact of a change before archiving it', async () => {
+    // 没有提案 spec 时，影响分析只看当前工作区。
+    const plain = await get<{ summary: { files_changed: number }; untracked_changes: string[] }>('/spec/impact');
+    expect(plain.status).toBe(200);
+    expect(plain.body.data.summary.files_changed).toBe(0);
+
+    // 给 build-change 放一份提案 spec（change 归档后才会应用），影响分析应当预演它的后果。
+    const proposedDir = path.join(projectRoot, 'changes', 'build-change', 'specs', 'core');
+    await fs.mkdir(proposedDir, { recursive: true });
+    await fs.writeFile(
+      path.join(proposedDir, 'spec.md'),
+      [
+        '---',
+        'capability: core',
+        'module: src/core',
+        '---',
+        '',
+        '# core capability',
+        '',
+        '## CORE-001 add',
+        '',
+        '核心加法能力（提案改成返回两数之积）。',
+        '',
+        '## Acceptance',
+        '',
+        '- A1：add(1,2) 返回 2',
+        '  - check: node -e "process.exit(0)"',
+        '',
+      ].join('\n'),
+    );
+
+    const overlayed = await get<{
+      summary: { files_changed: number; anchors_changed: number; tasks_affected: number; highest_severity: string };
+      affected_tasks: Array<{ goal: string; task: string; severity: string }>;
+    }>('/spec/impact?change=build-change');
+
+    expect(overlayed.status).toBe(200);
+    expect(overlayed.body.data.summary.files_changed).toBe(1);
+    expect(overlayed.body.data.summary.tasks_affected).toBeGreaterThan(0);
+    expect(overlayed.body.data.affected_tasks.some((entry) => entry.goal === 'G1' && entry.task === 'T1')).toBe(true);
+    expect(['low', 'medium', 'high']).toContain(overlayed.body.data.summary.highest_severity);
+  });
+
+  it('lists spec versions and replays a recorded version', async () => {
+    const all = await get<{ specs: Record<string, Array<{ spec_version: number; hash: string }>> }>('/spec/versions');
+    expect(all.status).toBe(200);
+    expect(all.body.data.specs['specs/auth/spec.md'][0].spec_version).toBe(1);
+
+    const filtered = await get<{ specs: Record<string, unknown> }>('/spec/versions?path=specs/auth/spec.md');
+    expect(Object.keys(filtered.body.data.specs)).toEqual(['specs/auth/spec.md']);
+
+    const version = await get<{ path: string; record: { spec_version: number }; content: string }>(
+      '/spec/version?ref=' + encodeURIComponent('specs/auth/spec.md@1'),
+    );
+    expect(version.status).toBe(200);
+    expect(version.body.data.path).toBe('specs/auth/spec.md');
+    expect(version.body.data.record.spec_version).toBe(1);
+    expect(version.body.data.content).toContain('# auth capability');
+
+    const missing = await get('/spec/version?ref=' + encodeURIComponent('specs/auth/spec.md@99'));
+    expect(missing.status).toBe(404);
+    expect(missing.body.error?.code).toBe('unknown-spec-version');
+  });
+
+  it('restores a recorded version without losing the current content', async () => {
+    const versionRef = 'specs/auth/spec.md@1';
+    const version = await get<{ content: string }>('/spec/version?ref=' + encodeURIComponent(versionRef));
+    const specPath = path.join(projectRoot, 'specs', 'auth', 'spec.md');
+
+    // 模拟一次「未登记的手工改动」：restore 之前必须先把它记进版本仓。
+    await fs.writeFile(specPath, (await fs.readFile(specPath, 'utf8')) + '\n<!-- 手工改动 -->\n');
+
+    const restored = await post<{ path: string; restoredFrom: number; spec_version: number }>('/spec/restore', {
+      ref: versionRef,
+    });
+
+    expect(restored.status).toBe(200);
+    expect(restored.body.data.path).toBe('specs/auth/spec.md');
+    expect(restored.body.data.restoredFrom).toBe(1);
+    expect(await fs.readFile(specPath, 'utf8')).toBe(version.body.data.content);
+
+    const history = await get<{ specs: Record<string, Array<{ spec_version: number; hash: string; note: string | null }>> }>(
+      '/spec/versions?path=specs/auth/spec.md',
+    );
+    const versions = history.body.data.specs['specs/auth/spec.md'];
+    // v2 = restore 前的手工改动快照，v3 = 恢复后的内容（回到 v1 的 hash）。
+    expect(versions.map((entry) => entry.spec_version)).toEqual([1, 2, 3]);
+    expect(versions[1].note).toBe('pre-restore snapshot');
+    expect(versions[2].hash).toBe(versions[0].hash);
+  });
+
+  it('records the current spec set as a baseline', async () => {
+    const locked = await post<{ recorded: Array<{ path: string; spec_version: number }> }>('/spec/lock', {});
+    expect(locked.status).toBe(200);
+    expect(locked.body.data.recorded.length).toBe(4);
+
+    const diff = await get<{ modified: unknown[]; added: unknown[]; removed: unknown[] }>('/spec/diff');
+    expect(diff.body.data.modified).toHaveLength(0);
+    expect(diff.body.data.added).toHaveLength(0);
+    expect(diff.body.data.removed).toHaveLength(0);
+  });
+});

@@ -1,6 +1,6 @@
 # Web 前端补齐计划（后端能力 ↔ 前端展示差异）
 
-状态：**W1 已完成**（Web 客户端迁移到 Vue 3 + Vite + TypeScript，四个 P0 缺陷修复），W2–W5 待开始
+状态：**W1、W2 已完成**（Vue 3 迁移 + P0 修复 + spec 内核可视化），W3–W5 待开始
 分支：`codex/enrich-web-ui`
 调研基线：`fd870a9` + 工作区未提交改动（H1 加固 + 试验夹具）
 关联：ADR 0007（UI headless）、ADR 0008（工作区/多项目）、ADR 0009（agent/模型分层）、
@@ -203,13 +203,30 @@ ADR 0013（验收必须可执行）、ADR 0014（状态原子可恢复）、[008
 - **`?token=` 未生效**：入口没有调用 `initTokenFromUrl()`，serve 打印的带 token 地址打开后拿不到凭据。
   修法：在挂载前完成 token 落盘与地址清理，并把 SSE 的 token 收进 `eventStreamUrl()`，常规请求一律走 `Authorization` 头。
 
-### W2 spec 内核可视化（A 类 + P1-9）
+### W2 spec 内核可视化（A 类 + P1-9）✅ 已完成
 
 - 目标：把「spec 即产物」变成可点、可回放。
 - 落点：新增 `GET /spec/checks`、`/spec/verify`、`/spec/versions`、`/spec/diff`、`/spec/impact`、`/spec/drift`、
   `POST /spec/restore`；Specs 面板增加「版本」「影响」「验收覆盖」三个视图。
 - 验收：能看到每个 anchor 的验收项与 check；能列出并回放历史版本；
   改一份 spec 后能预览受影响的冻结任务与严重度分级。
+
+实施结果：
+
+- **新增 9 个端点**（都是薄封装已有领域函数）：`GET /spec/checks`、`/spec/verify`、`/spec/diff`、`/spec/drift`、
+  `/spec/impact?change=`、`/spec/versions[?path=]`、`/spec/version?ref=`、`POST /spec/lock`、`POST /spec/restore`。
+- **`domains/spec/spec-checks.ts`**：把 CLI `spec checks` 的解析逻辑提为 `collectAcceptanceChecks`，
+  并补上 `total/checked/unchecked` 计数；CLI 与 Web 共用同一投影，不再各写一遍。
+- **restore 是可逆的**：覆盖 `specs/` 之前先 `refreshSpecBaseline` 给当前内容记账（`pre-restore snapshot`），
+  未登记的手工改动不会因为一次恢复而消失；UI 侧用应用内确认弹窗（不是浏览器 `confirm`）二次确认。
+- **spec 写入走原子路径**：`POST /api/specs` 与 `PUT /api/specs/content` 从 `fs.writeFile` 换到 `atomicWriteText`，
+  与 H1 的状态写入标准一致——半写的 spec 会让「按冻结版本重建」失效。
+- **Specs 面板重构为 6 个页签**（`web/src/views/panels/specs/`）：12-kind 状态、脚手架、Spec 文件、
+  验收覆盖（无 check 的验收项显式标红）、版本（列出 + 回放 + 一键恢复）、影响与门禁
+  （diff / impact / verify / drift / validate 五块 + 「建立基线」按钮）。
+- 测试：新增 `test/domains/serve-spec-api.test.ts`（7 例，跑在 regression fixture 副本上）：
+  验收覆盖计数、门禁、diff、漂移、change 提案叠加后的影响分析、版本回放与 404、
+  恢复后「当前内容先被记账」、建立基线后 diff 归零。
 
 ### W3 change 审计与恢复路径（A 类 + P0-3）
 

@@ -330,3 +330,149 @@ export interface FsListing {
   parent: string | null;
   entries: Array<{ name: string; path: string; isDirectory: boolean }>;
 }
+
+// ---------- spec 内核：验收覆盖 / 门禁 / 版本 / 影响 ----------
+
+export interface AcceptanceItem {
+  id: string;
+  text: string;
+  /** null = 只能由独立 Verifier 或人工判定（ADR 0013）。 */
+  check: string | null;
+}
+
+export interface AcceptanceCheckAnchor {
+  path: string;
+  anchor: string;
+  acceptance: AcceptanceItem[];
+}
+
+export interface AcceptanceCheckCoverage {
+  anchors: AcceptanceCheckAnchor[];
+  total: number;
+  checked: number;
+  unchecked: number;
+}
+
+export interface SpecVerifyFinding {
+  severity: 'error' | 'warning';
+  code: string;
+  subject: string;
+  message: string;
+}
+
+export interface SpecVerifyResult {
+  schema: string;
+  valid: boolean;
+  findings: SpecVerifyFinding[];
+}
+
+export interface SpecLockEntry {
+  path: string;
+  hash: string;
+}
+
+export interface SpecDiffResult {
+  added: SpecLockEntry[];
+  modified: SpecLockEntry[];
+  removed: SpecLockEntry[];
+  unchanged: SpecLockEntry[];
+}
+
+export type SpecDriftSeverity = 'low' | 'medium' | 'high';
+
+export interface SpecDriftEntry {
+  goal: string;
+  task: string;
+  task_status: string;
+  spec_ref: string;
+  spec_anchor: string | null;
+  frozen_hash: string;
+  current_hash: string;
+  kind: string;
+  severity: SpecDriftSeverity;
+  renamed_to: string | null;
+  acceptance_added: string[];
+  acceptance_removed: string[];
+  frozen_source: string | null;
+  message: string;
+}
+
+export interface SpecDriftReport {
+  drift: SpecDriftEntry[];
+  scannedTasks: number;
+  unresolvable: Array<{ goal: string; task: string; spec_ref: string; frozen_hash: string }>;
+}
+
+export interface SpecImpactAnchor {
+  heading: string;
+  change: string;
+  severity: SpecDriftSeverity;
+  detail: string;
+  renamed_to?: string;
+}
+
+export interface SpecImpactTask {
+  goal: string;
+  task: string;
+  task_status: string;
+  anchor: string | null;
+  change: string;
+  severity: SpecDriftSeverity;
+  message: string;
+  acceptance_added: string[];
+  acceptance_removed: string[];
+}
+
+export interface SpecImpactFile {
+  path: string;
+  file_change: 'added' | 'modified' | 'removed';
+  anchors: SpecImpactAnchor[];
+  affected_tasks: SpecImpactTask[];
+  severity: 'none' | SpecDriftSeverity;
+}
+
+export interface SpecImpactReport {
+  schema: string;
+  generated_at: string;
+  files: SpecImpactFile[];
+  affected_tasks: SpecImpactTask[];
+  untracked_changes: string[];
+  summary: {
+    files_changed: number;
+    anchors_changed: number;
+    tasks_affected: number;
+    highest_severity: 'none' | SpecDriftSeverity;
+  };
+}
+
+export interface SpecVersionRecord {
+  spec_version: number;
+  hash: string;
+  recorded_at: string;
+  change: string | null;
+  parent: string | null;
+  note: string | null;
+}
+
+export interface SpecHistoryResponse {
+  schema: string;
+  specs: Record<string, SpecVersionRecord[]>;
+}
+
+export interface SpecVersionContent {
+  path: string;
+  record: SpecVersionRecord;
+  content: string;
+}
+
+export interface SpecLockResult {
+  lock: { files: SpecLockEntry[] };
+  recorded: Array<{ path: string; spec_version: number; hash: string }>;
+}
+
+export interface SpecRestoreResult {
+  path: string;
+  restoredFrom: number;
+  spec_version: number | null;
+  hash: string | null;
+}

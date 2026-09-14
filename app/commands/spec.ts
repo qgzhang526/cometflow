@@ -19,6 +19,7 @@ import { loadProjectContext } from '../../domains/project/context.js';
 import { readInitManifest, scaffoldCapabilities, scaffoldProject } from '../../domains/project/scaffold.js';
 import { importSpecsFromFile } from '../../domains/spec/spec-import.js';
 import { writeSpecIndex } from '../../domains/spec/spec-project.js';
+import { collectAcceptanceChecks } from '../../domains/spec/spec-checks.js';
 import { askScaffoldPrompts } from './scaffold-prompts.js';
 
 export async function specValidateCommand(targetPath: string): Promise<void> {
@@ -248,37 +249,18 @@ export async function specChecksCommand(
   options: { json?: boolean } = {},
 ): Promise<void> {
   const projectRoot = path.resolve(targetPath);
-  const files = await listSpecFiles(projectRoot);
-  const report: {
-    path: string;
-    anchor: string;
-    acceptance: { id: string; text: string; check: string | null }[];
-  }[] = [];
-  let unchecked = 0;
-  for (const file of files) {
-    const parsed = await parseSpecFile(projectRoot, file);
-    for (const anchor of parsed.anchors) {
-      const items = anchor.acceptance.length > 0 ? anchor.acceptance : parsed.acceptance;
-      if (items.length === 0) continue;
-      unchecked += items.filter((item) => !item.check).length;
-      report.push({
-        path: file,
-        anchor: anchor.heading,
-        acceptance: items.map((item) => ({ id: item.id, text: item.text, check: item.check })),
-      });
-    }
-  }
+  const report = await collectAcceptanceChecks(projectRoot);
   if (options.json) {
-    console.log(JSON.stringify({ anchors: report, unchecked }, null, 2));
+    console.log(JSON.stringify(report, null, 2));
     return;
   }
-  for (const entry of report) {
+  for (const entry of report.anchors) {
     console.log(entry.path + '#' + entry.anchor);
     for (const item of entry.acceptance) {
       console.log('  ' + item.id + ' ' + (item.check ? 'check: ' + item.check : '(no check — 需要独立 Verifier 或人工判定)'));
     }
   }
-  console.log('unchecked acceptance items: ' + unchecked);
+  console.log('acceptance items: ' + report.total + ' checked: ' + report.checked + ' unchecked: ' + report.unchecked);
 }
 
 export async function specIndexCommand(targetPath: string): Promise<void> {
