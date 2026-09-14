@@ -1084,7 +1084,8 @@ token: <random>
 ### 12.1 界面结构
 
 - **首页**：新建项目（三步向导：基本信息 → 项目类型 → 预览 12-kind 并创建）、打开已有项目、最近项目列表。
-- **项目内 8 个面板**：总览 Overview、目标 Goals、规格 Specs、计划 Plans、变更 Changes、进化 Evolve、评估 Eval、设置 Settings。
+- **项目内 10 个面板**：总览 Overview、目标 Goals、规格 Specs、计划 Plans、变更 Changes、进化 Evolve、
+  评估 Eval、调度 Scheduler、资产 Assets、设置 Settings。
 - **任务中心**（顶栏右侧抽屉）：进行中/已完成的 job、实时日志、刷新页面后仍在；
   「清理已完成」只清掉已结束的记录（排队/运行中的保留），带 change 的任务可一键跳到对应 change。
 - **Specs 面板 6 个页签**：12-kind 状态、脚手架、Spec 文件、验收覆盖、版本、影响与门禁。
@@ -1102,6 +1103,10 @@ token: <random>
   - 恢复路径：status=blocked 时出现「解除停机」（等价 `change unblock`）；归档遇到
     `spec-base-conflict`（HTTP 409）时给出两条明确路径——A 重新冻结基线（rebase）、B 按 ADR 0004 建
     reconciliation change。
+- **调度面板**：读 `.cometflow/runtime/queue.json` 展示队列与下一个待办；没跑过 daemon 时给出
+  「按已冻结计划推导」的待办视图，并只读展示调度器默认参数（改参数在设置页）。
+- **资产面板**：四个页签——已安装 Skills（含 SKILL.md 正文）、Bundle（manifest + 编译产物预览 + 平台列表）、
+  Classic change（只读列表）、Hook 预览（输入目标路径即可看到这次写入会不会被守卫拦下，以及原因和修复建议）。
 
 界面能力要点：
 
@@ -1157,6 +1162,11 @@ pnpm build                   # tsc（CLI）+ vite build（Web）
 | GET | `/api/projects/<id>/changes/<name>/evidence` | 证据文件与提案 spec、未完成归档事务 |
 | POST | `/api/projects/<id>/changes/<name>/rebase` | 重新冻结到当前 spec 版本（409 = 不可 rebase） |
 | POST | `/api/projects/<id>/changes/<name>/unblock` | 解除停机（409 = 该 change 未停机） |
+| GET | `/api/projects/<id>/scheduler/queue` | 调度队列 + 推导视图 + 下一个待办 + 调度器参数 |
+| GET | `/api/projects/<id>/skills`、`/skills/<name>` | 已安装 skill 列表 / 单个 skill 详情（含 SKILL.md） |
+| GET | `/api/projects/<id>/bundles` | bundle manifest + 编译产物预览 + 支持平台 |
+| POST | `/api/projects/<id>/hook/check` | 写入门禁预览（与 `hook check` 同源） |
+| GET | `/api/projects/<id>/classic` | Classic change 只读列表 |
 | GET/POST | `/api/projects/<id>/plans`、`/plans/generate`、`/plans/regenerate` | 计划列表 / 生成 / 重生成 |
 | GET/POST | `/api/projects/<id>/plans/<goal>`、`/plans/<goal>/{validate,review,approve,freeze}` | 计划读写与状态推进 |
 | GET/POST | `/api/projects/<id>/changes` | change 列表 / 新建 |

@@ -77,6 +77,11 @@ import {
   submitEvolution,
   verifyEvolution,
 } from '../evolution/evolution-service.js';
+import { listClassicStates } from '../classic/classic-store.js';
+import { listInstalledSkills } from '../skill/skill-list.js';
+import { compileBundle, readBundleManifest, supportedBundlePlatforms } from '../bundle/bundle-service.js';
+import { evaluateHook, type HookEvent } from '../guard/hook-guard.js';
+import { buildQueueFromPlans, nextQueuedTask, readQueue } from '../scheduler/queue.js';
 import { runLocalEval } from '../eval/eval-service.js';
 import type { ApiContext } from './http.js';
 import { readJsonBody, requestUrl, sendError, sendJson, sendOk } from './http.js';
@@ -169,6 +174,23 @@ function resolveSpecPath(projectRoot: string, relativePath: string): string {
   const within = absolute === specsDir || absolute.startsWith(specsDir + path.sep);
   if (!within) throw new Error('invalid spec path: ' + relativePath);
   return absolute;
+}
+
+/**
+ * 解码并校验一个「会参与文件路径拼接」的 URL 片段。
+ *
+ * 客户端用 encodeURIComponent 传名字，所以服务端必须解码后再用（否则含空格的名字会去找
+ * 一个带 %20 的目录）；解码后含分隔符或 `.` / `..` 一律拒绝，避免把读写带出项目目录。
+ */
+function safePathSegment(segment: string): string | null {
+  let decoded = segment;
+  try {
+    decoded = decodeURIComponent(segment);
+  } catch {
+    // 非法的百分号编码：保持原样交给下面的校验（它同样不会通过）。
+  }
+  if (decoded === '' || decoded === '.' || decoded === '..' || /[\\/]/u.test(decoded)) return null;
+  return decoded;
 }
 
 async function describeProject(projectPath: string): Promise<Record<string, unknown>> {
@@ -281,7 +303,7 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
     const root = project.path;
 
     const rest = (projectMatch[2] ?? '').split('/').filter((segment) => segment !== '');
-    const segments = rest;
+    let segments = rest;
 
     // ---- project detail ----
     if (segments.length === 0 && method === 'GET') {
@@ -622,17 +644,13 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
     // change 名字会参与 `changes/<name>/...` 的路径拼接，先挡住路径分隔符，
     // 避免 `..%2f` 之类的名字把读写引到项目外。
     if (segments[0] === 'changes' && segments.length >= 2) {
-      // 先解码再判定：`..%2F..%2Fetc` 这类写法在编码状态下看不出是路径，解码后就一目了然。
-      let candidate = segments[1];
-      try {
-        candidate = decodeURIComponent(candidate);
-      } catch {
-        // 非法的百分号编码不是合法 change 名，保持原样走后面的校验。
-      }
-      if (candidate === '' || candidate === '.' || candidate === '..' || /[\\/]/u.test(candidate)) {
+      const decoded = safePathSegment(segments[1]);
+      if (decoded === null) {
         sendError(res, 400, 'invalid-change-name', 'change name must not contain path separators');
         return true;
       }
+      // 用解码后的名字参与后续的路径拼接与状态读取（客户端用 encodeURIComponent 传名字）。
+      segments = [segments[0], decoded, ...segments.slice(2)];
     }
     if (segments[0] === 'changes' && segments.length === 1 && method === 'GET') {
       sendOk(res, { changes: await listChangeStates(root) });
@@ -869,6 +887,93 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
         }
       });
       sendJson(res, 202, { ok: true, data: { jobId: job.id }, requestId: String(Date.now()) });
+      return true;
+    }
+
+    // ---- 调度 / 资产 / 写入门禁（W5：把 8 面板之外的资产纳入界面）----
+    if (segments[0] === 'scheduler' && segments[1] === 'queue' && method === 'GET') {
+      const queue = await readQueue(root);
+      // 没有运行过 daemon 时队列文件不存在：用「按已冻结计划推导的待办」给出可用视图，
+      // 而不是让用户对着空页面猜。
+      const derived = await buildQueueFromPlans(root);
+      const config = await readProjectConfig(root);
+      sendOk(res, {
+        queue,
+        derived,
+        next: nextQueuedTask(queue ?? derived),
+        scheduler: config.scheduler ?? null,
+      });
+      return true;
+    }
+    if (segments[0] === 'skills' && segments.length === 1 && method === 'GET') {
+      const skills = await listInstalledSkills(root);
+      sendOk(res, {
+        skills: skills.map((pkg) => ({
+          name: pkg.definition.name,
+          description: pkg.definition.description,
+          version: pkg.definition.version,
+          author: pkg.definition.author ?? null,
+          files: pkg.files,
+        })),
+      });
+      return true;
+    }
+    if (segments[0] === 'skills' && segments.length === 2 && method === 'GET') {
+      const name = safePathSegment(segments[1]);
+      if (name === null) {
+        sendError(res, 400, 'invalid-skill-name', 'skill name must not contain path separators');
+        return true;
+      }
+      const skills = await listInstalledSkills(root);
+      const found = skills.find((pkg) => pkg.definition.name === name);
+      if (!found) {
+        sendError(res, 404, 'unknown-skill', 'skill is not installed: ' + name);
+        return true;
+      }
+      let content: string | null = null;
+      try {
+        content = await readTextFile(path.join(found.root, 'SKILL.md'));
+      } catch {
+        content = null;
+      }
+      sendOk(res, { definition: found.definition, files: found.files, content });
+      return true;
+    }
+    if (segments[0] === 'bundles' && method === 'GET') {
+      const platforms = supportedBundlePlatforms();
+      let manifest = null;
+      let compiled = null;
+      let error: string | null = null;
+      try {
+        manifest = await readBundleManifest(root);
+      } catch {
+        manifest = null;
+      }
+      if (manifest !== null) {
+        try {
+          compiled = await compileBundle(root);
+        } catch (caught) {
+          error = caught instanceof Error ? caught.message : String(caught);
+        }
+      }
+      sendOk(res, { manifest, compiled, platforms, error });
+      return true;
+    }
+    if (segments[0] === 'hook' && segments[1] === 'check' && method === 'POST') {
+      const body = await readJsonBody(req);
+      const target = stringField(body.target);
+      if (target.trim() === '') {
+        sendError(res, 400, 'missing-target', 'target path is required');
+        return true;
+      }
+      const event: HookEvent = stringField(body.event, 'write') === 'edit' ? 'edit' : 'write';
+      // 相对路径按项目根解析：serve 的 cwd 不一定是项目目录。
+      const decision = await evaluateHook(root, event, path.resolve(root, target));
+      sendOk(res, { target, event, decision });
+      return true;
+    }
+    if (segments[0] === 'classic' && method === 'GET') {
+      sendOk(res, { changes: await listClassicStates(root) });
       return true;
     }
 

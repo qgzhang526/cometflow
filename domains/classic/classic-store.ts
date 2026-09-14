@@ -18,3 +18,28 @@ export async function writeClassicState(projectRoot: string, state: ClassicState
   await fs.writeFile(filePath, stringify(state));
   return filePath;
 }
+
+/**
+ * 列出项目里的 classic change。
+ *
+ * classic 状态与 native change 共用 changes/ 目录（文件名不同），所以按文件名扫描而不是
+ * 维护第二份注册表——目录本身就是事实源。
+ */
+export async function listClassicStates(projectRoot: string): Promise<ClassicState[]> {
+  const dir = path.join(projectRoot, 'changes');
+  let entries: string[];
+  try {
+    entries = await fs.readdir(dir);
+  } catch {
+    return [];
+  }
+  const states: ClassicState[] = [];
+  for (const entry of entries.sort()) {
+    try {
+      states.push(await readClassicState(projectRoot, entry));
+    } catch {
+      // 不是 classic change（没有 classic-state.yaml）就跳过
+    }
+  }
+  return states;
+}

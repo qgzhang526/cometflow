@@ -529,3 +529,83 @@ export interface SpecConflictDetail {
   actual: string | null;
   kind: string;
 }
+
+// ---------- 调度 / 资产 / 写入门禁（W5） ----------
+
+export type QueueTaskStatus = 'queued' | 'running' | 'done' | 'failed';
+
+export interface QueueTask {
+  id: string;
+  goal: string;
+  task: string;
+  title: string;
+  status: QueueTaskStatus;
+  attempts: number;
+  updated_at: string;
+}
+
+export interface SchedulerQueue {
+  schema: string;
+  tasks: QueueTask[];
+}
+
+export interface SchedulerResponse {
+  /** daemon 实际写下的队列；没跑过 daemon 时为 null。 */
+  queue: SchedulerQueue | null;
+  /** 按已冻结计划推导的待办，用于「还没建过队列」时的可用视图。 */
+  derived: SchedulerQueue;
+  next: QueueTask | null;
+  scheduler: ProjectConfig['scheduler'] | null;
+}
+
+export interface SkillSummary {
+  name: string;
+  description: string;
+  version: string;
+  author: string | null;
+  files: string[];
+}
+
+export interface SkillsResponse {
+  skills: SkillSummary[];
+}
+
+export interface SkillDetail {
+  definition: { name: string; description: string; version: string; author?: string };
+  files: string[];
+  content: string | null;
+}
+
+export interface BundleResponse {
+  manifest: { schema: string; name: string; version: string; skills: Array<{ name: string; path: string }> } | null;
+  compiled: { name: string; version: string; files: string[] } | null;
+  platforms: string[];
+  error: string | null;
+}
+
+export interface HookDecision {
+  allowed: boolean;
+  reason: string;
+  hint?: string;
+}
+
+export interface HookCheckResponse {
+  target: string;
+  event: string;
+  decision: HookDecision;
+}
+
+export interface ClassicState {
+  schema: string;
+  name: string;
+  goal: string;
+  task: string;
+  profile: string;
+  phase: string;
+  archived: boolean;
+  created_at: string;
+}
+
+export interface ClassicResponse {
+  changes: ClassicState[];
+}
