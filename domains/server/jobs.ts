@@ -22,6 +22,13 @@ export interface JobRecord {
   exitCode?: number;
   error?: string;
   logTail: string[];
+  /**
+   * 任务产出的结构化结果（如 eval 报告、change 状态）。
+   *
+   * 只在事件里带结果的话，刷新页面就再也拿不到了；job 中心要能回答「刚才那次跑出了什么」，
+   * 所以结果留存在记录上，由 GET /api/jobs/{id} 一并返回。
+   */
+  result?: unknown;
 }
 
 export type JobEventType =
@@ -93,6 +100,7 @@ export class JobManager {
     job.status = 'succeeded';
     job.finishedAt = new Date().toISOString();
     job.exitCode = exitCode;
+    job.result = result ?? job.result;
     this.emit({ type: 'job.completed', jobId: id, projectId: job.projectId, result, at: new Date().toISOString() });
   }
 

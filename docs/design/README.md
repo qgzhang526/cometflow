@@ -43,3 +43,4 @@
 | [0016-bounded-repair-loop.md](../decisions/0016-bounded-repair-loop.md) | 修复循环必须有界，停滞必须停机 |
 | [0017-git-provenance-binding.md](../decisions/0017-git-provenance-binding.md) | change 绑定 git 来源，漂移时阻断 |
 | [0018-current-change-routing.md](../decisions/0018-current-change-routing.md) | 多 change 并存时按 current-change 指针路由写入 |
+| [0016-web-client-vue-vite.md](../decisions/0016-web-client-vue-vite.md) | Web 客户端采用 Vue 3 + Vite + TypeScript，产物为 web/dist |

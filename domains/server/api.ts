@@ -15,7 +15,13 @@ import {
   writeInitManifest,
 } from '../project/scaffold.js';
 import type { KindEntry, ScaffoldAnswers, StackHints } from '../project/scaffold.js';
-import { readProjectConfig, validateProjectConfig, writeProjectConfig } from '../project/config.js';
+import {
+  mergeProjectConfigOverride,
+  readProjectConfig,
+  readProjectConfigOverride,
+  validateProjectConfig,
+  writeProjectConfig,
+} from '../project/config.js';
 import type { ProjectConfig } from '../project/config.js';
 import { builtInAgentRunners, getBuiltInAgentRunner } from '../../platform/agents/registry.js';
 import { readTextFile } from '../../platform/fs/read-file.js';
@@ -306,14 +312,25 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
     }
 
     // ---- config / agents ----
+    if (segments[0] === 'config' && segments[1] === 'project' && method === 'GET') {
+      sendOk(res, { override: await readProjectConfigOverride(root) });
+      return true;
+    }
     if (segments[0] === 'config') {
       if (method === 'GET') {
-        sendOk(res, await readProjectConfig(root));
+        // 合并视图（项目覆盖全局）用于渲染；同时给出项目文件本身的覆盖集合，
+        // 界面据此区分「这个值是项目写的」还是「继承全局默认」。
+        const config = await readProjectConfig(root);
+        const projectOverride = await readProjectConfigOverride(root);
+        sendOk(res, { config, projectOverride });
         return true;
       }
       if (method === 'PUT') {
         const body = (await readJsonBody(req)) as Record<string, unknown>;
-        const config = { ...body, schema: 'cometflow.project.v1' } as ProjectConfig;
+        // 增量合并写：整个 body 覆盖项目文件会让只渲染部分字段的界面顺手删掉其余配置
+        // （verification / scope / agents 等），也会把全局默认值固化成项目值。
+        const existing = await readProjectConfigOverride(root);
+        const config = mergeProjectConfigOverride(existing, body as Partial<ProjectConfig>);
         const errors = validateProjectConfig(config);
         if (errors.length > 0) {
           sendError(res, 400, 'invalid-config', errors.join('; '));
@@ -321,7 +338,7 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
         }
         const filePath = await writeProjectConfig(root, config);
         jobs.stateChanged(projectId, '/api/config');
-        sendOk(res, { written: filePath, config });
+        sendOk(res, { written: filePath, config, writtenKeys: Object.keys(body).sort() });
         return true;
       }
     }

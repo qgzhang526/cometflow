@@ -54,8 +54,16 @@ cometflow agent list|check <agent>
 pnpm install
 pnpm typecheck
 pnpm test
-pnpm build
+pnpm web:typecheck
+pnpm build          # tsc（CLI）+ vite build（Web 客户端 → web/dist）
 pnpm package-e2e
+```
+
+Web 客户端（Vue 3 + Vite + TypeScript，ADR 0016）：
+
+```bash
+pnpm web:dev        # 开发：Vite dev server，/api 代理到本机 serve
+pnpm web:build      # 构建：web/dist，由 cometflow serve 静态托管
 ```
 
 ## 设计文档

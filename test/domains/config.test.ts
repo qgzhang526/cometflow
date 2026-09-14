@@ -7,9 +7,11 @@ import {
   CONFIG_SCHEMA,
   DEFAULT_CONFIG,
   globalConfigPath,
+  mergeProjectConfigOverride,
   projectConfigPath,
   readGlobalConfig,
   readProjectConfig,
+  readProjectConfigOverride,
   resolveAgentId,
   resolveModel,
   validateProjectConfig,
@@ -161,5 +163,61 @@ describe('project config service', () => {
     await fs.writeFile(projectConfigPath(tmp), 'schema: cometflow.project.v1\nagent: opencode\n');
     expect(await resolveModel(tmp, 'opencode')).toBeUndefined();
     await fs.rm(tmp, { recursive: true, force: true });
+  });
+
+  it('reads only what the project file itself overrides', async () => {
+    const home = await fs.mkdtemp(path.join(os.tmpdir(), 'cometflow-home-'));
+    const previous = process.env.COMETFLOW_HOME;
+    process.env.COMETFLOW_HOME = home;
+    try {
+      await writeGlobalConfig({ ...DEFAULT_CONFIG, agent: 'claude-code', model: 'global-model' });
+      const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'cometflow-proj-'));
+
+      expect(await readProjectConfigOverride(tmp)).toEqual({});
+
+      await fs.mkdir(path.join(tmp, '.cometflow'), { recursive: true });
+      await fs.writeFile(projectConfigPath(tmp), 'schema: cometflow.project.v1\nagent: opencode\n');
+      const override = await readProjectConfigOverride(tmp);
+      expect(override.agent).toBe('opencode');
+      // 全局默认（model=global-model）不算项目覆盖。
+      expect(override.model).toBeUndefined();
+
+      await fs.writeFile(projectConfigPath(tmp), '');
+      expect(await readProjectConfigOverride(tmp)).toEqual({});
+      await fs.rm(tmp, { recursive: true, force: true });
+    } finally {
+      if (previous === undefined) delete process.env.COMETFLOW_HOME; else process.env.COMETFLOW_HOME = previous;
+      await fs.rm(home, { recursive: true, force: true });
+    }
+  });
+
+  it('merges a partial config write into the existing project config', () => {
+    const base = {
+      schema: CONFIG_SCHEMA,
+      agent: 'claude-code',
+      verification: { mode: 'checks+agent' as const, agent: 'mock' },
+      scope: { allow: ['package.json'] },
+      scheduler: { mode: 'idle' as SchedulerMode, intervalMs: 60000 },
+      agents: { opencode: { model: 'opencode-model' } },
+    };
+
+    const merged = mergeProjectConfigOverride(base, { agent: 'opencode' });
+    expect(merged.agent).toBe('opencode');
+    // 未在 patch 中出现的字段必须保留，否则「只改 agent」会顺手删掉它们。
+    expect(merged.verification).toEqual({ mode: 'checks+agent', agent: 'mock' });
+    expect(merged.scope).toEqual({ allow: ['package.json'] });
+    expect(merged.scheduler).toEqual({ mode: 'idle', intervalMs: 60000 });
+    expect(merged.agents).toEqual({ opencode: { model: 'opencode-model' } });
+
+    const nested = mergeProjectConfigOverride(base, { scheduler: { mode: 'always' } });
+    expect(nested.scheduler?.mode).toBe('always');
+    // 嵌套对象逐键覆盖：没提到的 intervalMs 保留。
+    expect(nested.scheduler?.intervalMs).toBe(60000);
+
+    // 空对象不产生空壳字段，避免把 `scope: {}` 这类噪声写进文件。
+    const empty = mergeProjectConfigOverride({}, {});
+    expect(empty.scope).toBeUndefined();
+    expect(empty.verification).toBeUndefined();
+    expect(empty.schema).toBe(CONFIG_SCHEMA);
   });
 });

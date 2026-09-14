@@ -108,7 +108,7 @@ describe('serve API', () => {
     expect(Array.isArray(goals.data.goals)).toBe(true);
 
     const config = await json(await fetch(url(base + '/config'), { headers: auth() }));
-    expect(config.data.schema).toBe('cometflow.project.v1');
+    expect(config.data.config.schema).toBe('cometflow.project.v1');
 
     const putConfig = await fetch(url(base + '/config'), {
       method: 'PUT', headers: { ...auth(), 'Content-Type': 'application/json' },
@@ -116,7 +116,55 @@ describe('serve API', () => {
     });
     expect(putConfig.status).toBe(200);
     const configAfter = await json(await fetch(url(base + '/config'), { headers: auth() }));
-    expect(configAfter.data.agent).toBe('claude-code');
+    expect(configAfter.data.config.agent).toBe('claude-code');
+  });
+
+  it('merges a partial config write instead of replacing the project config', async () => {
+    const projectPath = path.join(workspace, 'config-merge');
+    const created = await post('/api/projects', { name: 'config-merge', path: projectPath });
+    const id = created.data.project.id as string;
+    const base = '/api/projects/' + id;
+
+    const first = await fetch(url(base + '/config'), {
+      method: 'PUT', headers: { ...auth(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        agent: 'claude-code',
+        model: 'claude-sonnet-4-5',
+        verification: { mode: 'checks+agent', agent: 'mock' },
+        scope: { allow: ['package.json'] },
+        scheduler: { mode: 'idle', intervalMs: 60000 },
+      }),
+    });
+    expect(first.status).toBe(200);
+
+    // 界面这次只渲染并提交了 agent 一个字段，其余配置必须原样保留。
+    const second = await fetch(url(base + '/config'), {
+      method: 'PUT', headers: { ...auth(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agent: 'opencode' }),
+    });
+    expect(second.status).toBe(200);
+    const secondPayload = await json(second);
+    expect(secondPayload.data.writtenKeys).toEqual(['agent']);
+
+    const loaded = await json(await fetch(url(base + '/config'), { headers: auth() }));
+    expect(loaded.data.config.agent).toBe('opencode');
+    expect(loaded.data.config.verification.mode).toBe('checks+agent');
+    expect(loaded.data.config.verification.agent).toBe('mock');
+    expect(loaded.data.config.scope.allow).toEqual(['package.json']);
+    expect(loaded.data.config.scheduler).toEqual({ mode: 'idle', intervalMs: 60000 });
+
+    // 项目覆盖集合只包含项目文件真正写过的键；全局默认不算覆盖。
+    const override = await json(await fetch(url(base + '/config/project'), { headers: auth() }));
+    expect(override.data.override.agent).toBe('opencode');
+    expect(override.data.override.verification.mode).toBe('checks+agent');
+
+    const invalid = await fetch(url(base + '/config'), {
+      method: 'PUT', headers: { ...auth(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agent: 'nope' }),
+    });
+    expect(invalid.status).toBe(400);
+    const invalidPayload = await json(invalid);
+    expect(invalidPayload.error?.code).toBe('invalid-config');
   });
 
   it('generates and validates a task plan', async () => {
@@ -137,6 +185,76 @@ describe('serve API', () => {
     const res = await fetch(url('/'), { headers: auth() });
     expect(res.status).toBe(200);
     expect(await res.text()).toContain('cometflow-ui');
+    // 入口必须每次回源，否则重建后浏览器会拿旧入口去请求已删除的 chunk。
+    expect(res.headers.get('cache-control')).toBe('no-cache');
+  });
+
+  it('caches hashed build assets immutably', async () => {
+    await fs.mkdir(path.join(webDir, 'assets'), { recursive: true });
+    await fs.writeFile(path.join(webDir, 'assets', 'index-abc123.js'), 'console.log(1)');
+    const res = await fetch(url('/assets/index-abc123.js'), { headers: auth() });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
+  });
+
+  it('falls back to dist/ when the web dir itself has no index.html', async () => {
+    const sourceDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cometflow-web-src-'));
+    await fs.mkdir(path.join(sourceDir, 'dist'), { recursive: true });
+    await fs.writeFile(path.join(sourceDir, 'dist', 'index.html'), '<html>built-ui</html>');
+    const handle = await startServe({ workspaceRoot: workspace, webDir: sourceDir, port: 0, host: '127.0.0.1' });
+    try {
+      const res = await fetch(handle.url + '/', { headers: { Authorization: 'Bearer ' + handle.token } });
+      expect(res.status).toBe(200);
+      expect(await res.text()).toContain('built-ui');
+    } finally {
+      await handle.close();
+      await fs.rm(sourceDir, { recursive: true, force: true });
+    }
+  });
+
+  it('prefers dist/ over the vite source entry when both exist', async () => {
+    const sourceDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cometflow-web-both-'));
+    await fs.mkdir(path.join(sourceDir, 'dist'), { recursive: true });
+    // Vite 项目根与构建产物同名 index.html：源码入口是 `<script src="/src/main.ts">`，
+    // 直接托管它只会得到空白页，因此 dist/ 必须优先。
+    await fs.writeFile(path.join(sourceDir, 'index.html'), '<html><script src="/src/main.ts"></script></html>');
+    await fs.writeFile(path.join(sourceDir, 'dist', 'index.html'), '<html>built-ui</html>');
+    const handle = await startServe({ workspaceRoot: workspace, webDir: sourceDir, port: 0, host: '127.0.0.1' });
+    try {
+      const res = await fetch(handle.url + '/', { headers: { Authorization: 'Bearer ' + handle.token } });
+      expect(await res.text()).toContain('built-ui');
+      // 解析结果应当落在构建产物上，并在启动信息里标成 built。
+      expect(handle.ui.dir.endsWith('dist')).toBe(true);
+      expect(handle.ui.state).toBe('built');
+    } finally {
+      await handle.close();
+      await fs.rm(sourceDir, { recursive: true, force: true });
+    }
+  });
+
+  it('reports whether the served directory is a build or a vite source entry', async () => {
+    const unbuiltDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cometflow-web-unbuilt-'));
+    await fs.writeFile(
+      path.join(unbuiltDir, 'index.html'),
+      '<html><script type="module" src="/src/main.ts"></script></html>',
+    );
+    const unbuilt = await startServe({ workspaceRoot: workspace, webDir: unbuiltDir, port: 0, host: '127.0.0.1' });
+    try {
+      // 源码入口会让浏览器拿到加载失败的模块（白页），启动时必须能识别出来并提示。
+      expect(unbuilt.ui.state).toBe('unbuilt');
+    } finally {
+      await unbuilt.close();
+      await fs.rm(unbuiltDir, { recursive: true, force: true });
+    }
+
+    const missingDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cometflow-web-missing-'));
+    const missing = await startServe({ workspaceRoot: workspace, webDir: missingDir, port: 0, host: '127.0.0.1' });
+    try {
+      expect(missing.ui.state).toBe('missing');
+    } finally {
+      await missing.close();
+      await fs.rm(missingDir, { recursive: true, force: true });
+    }
   });
 
   it('validates specs and exposes spec index', async () => {

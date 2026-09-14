@@ -5,7 +5,8 @@
 
 ```bash
 cd D:\zqg\github\cometflow
-node dist/app/cli/index.js serve --port 4321 --web-dir web
+pnpm build            # 产出 dist/（CLI）与 web/dist/（前端）
+node dist/app/cli/index.js serve --port 4321
 # 浏览器打开 http://127.0.0.1:4321 ，首页粘贴服务端打印的 token
 ```
 
