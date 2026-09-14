@@ -7,7 +7,11 @@ import { verifySpecIntegrity } from '../../domains/spec/spec-verify.js';
 import { freezeTaskPlan } from '../../domains/task-plan/task-plan-freeze.js';
 import { generateTaskPlan } from '../../domains/task-plan/task-plan-generate.js';
 import { writeTaskPlan } from '../../domains/task-plan/task-plan-store.js';
-import { latestSpecVersion } from '../../domains/spec/spec-version.js';
+import {
+  hasSpecBlob,
+  latestSpecVersion,
+  specVersionBlobCandidates,
+} from '../../domains/spec/spec-version.js';
 import { createChangeFromTask } from '../../domains/workflow/change-create.js';
 
 const fixture = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'fixtures', 'spec-kernel-project');
@@ -49,7 +53,14 @@ describe('spec integrity gate', () => {
   it('fails when the frozen content is missing from the version store', async () => {
     await freeze(tmp);
     const version = await latestSpecVersion(tmp, specPath);
-    await fs.rm(path.join(tmp, '.cometflow', 'spec-versions', version!.hash + '.md'));
+    // 用领域 API 取候选路径，而不是硬编码目录：版本仓曾从 .cometflow/ 迁到 .cometflow-history/，
+    // 硬编码旧路径的写法只在「本地恰好有旧副本」时才成立，干净检出上会直接失败。
+    for (const candidate of specVersionBlobCandidates(tmp, version!.hash)) {
+      await fs.rm(candidate, { force: true });
+    }
+    // 前置断言：删干净了才谈得上「缺失」，否则测试会静默验证错误的前提。
+    expect(await hasSpecBlob(tmp, version!.hash)).toBe(false);
+
     const result = await verifySpecIntegrity(tmp);
     expect(result.valid).toBe(false);
     expect(result.findings.map((finding) => finding.code)).toContain('missing-version-blob');

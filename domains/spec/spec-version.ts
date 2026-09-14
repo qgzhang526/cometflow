@@ -83,11 +83,20 @@ async function resolveHistoryPath(projectRoot: string): Promise<string> {
   return current;
 }
 
+/**
+ * 一个 blob 可能出现的位置：当前目录在前，旧目录在后。
+ *
+ * 导出它是为了让调用方（迁移、清理、测试）不必自己拼路径——
+ * 之前有两个测试硬编码了旧路径，在干净检出上直接失败，正是这么来的。
+ */
+export function specVersionBlobCandidates(projectRoot: string, hash: string): string[] {
+  return [specVersionBlobPath(projectRoot, hash), legacySpecVersionBlobPath(projectRoot, hash)];
+}
+
 async function resolveBlobPath(projectRoot: string, hash: string): Promise<string | null> {
-  const current = specVersionBlobPath(projectRoot, hash);
-  if (await fileExists(current)) return current;
-  const legacy = legacySpecVersionBlobPath(projectRoot, hash);
-  if (await fileExists(legacy)) return legacy;
+  for (const candidate of specVersionBlobCandidates(projectRoot, hash)) {
+    if (await fileExists(candidate)) return candidate;
+  }
   return null;
 }
 

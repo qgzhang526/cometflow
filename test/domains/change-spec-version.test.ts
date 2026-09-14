@@ -17,7 +17,11 @@ import {
 import { applyChangeTransition } from '../../domains/workflow/change-transitions.js';
 import { readChangeState, writeChangeState } from '../../domains/workflow/change-store.js';
 import { readSpecLock, diffSpecs } from '../../domains/spec/spec-lock.js';
-import { latestSpecVersion } from '../../domains/spec/spec-version.js';
+import {
+  hasSpecBlob,
+  latestSpecVersion,
+  specVersionBlobCandidates,
+} from '../../domains/spec/spec-version.js';
 import { verifySpecIntegrity } from '../../domains/spec/spec-verify.js';
 
 const fixture = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'fixtures', 'spec-kernel-project');
@@ -113,7 +117,11 @@ describe('change spec lifecycle', () => {
 
   it('reports a missing frozen blob instead of silently building from a drifted file', async () => {
     const version = await latestSpecVersion(tmp, specPath);
-    await fs.rm(path.join(tmp, '.cometflow', 'spec-versions', version!.hash + '.md'));
+    // 同 spec-verify：按领域 API 取候选路径，避免硬编码版本仓位置。
+    for (const candidate of specVersionBlobCandidates(tmp, version!.hash)) {
+      await fs.rm(candidate, { force: true });
+    }
+    expect(await hasSpecBlob(tmp, version!.hash)).toBe(false);
     await fs.appendFile(path.join(tmp, specPath), '\n## Changed\n');
 
     const prompt = await buildChangePrompt(tmp, changeName);
