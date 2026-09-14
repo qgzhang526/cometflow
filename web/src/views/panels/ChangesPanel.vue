@@ -234,6 +234,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { useRoute } from 'vue-router';
 import ModalCard from '../../components/ModalCard.vue';
 import PhaseSteps from '../../components/PhaseSteps.vue';
 import StatusBadge from '../../components/StatusBadge.vue';
@@ -268,6 +269,7 @@ const TABS = [
 const project = useProjectStore();
 const jobs = useJobsStore();
 const toasts = useToastStore();
+const route = useRoute();
 
 const changes = ref<ChangeState[]>([]);
 const goals = ref<GoalRecord[]>([]);
@@ -306,7 +308,20 @@ const agentOptions = computed(() => {
   if (set.size === 0) set.add('opencode');
   return [...set];
 });
-const activeJob = computed(() => (activeJobId.value === null ? null : jobs.jobs[activeJobId.value] ?? null));
+/**
+ * 正在展示的 job。
+ *
+ * 优先用本次会话启动的那个；否则回退到任务列表里这个 change 最近的一次运行——
+ * 刷新页面后（甚至别的会话跑的）日志也能自动补上，而不是等用户重新跑一遍。
+ */
+const activeJob = computed(() => {
+  if (activeJobId.value !== null) {
+    const explicit = jobs.jobs[activeJobId.value];
+    if (explicit) return explicit;
+  }
+  if (selectedName.value === '') return null;
+  return jobs.latestFor('change-run', { change: selectedName.value });
+});
 const jobLog = computed(() => {
   const job = activeJob.value;
   if (job === null) return '';
@@ -542,6 +557,16 @@ function toggleOutput(id: string): void {
 }
 
 onMounted(reload);
+
+// 任务中心可以深链到某个 change：`#/project/<id>/changes?change=<name>`。
+watch(
+  () => route.query.change,
+  (value) => {
+    if (typeof value !== 'string' || value === '' || value === selectedName.value) return;
+    void select(value);
+  },
+  { immediate: true },
+);
 
 watch(
   () => activeJob.value?.status,

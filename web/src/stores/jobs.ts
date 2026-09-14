@@ -89,10 +89,39 @@ export const useJobsStore = defineStore('jobs', () => {
     trackedId.value = jobId;
   }
 
+  /**
+   * 找到某个 change / goal 最近的任务。
+   *
+   * 面板用它回答「刷新页面后，这个 change 上一次跑成什么样」——不用面板自己记 jobId。
+   */
+  function latestFor(kind: string, match: { change?: string; goal?: string } = {}): JobRecord | null {
+    return (
+      list.value.find(
+        (job) =>
+          job.kind === kind &&
+          (match.change === undefined || job.change === match.change) &&
+          (match.goal === undefined || job.goal === match.goal),
+      ) ?? null
+    );
+  }
+
+  const finishedCount = computed(
+    () => list.value.filter((job) => job.status === 'succeeded' || job.status === 'failed').length,
+  );
+
+  /** 清理已结束的任务；排队/运行中的保留。 */
+  async function clearFinished(): Promise<number> {
+    const data = await api<{ removed: number }>('/jobs', { method: 'DELETE' });
+    if (trackedId.value !== null && jobs.value[trackedId.value] === undefined) trackedId.value = null;
+    await load();
+    return data.removed;
+  }
+
   return {
     jobs,
     list,
     running,
+    finishedCount,
     tracked,
     trackedId,
     drawerOpen,
@@ -101,6 +130,8 @@ export const useJobsStore = defineStore('jobs', () => {
     applyEvent,
     track,
     select,
+    latestFor,
+    clearFinished,
     forProject,
   };
 });
