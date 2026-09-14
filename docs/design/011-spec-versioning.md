@@ -109,6 +109,21 @@ module: internal/auth
 
 这条链路让「一个 capability 对应一个代码模块」从约定变成可校验的机械约束。
 
+跨 capability 共享的路径（CLI 入口、依赖清单、测试夹具等）声明在 **`COMETFLOW.md` 的 `## 模块归属`** 里：
+
+```markdown
+## 模块归属
+
+| 共享路径 | 说明 |
+|----------|------|
+| bin | CLI 入口，跨 capability 共享 |
+| package.json | 依赖清单与脚本 |
+```
+
+选择 project 层而不是项目配置，是因为 `.cometflow/` 被 gitignore：配置里的允许列表换台机器就丢了，
+而「哪些文件是全仓库共享」是项目事实，必须随仓库分发。`config.scope.allow` 保留为本地临时覆盖，
+两者在 `resolveScopeAllow()` 里合并，hook guard、`change verify`、`change archive` 共用同一份结果。
+
 ### Change 上的基线
 
 ```text

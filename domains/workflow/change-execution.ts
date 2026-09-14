@@ -19,6 +19,7 @@ import { runIndependentVerifier } from './change-verifier.js';
 import {
   captureImplementationBaseline,
   collectImplementationScope,
+  resolveScopeAllow,
   type ImplementationScopeReport,
 } from './implementation-scope.js';
 import {
@@ -210,7 +211,7 @@ export async function verifyChange(
 
   const config = await readProjectConfig(projectRoot);
   const mode: VerificationMode = options.mode ?? config.verification?.mode ?? 'checks';
-  const allow = config.scope?.allow ?? [];
+  const allow = await resolveScopeAllow(projectRoot);
 
   const checks = await runAcceptanceChecks(projectRoot, name, {
     timeoutMs: options.timeoutMs,
@@ -639,10 +640,9 @@ export async function archiveChange(projectRoot: string, name: string): Promise<
   await appendChangeEvent(projectRoot, name, 'archive-started', {}, { phase: state.phase });
   await assertSpecBaselineIntact(projectRoot, name, state);
   // 最后一道模块闸门：即使 verify 被绕过，越界改动也不能进入归档。
-  const config = await readProjectConfig(projectRoot);
   const scope = await collectImplementationScope(projectRoot, name, {
     module: state.module ?? null,
-    allow: config.scope?.allow ?? [],
+    allow: await resolveScopeAllow(projectRoot),
   });
   if (state.module && scope.unattributed.length > 0) {
     throw new Error(
@@ -652,7 +652,7 @@ export async function archiveChange(projectRoot: string, name: string): Promise<
         state.module +
         ' 内: ' +
         scope.unattributed.join(', ') +
-        '；请移回模块内，或在 .cometflow/config.yaml 的 scope.allow 中显式放行',
+        '；请移回模块内，或在 COMETFLOW.md 的「## 模块归属」中声明为共享路径',
     );
   }
 

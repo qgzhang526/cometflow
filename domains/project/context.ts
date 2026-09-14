@@ -7,6 +7,13 @@ export interface ProjectContext {
   schema: 'cometflow.project-context.v1';
   tech_stack: Record<string, string>;
   runtime: Record<string, string>;
+  /**
+   * 不属于任何 capability 模块、但允许改动的共享路径（来自 COMETFLOW.md 的 `## 模块归属`）。
+   *
+   * 放在 project 层是有意的：`.cometflow/` 被 gitignore，配置里的 scope.allow 换台机器就丢，
+   * 而「哪些文件是全仓库共享」属于项目事实，必须随仓库分发。config.scope.allow 仅作本地覆盖。
+   */
+  shared_paths: string[];
 }
 
 const TECH_KEYS: Record<string, string> = {
@@ -53,10 +60,66 @@ function extractSection(markdown: string, title: string): string {
   return out.join("\n");
 }
 
+/** 归一化共享路径：统一 posix、去掉 `./` 与前导斜杠、去掉尾部 `/`。 */
+export function normalizeSharedPath(value: string): string | null {
+  const normalized = value
+    .trim()
+    .replace(/\\/gu, '/')
+    .replace(/^\.\//u, '')
+    .replace(/^\/+/u, '')
+    .replace(/\/+$/u, '');
+  if (normalized === '' || normalized.startsWith('..')) return null;
+  return normalized;
+}
+
+/**
+ * `## 模块归属` 支持两种写法，表格是推荐形式：
+ *
+ * ```markdown
+ * ## 模块归属
+ *
+ * | 共享路径 | 说明 |
+ * |---------|------|
+ * | bin/ | CLI 入口，跨 capability 共享 |
+ * | package.json | 依赖清单与脚本 |
+ * ```
+ */
+function parseSharedPaths(section: string): string[] {
+  const paths = new Set<string>();
+  for (const line of section.split(/\r?\n/u)) {
+    const trimmed = line.trim();
+    if (trimmed === '') continue;
+
+    const tableMatch = /^\|\s*([^|]+?)\s*\|/u.exec(trimmed);
+    if (tableMatch) {
+      const cell = tableMatch[1];
+      // 跳过表头与分隔行。
+      if (/^-+$|^:?-+:?$/u.test(cell)) continue;
+      if (cell === '共享路径' || cell === '路径' || cell === 'path') continue;
+      const normalized = normalizeSharedPath(cell);
+      if (normalized) paths.add(normalized);
+      continue;
+    }
+
+    const bulletMatch = /^[-*]\s+(.+)$/u.exec(trimmed);
+    if (bulletMatch) {
+      const normalized = normalizeSharedPath(bulletMatch[1]);
+      if (normalized) paths.add(normalized);
+    }
+  }
+  return [...paths].sort();
+}
+
 export function parseProjectContext(markdown: string): ProjectContext {
   const techStack = parseTable(extractSection(markdown, "技术栈"), TECH_KEYS);
   const runtime = parseTable(extractSection(markdown, "运行环境"), RUNTIME_KEYS);
-  return { schema: "cometflow.project-context.v1", tech_stack: techStack, runtime };
+  const sharedPaths = parseSharedPaths(extractSection(markdown, "模块归属"));
+  return {
+    schema: "cometflow.project-context.v1",
+    tech_stack: techStack,
+    runtime,
+    shared_paths: sharedPaths,
+  };
 }
 
 export function validateProjectContext(context: ProjectContext): string[] {
@@ -91,7 +154,14 @@ export async function syncProjectContext(projectRoot: string): Promise<{ context
 export async function loadProjectContext(projectRoot: string): Promise<ProjectContext | null> {
   try {
     const source = await fs.readFile(projectContextPath(projectRoot), "utf8");
-    return parse(source) as ProjectContext;
+    const parsed = parse(source) as Partial<ProjectContext>;
+    return {
+      schema: 'cometflow.project-context.v1',
+      tech_stack: parsed.tech_stack ?? {},
+      runtime: parsed.runtime ?? {},
+      // 老 project-context.yaml 没有这个字段，读回时必须补默认值。
+      shared_paths: Array.isArray(parsed.shared_paths) ? parsed.shared_paths : [],
+    };
   } catch {
     try {
       const markdown = await readTextFile(path.join(projectRoot, 'COMETFLOW.md'));

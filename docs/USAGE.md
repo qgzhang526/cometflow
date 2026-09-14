@@ -589,14 +589,23 @@ spec 的验收项可以直接携带可执行命令，让「代码能不能用」
 | `change verify` | 越界改动导致验证不通过 |
 | `change archive` | 越界改动直接拒绝归档 |
 
-仓库级共享文件（`package.json` 等）通过项目配置放行：
+仓库级共享文件在 **`COMETFLOW.md` 的 `## 模块归属`** 里声明（随仓库分发，换机器依然生效）：
 
-```yaml
-scope:
-  allow:
-    - package.json
-    - pnpm-lock.yaml
+```markdown
+## 模块归属
+
+每个 capability 的实现限定在各自 spec front-matter 声明的 module 内。
+以下路径跨 capability 共享，允许在模块之外改动：
+
+| 共享路径 | 说明 |
+|----------|------|
+| bin | CLI 入口，跨 capability 共享 |
+| tests | 夹具与验收执行器 |
+| package.json | 依赖清单与脚本 |
 ```
+
+本地临时例外（不想写进 COMETFLOW.md 时）用 `.cometflow/config.yaml` 的 `scope.allow` 覆盖；
+注意该目录被 gitignore，不会随仓库分发。
 
 ### 5.8 独立 Verifier 与审计流水
 
@@ -1087,7 +1096,7 @@ scheduler:                      # daemon 默认参数
   idleCpuThreshold: 1.0
   scheduleStartMinutes: 540     # 09:00
   scheduleEndMinutes: 1080      # 18:00
-scope:                          # 允许在 spec 声明模块之外改动的路径
+scope:                          # 本地覆盖：允许在 spec 声明模块之外改动的路径
   allow:
     - package.json
     - pnpm-lock.yaml

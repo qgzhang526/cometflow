@@ -1,0 +1,15 @@
+# Normalize text files to LF in the repository and in the working tree.
+# Without this, core.autocrlf rewrites checked-out files to CRLF and every
+# edit shows a "LF will be replaced by CRLF" warning.
+* text=auto eol=lf
+
+# Keep binary assets untouched.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.tgz binary
+*.docx binary
+*.xlsx binary
+*.pdf binary

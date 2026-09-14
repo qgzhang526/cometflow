@@ -3,6 +3,8 @@ import path from 'node:path';
 import { toPosix } from '../../platform/paths/relative.js';
 import { readTextFile } from '../../platform/fs/read-file.js';
 import { hashSpecText } from '../spec/spec-hash.js';
+import { readProjectConfig } from '../project/config.js';
+import { loadProjectContext } from '../project/context.js';
 
 export const IMPLEMENTATION_SCOPE_SCHEMA = 'cometflow.implementation-scope.v1';
 
@@ -179,7 +181,26 @@ export function normalizeAllow(allow: string[]): string[] {
   return allow
     .map((entry) => toPosix(entry).replace(/^\.\//u, '').replace(/\/+$/u, ''))
     .filter((entry) => entry !== '' && !entry.startsWith('..'))
+    .filter((entry, index, all) => all.indexOf(entry) === index)
     .sort();
+}
+
+/**
+ * 解析允许越出模块的共享路径。
+ *
+ * 两个来源，缺一不可：
+ * - `COMETFLOW.md` 的 `## 模块归属`：随仓库分发，换机器仍然有效（权威来源）；
+ * - `.cometflow/config.yaml` 的 `scope.allow`：本地临时放行，不随仓库走（覆盖用）。
+ */
+export async function resolveScopeAllow(projectRoot: string): Promise<string[]> {
+  const config = await readProjectConfig(projectRoot);
+  let shared: string[] = [];
+  try {
+    shared = (await loadProjectContext(projectRoot))?.shared_paths ?? [];
+  } catch {
+    shared = [];
+  }
+  return normalizeAllow([...(config.scope?.allow ?? []), ...shared]);
 }
 
 export function attributionFor(

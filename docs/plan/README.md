@@ -14,6 +14,12 @@
 | Phase 5 | 完整 Native 工作流 | 待开始 | 进入阶段时补文档 |
 | Phase 6 | 产品化与发布 | 待开始 | 进入阶段时补文档 |
 
+## 横切计划
+
+| 计划 | 目标 | 状态 | 详细文档 |
+|---|---|---|---|
+| Comet 借鉴加固 | 落地 012 的 9 项：原子写入、两阶段迁移、规范哈希、快照 omission、脱敏、证据上限、有界修复循环、git 来源绑定、Hook 路由 | 待开始 | [comet-hardening-plan.md](./comet-hardening-plan.md) |
+
 ## 阶段顺序原则
 
 先把 spec/workflow 闭环补硬，再做科学评估，再补调度健壮性，再做 Skill/Bundle，最后产品化收口。

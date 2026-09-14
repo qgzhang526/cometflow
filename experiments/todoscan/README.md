@@ -43,8 +43,11 @@ cometflow spec checks .          # 列出全部判据与未覆盖项
 ```
 
 `bin/todoscan.mjs` 是 CLI 入口，属于跨 capability 的共享文件；
-若某个 change 需要改动它，请在项目配置的 `scope.allow` 中显式放行
-（注意：`.cometflow/` 在当前仓库被 gitignore，配置本身不随文件分发，换环境后需要重建）。
+共享路径声明在 `COMETFLOW.md` 的 `## 模块归属` 里（`bin`、`tests`、`package.json`），
+随仓库分发，换机器依然生效；`cometflow change scope` 与 hook guard 都按它放行。
+
+本地临时例外（不想写进 COMETFLOW.md 时）可以放在 `.cometflow/config.yaml` 的 `scope.allow`，
+但该目录被 gitignore，不会随仓库分发。
 
 演示时的用法是「把种子复制进一个新项目」，而不是直接在这里跑：
 

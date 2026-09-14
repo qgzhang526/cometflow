@@ -1,6 +1,6 @@
 # 012 从 comet 借鉴的机制与落地评估
 
-状态：已实施（第 1–7 项）/ 建议后续（第 8–16 项）
+状态：已实施（第 1–7 项）/ 建议后续（第 8–16 项，开发计划见 [comet-hardening-plan.md](../plan/comet-hardening-plan.md)）
 日期：2026-09-14
 对照项目：`D:\zqg\github\comet`（comet Native / Classic 工作流）
 

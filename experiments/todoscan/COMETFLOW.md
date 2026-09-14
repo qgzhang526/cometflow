@@ -21,6 +21,17 @@ todoscan：一个零依赖的命令行小工具，扫描指定目录里的 TODO 
 | 部署方式 | 本地 CLI |
 | 语言版本 | Node 22+ |
 
+## 模块归属
+
+每个 capability 的实现限定在各自 `specs/<capability>/spec.md` front-matter 声明的 `module` 内。
+以下路径是跨 capability 共享的，允许在模块之外改动：
+
+| 共享路径 | 说明 |
+|----------|------|
+| bin | CLI 入口，跨 capability 共享 |
+| tests | 夹具与验收执行器，不属于任何 capability 模块 |
+| package.json | 依赖清单与脚本 |
+
 ## 任务目标
 
 ### G1：todoscan 命令行扫描器

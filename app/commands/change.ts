@@ -6,7 +6,10 @@ import {
   runChange,
   verifyChange,
 } from '../../domains/workflow/change-execution.js';
-import { collectImplementationScope } from '../../domains/workflow/implementation-scope.js';
+import {
+  collectImplementationScope,
+  resolveScopeAllow,
+} from '../../domains/workflow/implementation-scope.js';
 import { readChangeJournal } from '../../domains/workflow/change-journal.js';
 import { readProjectConfig, type VerificationMode } from '../../domains/project/config.js';
 import { listChangeStates } from '../../domains/workflow/change-list.js';
@@ -126,10 +129,9 @@ export async function changeScopeCommand(
 ): Promise<void> {
   const projectRoot = root(targetPath);
   const state = await readChangeState(projectRoot, name);
-  const config = await readProjectConfig(projectRoot);
   const scope = await collectImplementationScope(projectRoot, name, {
     module: state.module ?? null,
-    allow: config.scope?.allow ?? [],
+    allow: await resolveScopeAllow(projectRoot),
   });
   if (options.json) {
     console.log(JSON.stringify(scope, null, 2));

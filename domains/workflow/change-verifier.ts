@@ -5,9 +5,8 @@ import { readSpecBlob } from '../spec/spec-version.js';
 import { readTextFile } from '../../platform/fs/read-file.js';
 import path from 'node:path';
 import { appendChangeEvent } from './change-journal.js';
-import { collectImplementationScope } from './implementation-scope.js';
+import { collectImplementationScope, resolveScopeAllow } from './implementation-scope.js';
 import { readChangeState } from './change-store.js';
-import { readProjectConfig } from '../project/config.js';
 import type { ChangeState } from './change-types.js';
 import type { AcceptanceCheckReport } from './change-checks.js';
 
@@ -217,7 +216,7 @@ export async function runIndependentVerifier(
 
   const scope = await collectImplementationScope(projectRoot, name, {
     module: state.module ?? null,
-    allow: (await readProjectConfig(projectRoot)).scope?.allow ?? [],
+    allow: await resolveScopeAllow(projectRoot),
   });
 
   const prompt = buildVerifierPrompt({
