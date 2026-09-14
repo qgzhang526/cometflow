@@ -263,17 +263,24 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
     }
 
     if (pathname === '/api/jobs' && method === 'GET') {
+      // 首次访问时把各项目落盘的任务读回内存：进程重启后任务中心仍能看到历史。
+      for (const project of await listProjects(workspaceRoot)) await jobs.hydrate(project.id, project.path);
       sendOk(res, { jobs: jobs.list() });
       return true;
     }
     if (pathname === '/api/jobs' && method === 'DELETE') {
-      sendOk(res, { removed: jobs.clearFinished() });
+      for (const project of await listProjects(workspaceRoot)) await jobs.hydrate(project.id, project.path);
+      sendOk(res, { removed: await jobs.clearFinished() });
       return true;
     }
 
     const jobMatch = /^\/api\/jobs\/([^/]+)$/u.exec(pathname);
     if (jobMatch && method === 'GET') {
-      const job = jobs.get(jobMatch[1]);
+      let job = jobs.get(jobMatch[1]);
+      if (!job) {
+        for (const project of await listProjects(workspaceRoot)) await jobs.hydrate(project.id, project.path);
+        job = jobs.get(jobMatch[1]);
+      }
       if (!job) {
         sendError(res, 404, 'unknown-job', 'job not found');
       } else {
@@ -449,6 +456,66 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
       const body = await readJsonBody(req);
       const index = await buildSpecReferenceIndex(root);
       sendOk(res, { tokens: collectSpecReferenceTokens(index, stringField(body.content)) });
+      return true;
+    }
+    if (segments[0] === 'spec' && method === 'GET' && segments[1] === 'proposals') {
+      // 「先把改动存成提案」：提案只有一种形态——change 目录下的 specs/ 副本（ADR 0020）。
+      const target = stringField(url.searchParams.get('path'));
+      const proposals: Array<{ change: string; path: string; content?: string }> = [];
+      for (const change of await listChangeStates(root)) {
+        if (change.archived) continue;
+        const proposed = await readProposedSpecs(root, change.name);
+        for (const specPath of Object.keys(proposed)) {
+          if (target !== '' && specPath !== target) continue;
+          // 指定 path 时顺带回正文（编辑器要拿它跟当前草稿对比）；不指定时只回索引。
+          proposals.push(
+            target === ''
+              ? { change: change.name, path: specPath }
+              : { change: change.name, path: specPath, content: proposed[specPath] },
+          );
+        }
+      }
+      sendOk(res, { proposals });
+      return true;
+    }
+    if (segments[0] === 'spec' && method === 'POST' && segments[1] === 'proposal') {
+      const body = await readJsonBody(req);
+      const changeName = stringField(body.change);
+      const safeChange = safePathSegment(changeName);
+      if (safeChange === null) {
+        sendError(res, 400, 'invalid-change-name', 'change name must not contain path separators');
+        return true;
+      }
+      const relativePath = stringField(body.path);
+      if (relativePath === '' || !relativePath.startsWith('specs/') || !relativePath.endsWith('.md')) {
+        sendError(res, 400, 'invalid-spec-path', 'proposal path must be a .md path under specs/');
+        return true;
+      }
+      try {
+        // 只做「必须落在 specs/ 内」的校验；提案写入的是 change 目录下的副本。
+        resolveSpecPath(root, relativePath);
+      } catch {
+        sendError(res, 400, 'invalid-spec-path', 'proposal path must stay under specs/');
+        return true;
+      }
+      const state = await readChangeState(root, safeChange).catch(() => null);
+      if (state === null) {
+        sendError(res, 404, 'unknown-change', 'change not found: ' + safeChange);
+        return true;
+      }
+      if (state.archived || state.phase !== 'shape') {
+        sendError(
+          res,
+          409,
+          'change-not-in-shape',
+          'change ' + safeChange + ' 处于 ' + state.phase + ' 阶段；提案 spec 只能在 shape 阶段提出',
+        );
+        return true;
+      }
+      const proposedPath = path.join(root, 'changes', safeChange, 'specs', relativePath.replace(/^specs\//u, ''));
+      await atomicWriteText(proposedPath, stringField(body.content));
+      jobs.stateChanged(projectId, '/api/changes/' + safeChange);
+      sendOk(res, { change: safeChange, path: relativePath, written: proposedPath });
       return true;
     }
     if (segments[0] === 'spec' && method === 'GET' && segments[1] === 'verify') {

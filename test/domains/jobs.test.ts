@@ -66,7 +66,7 @@ describe('JobManager', () => {
     expect(jobs.list().some((job) => job.status === 'running')).toBe(true);
   });
 
-  it('clears only finished jobs', () => {
+  it('clears only finished jobs', async () => {
     const jobs = new JobManager();
     const running = jobs.create('project-1', 'change-run');
     jobs.start(running.id);
@@ -76,7 +76,7 @@ describe('JobManager', () => {
     const failed = jobs.create('project-1', 'eval-run');
     jobs.fail(failed.id, 'boom');
 
-    expect(jobs.clearFinished()).toBe(2);
+    expect(await jobs.clearFinished()).toBe(2);
     expect(jobs.get(running.id)).toBeDefined();
     expect(jobs.get(queued.id)).toBeDefined();
     expect(jobs.get(done.id)).toBeUndefined();

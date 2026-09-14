@@ -5,7 +5,7 @@ import path from 'node:path';
 import { handleApiRequest } from './api.js';
 import type { ApiContext } from './http.js';
 import { JobManager } from './jobs.js';
-import { defaultWorkspaceRoot } from './workspace.js';
+import { defaultWorkspaceRoot, getProject } from './workspace.js';
 
 export interface ServeOptions {
   workspaceRoot?: string;
@@ -133,7 +133,10 @@ export async function startServe(options: ServeOptions = {}): Promise<ServeHandl
   const webDir = resolveWebDir(options.webDir);
   const host = options.host ?? '127.0.0.1';
   const requestedPort = options.port ?? 4321;
-  const jobs = new JobManager();
+  // 任务落盘到项目自己的 .cometflow/runtime/jobs/，所以 JobManager 需要一个 projectId → root 的解析器。
+  const jobs = new JobManager({
+    resolveProjectRoot: async (projectId) => (await getProject(workspaceRoot, projectId))?.path ?? null,
+  });
 
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', 'http://localhost');
