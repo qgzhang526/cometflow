@@ -15,7 +15,7 @@
 | N2 | 编辑器内引用高亮（可解析引用 chip + 未解析红字） | 008 §8.6④ | M | N1 的引用投影 |
 | N3 | Job 持久化（重启后任务与日志仍在） | 计划 §8 开放问题 5 | M | H2 的 evidence-retention（回收）与 redact（脱敏） |
 | N4 | 并发写保护（CLI 与 serve 同时写同一项目） | 计划 §8 开放问题 3、008 风险 3 | L | N3（都落在 runtime 状态上） |
-| N5 | UI 编辑 canonical spec 的语义（草稿 vs 立即版本） | 计划 §8 开放问题 2 | S（决策）+ S（实现） | 需要 ADR 0019 |
+| N5 | UI 编辑 canonical spec 的语义（草稿 vs 立即版本） | 计划 §8 开放问题 2 | S（决策）+ S（实现） | 需要 ADR 0020 |
 | N6 | 收尾：token 一次性 ticket、面板级错误边界、发布链路含前端构建 | 计划 §5 P2 | S | 无 |
 
 排序原则：
@@ -133,9 +133,9 @@
   3. 需要「先改契约、暂不动 canonical」时明确引导到 C（用 change 的提案 spec，W3 的证据页签已能展示提案）。
 - **落点**：`web/src/views/panels/SpecsPanel.vue` 的编辑器加「预览变更 / 撤销上一版」；
   复用 `domains/spec/spec-version.ts` 已有的 `readSpecBlob` / `resolveSpecVersionRef`；无需新端点。
-- **需要决策**：写 **ADR 0019《UI 编辑 spec 的语义》**，明确「界面不引入第二事实源；草稿只有 change 提案一种形态；
+- **需要决策**：写 **ADR 0020《UI 编辑 spec 的语义》**，明确「界面不引入第二事实源；草稿只有 change 提案一种形态；
   每次保存都是一次版本」。
-- **验收**：保存前必出 diff；撤销后 `spec verify` 通过、lock 与版本链一致；USAGE §12 与 ADR 0019 互相引用。
+- **验收**：保存前必出 diff；撤销后 `spec verify` 通过、lock 与版本链一致；USAGE §12 与 ADR 0020 互相引用。
 
 ### N6 收尾项
 
@@ -153,7 +153,7 @@
 | 里程碑 | 内容 | 完成标志 |
 |---|---|---|
 | M1 可见性 | N1 + N2 | 图上能看见引用关系与未解析边；编辑器里错误引用即时变红并可跳转 |
-| M2 可信度 | N3 + N5 | 重启 serve 后任务与日志仍在；spec 编辑有 diff 预览与撤销，语义写进 ADR 0019 |
+| M2 可信度 | N3 + N5 | 重启 serve 后任务与日志仍在；spec 编辑有 diff 预览与撤销，语义写进 ADR 0020 |
 | M3 并发与发布 | N4 + N6 | 并发写冲突返回 409 且有恢复路径；发布链路一次构建同时产出 CLI 与前端并做校验 |
 
 ## 5. 完成定义（DoD）

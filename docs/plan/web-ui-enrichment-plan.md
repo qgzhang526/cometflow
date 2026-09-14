@@ -178,7 +178,7 @@ ADR 0013（验收必须可执行）、ADR 0014（状态原子可恢复）、[008
 
 实施结果：
 
-- **前端重建为 Vue 3 + Vite + TypeScript**（ADR 0016）：`web/src/` 下按 view / store / component 分层，
+- **前端重建为 Vue 3 + Vite + TypeScript**（ADR 0019）：`web/src/` 下按 view / store / component 分层，
   依赖只有 `vue` / `vue-router` / `pinia`，样式与类名沿用原设计，产物为 `web/dist`。
 - **P0-1**：`PUT /config` 改为增量合并（`mergeProjectConfigOverride`），新增 `GET .../config/project`
   暴露项目层覆盖集合；设置页补全 verification / scope / 每 agent 模型 / 调度器窗口，保存后回读并回报写入键。
@@ -308,7 +308,7 @@ ADR 0013（验收必须可执行）、ADR 0014（状态原子可恢复）、[008
 > 本节五项与 §5 的 P2 收尾项已独立成 [web-ui-followup-plan.md](./web-ui-followup-plan.md)（N1–N6），
 > 本文只保留结论性记录。
 
-1. ~~**前端技术选型**~~：**已决策**——Vue 3 + Vite + TypeScript，见 ADR 0016；迁移与 W1 一并完成。
+1. ~~**前端技术选型**~~：**已决策**——Vue 3 + Vite + TypeScript，见 ADR 0019；迁移与 W1 一并完成。
 2. **UI 是否有权改 canonical spec**：`POST/PUT /api/specs` 会立即 `refreshSpecBaseline`（登记新版本）。
    这是「UI 编辑即新版本」的强语义，需要确认是否要加草稿态。
 3. **并发写**：CLI 与 serve 同时操作同一项目仍是 last-write-wins（008 风险 3）。前端写操作越多，
