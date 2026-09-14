@@ -1260,11 +1260,25 @@ pnpm package-e2e
 长期回归夹具（覆盖 init、spec、plan、change、eval、evolve、skill、bundle、classic、daemon、hook、doctor 等能力）：
 
 ```bash
-cd experiments/regression-fixture
-bash run-regression.sh
+node scripts/regression.mjs                       # 跨平台（Windows / Linux）
+bash experiments/regression-fixture/run-regression.sh   # 等价的 shim
 ```
 
-规则：每实现一项新平台能力，必须补单元测试 + 在夹具中增加回归场景并更新 `run-regression.sh`。
+只读门禁（spec 是否仍然是唯一根源，退出码即结论）：
+
+```bash
+node scripts/spec-gates.mjs experiments/regression-fixture
+node scripts/spec-gates.mjs experiments/regression-fixture --update-baseline   # 指标变好后更新基线
+```
+
+`spec-gates` 会跑 `spec validate` / `spec verify` / `doctor` / `change gc`（dry-run）/ `plan validate`，
+并把 `metrics` 的关键指标与 `experiments/regression-fixture/metrics-baseline.json` 对比：
+`acceptance_checkable_rate`、`anchor_coverage_rate`、`specs`、`capabilities`、`versions_total` 只许持平或变好，
+`drift_count` 只许持平或变小。指标退化会让 CI 直接变红。
+
+CI（`.github/workflows/ci.yml`）三个 job：`build-test`（ubuntu + windows）、`spec-gates`、`regression`（ubuntu + windows）。
+
+规则：每实现一项新平台能力，必须补单元测试 + 在夹具中增加回归场景并更新 `scripts/regression.mjs`。
 未出现在夹具清单中的能力，不视为具备长期回归保障。
 
 ---

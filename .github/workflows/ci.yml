@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# 同一分支的新推送取消旧的运行，避免排队浪费。
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # 构建 + 类型检查 + 单元测试（package-e2e 直接调 node_modules 下的二进制，
+  # 不依赖 pnpm 脚本，因此不受依赖构建审批策略影响）。
+  build-test:
+    name: build & test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.10.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build
+      - run: node scripts/release/package-e2e.mjs
+
+  # spec 门禁：spec 是否仍然是唯一根源，用退出码回答。
+  # 单独成 job 是为了让失败归属清晰（spec 坏了 ≠ 代码坏了）。
+  spec-gates:
+    name: spec gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.10.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: node scripts/spec-gates.mjs experiments/regression-fixture
+
+  # 回归夹具：含会写文件的步骤，所以跑在临时副本里。
+  # 两个平台都跑——这个脚本过去是 bash-only，本机（Windows）根本执行不了，
+  # 结果就是「本地没法验证、只能等 CI」，这正是回归最容易失效的方式。
+  regression:
+    name: regression (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.10.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: node scripts/regression.mjs

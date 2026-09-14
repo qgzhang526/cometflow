@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { collectMetrics } from '../../domains/metrics/metrics-service.js';
 import { generateTaskPlan } from '../../domains/task-plan/task-plan-generate.js';
 import { freezeTaskPlan } from '../../domains/task-plan/task-plan-freeze.js';
@@ -12,6 +12,10 @@ import { applyChangeTransition } from '../../domains/workflow/change-transitions
 import { readChangeState, writeChangeState } from '../../domains/workflow/change-store.js';
 
 const FIXED_NOW = new Date('2026-09-14T12:00:00.000Z');
+
+// 这个文件要为每个 change 反复 spawn 验收 check（node 子进程），
+// 并行跑整套时会超过 5s 默认超时。
+vi.setConfig({ testTimeout: 30_000 });
 
 const mission = [
   '# 项目使命',

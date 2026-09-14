@@ -6,7 +6,6 @@ coverage/
 .DS_Store
 
 .cometflow/
-pnpm-workspace.yaml
 
 # Regression fixture state is a committed test baseline
 !experiments/regression-fixture/.cometflow/
