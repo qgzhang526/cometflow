@@ -1,11 +1,12 @@
 # Web 前端后续计划（引用图 / 引用高亮 / Job 持久化 / 并发写 / 编辑语义 / 收尾）
 
-状态：计划，待评审
+状态：**决策已定**（2026-09-14），待实施；四条开放问题的结论见 §6
 来源：[web-ui-enrichment-plan.md](./web-ui-enrichment-plan.md) 的 §5 P2 与 §8 开放问题、
 [008 客户端可视化](../design/008-client-visualization.md) §8.6②④、
 [comet-hardening-plan](./comet-hardening-plan.md) 遗留
 前置：W1–W5 已完成（Vue 3 迁移、P0 修复、spec 内核、change 审计、任务收口、资产覆盖）
-关联 ADR：0001（spec 单一事实源）、0007（UI 只走 headless service）、0012（spec 版本即产物）、0014（原子与可恢复状态）
+关联 ADR：0001（spec 单一事实源）、0007（UI 只走 headless service）、0012（spec 版本即产物）、0014（原子与可恢复状态）、
+0020（UI 编辑 spec 的语义）、0021（并发写保护与两段式上线）
 
 ## 1. 范围与排序
 
@@ -25,6 +26,15 @@
 2. **再补可信度**（N3 → N5）：任务重启后还在、spec 编辑的语义写清楚，都属于「证据能不能信」。
 3. **最后动并发与发布**（N6 → N4）：N6 改动小、能先固定发布基线；N4 会改写入路径的面最广，
    放在状态类改动都稳定之后。
+
+### 1.1 决策摘要（2026-09-14）
+
+| 问题 | 决策 |
+|---|---|
+| N4 CAS 粒度 | 覆盖事实源文件（含 `specs/**`）；**分两步上线**：`warn`（默认 + 30 天时间盒）→ `fail`，到期由 `doctor` / `spec verify` 报 error 强制面对 |
+| N3 保留策略 | 「最近 200 条 + 30 天」双阈值，取更宽者保留；回收默认 dry-run，只走 `change gc` 一个入口 |
+| N1 是否给 CLI | 提供 `cometflow spec graph --json`，但只做投影：不设退出码、不进 CI 门禁（未解析引用的判定仍归 `spec validate`） |
+| N5 一键存提案 | 提供，但前置「change 已存在且处于 shape 阶段」、路径固定 `changes/<change>/specs/`，并补「已有提案」的反向提示入口 |
 
 ## 2. 现状证据
 
@@ -53,6 +63,8 @@
      `resolved` 与 `validateSpecs` 共用同一份「目标索引」，避免图与校验结论互相矛盾。
   2. `GET /api/projects/{id}/spec/graph`（薄封装）+ CLI `cometflow spec graph [--json]`，
      让图与 `spec validate` 共用投影（ADR 0007 的做法）。
+     **职责边界（决策）**：`spec graph` 只输出 `nodes/edges`，**不设退出码、不进 CI 门禁**；
+     想卡「未解析引用数」的脚本与 CI 一律从 `spec validate` 的 findings 取，避免出现第二个判定源。
   3. 前端 Specs 面板新增「引用图」页签：SVG 分层布局，12 个 kind 节点固定位置，点击展开到文件/anchor；
      边按 refKind 分色，`resolved=false` 红色虚线；悬停显示 `path:line`。
   4. deferred/absent kind 置灰；只渲染当前项目、逐级展开。
@@ -88,7 +100,11 @@
   2. `JobManager` 启动加载最近 N 条（默认 100）到内存；完成/失败时落盘；`clearFinished()` 同时删文件。
   3. 落盘前过 `platform/io/redact.ts`（H2 已落地）：agent stdout 里可能带凭证。
   4. 接入 `domains/workflow/evidence-retention.ts`：`collectEvidenceUsage` 统计 jobs 占用，
-     `planEvidenceGc` / `applyEvidenceGc` 增加「已结束且超过保留期（默认 14 天）」候选；`doctor` 报告占用与可回收量。
+     `planEvidenceGc` / `applyEvidenceGc` 增加回收候选。
+     **保留策略（决策）**：「最近 200 条已完成」与「30 天」双阈值，**满足任一即保留**——
+     单按时间会在密集调试期（一天上百次运行）把最需要复盘的昨天清掉，单按条数又会在低频项目里留一年垃圾。
+     运行中的任务永不回收；单任务日志 1 MiB 轮转；回收默认 dry-run、只走 `change gc`，
+     dry-run 的可回收量进 `doctor` 输出。
 - **验收**：跑一次 eval → 重启 serve → 任务中心仍有该任务与报告（`GET /api/jobs` 带 `finishedAt` 与 `result`）；
   日志轮转后读取端仍返回「摘要 + 最近 N 行」；日志含 `sk-` / `Bearer ` 形态时不落原文；
   `change gc --apply` 只回收已结束任务。
@@ -98,9 +114,12 @@
 
 - **目标**：CLI 与 serve（或两个 CLI 会话）同时操作同一项目时，不再「后写的静默覆盖前写的」。
 - **两层方案**（先乐观、后悲观，避免到处加锁）：
-  1. **单文件乐观 CAS**：写入前记录目标文件的内容哈希与 mtime，提交前再读一次比对，不一致则中止并报
-     `concurrent-modification`（附路径与两次哈希），由调用方决定重读还是放弃。适用：`task-plan.yaml`、
-     `comet-state.yaml`、`config.yaml`、`specs/**`、`spec-lock.json`。
+  1. **单文件乐观 CAS**：写入前记录目标文件的内容哈希与 mtime，提交前再读一次比对，不一致则按下面的
+     两段式策略处理。**覆盖范围（决策）**：事实源文件全部在内——`specs/**`、`.cometflow/plans/*.yaml`、
+     `changes/<name>/comet-state.yaml`、`.cometflow/config.yaml`、`.cometflow/spec-lock.json`；
+     派生产物（`web/dist`、`node_modules` 等）不在内。理由是这里真正的风险不是「覆盖」而是「静默」：
+     spec 有版本仓，覆盖只会让版本链多一版（restore 甚至已经做到覆盖前先记账），
+     但并发写发生时用户完全不知道自己的改动被盖掉了——CAS 把这件事从静默变成显式。
   2. **多文件事务锁**：涉及多文件一致性的动作（`change archive` 的 `applyProposedSpecs`、`plan freeze`、
      `spec restore`、UI 批量写）先取 `.cometflow/runtime/lock`：内容 `{ pid, host, started_at, action }`，
      TTL 默认 120s；取不到锁立即失败并提示「另一个进程正在执行 <action>（pid/host/时间）」；
@@ -108,6 +127,30 @@
 - **落点**：新增 `platform/fs/file-lock.ts`（`acquireLock` / `releaseLock` / `readLock` / `inspectStaleLock`）
   与 `platform/fs/cas-write.ts`（`writeWithCas`）；写入点改造集中在 `change-store` / `task-plan-store` /
   `spec-version` / `spec-lock` / `project-config`；API 层把冲突映射成 **409 `concurrent-modification`**。
+
+#### N4 的两段式上线与「到期硬提醒」（决策）
+
+分两步上线是为了先用真实数据校准，又不会因为「忘了改」永久停在宽模式。机制不依赖任何人的记忆：
+
+| 阶段 | 行为 | 用户可见性 |
+|---|---|---|
+| `warn`（默认，30 天时间盒） | 冲突照旧写入，但**处处留痕**：响应体带 `warning`、journal 记 `cas-conflict-warn`、`metrics` 计数、`doctor` 报 warning、UI 顶部横幅提示「目标已被他处改写，你覆盖了 X」 | 每次冲突都能看到，而不是静默通过 |
+| 到期（`concurrency.warnUntil` 过后） | `doctor` 与 `spec verify` 各报 **error `concurrency-warn-expired`** → CI 的 `spec-gates` 因此变红 | 想忘也忘不掉，只剩两条出路 |
+| `fail`（终态） | 冲突中止并返回 **409 `concurrent-modification`**（附路径与两次哈希） | 界面提供「重读并重试 / 确认覆盖」两个动作 |
+
+- **到期后的两条出路**（唯一合法选择）：
+  1. 切 `fail`：`concurrency.specWrites: fail` 并删掉 `warnUntil`；
+  2. 显式延长：把 `warnUntil` 往前推，同时写 `warnReason` 说明为什么继续观察。
+     延长期本身也会再次到期——这是一次有痕的决策，而不是静默的「以后再说」。
+- **配置落点**：`.cometflow/config.yaml` 的 `concurrency.{specWrites, warnUntil, warnReason}`；
+  `validateProjectConfig` 校验（`warn` 必须带未来的 `warnUntil`；`fail` 不允许留 `warnUntil`）。
+- **可见性**：`cometflow doctor` 与 `status` 输出「当前并发策略 + 距到期天数 + 累计 warn 命中数」；
+  UI 设置页只读展示同一组值，并提供「切换 / 延长」入口（走配置校验，不绕过校验直接改文件）。
+- **验收（追加三条）**：
+  1. `warn` 阶段：并发冲突下写入仍成功，响应带 `warning`、journal 出现 `cas-conflict-warn`；
+  2. 到期：把 `warnUntil` 设为过去时间后，`doctor` 与 `spec verify` 各出现 `concurrency-warn-expired`（error），
+     `scripts/spec-gates.mjs` 退出非零；
+  3. `fail` 阶段：并发冲突返回 409 且目标文件内容不变（两个进程并发写同一文件的脚本断言）。
 - **验收**：两个进程同时 `change archive` 同一个 change → 一个成功、另一个明确 409 并给出冲突文件与哈希；
   持锁进程被杀 → 下次取锁按 TTL 判陈旧并自动接管，journal 记一条 `lock-recovered`；
   `doctor` 对陈旧锁给 error 与修复命令；并行**读**不受影响（只对写加锁）。
@@ -131,10 +174,18 @@
      （数据来自 `GET /spec/version?ref=<path>@<最新版本>` 与当前正文的对比），确认后才提交；
   2. 一键撤销到上一版（等价 `spec restore <path>@<上一版>`，W2 已实现端点）；
   3. 需要「先改契约、暂不动 canonical」时明确引导到 C（用 change 的提案 spec，W3 的证据页签已能展示提案）。
+     **一键存提案的前置条件（决策）**：目标 change 必须已存在且处于 `shape` 阶段
+     （提案的语义就是「这个 change 打算改成什么」，shape 本来就是改契约的阶段）；
+     不允许「先存提案再建 change」，否则它会变成绕开契约的暗道。保存路径固定
+     `changes/<change>/specs/<相对路径>`，与 `readProposedSpecs` 一致，不新增存储；
+     按钮旁写明「这不改 canonical spec，归档时才应用」。
+  4. **反向入口也要有**：编辑器打开某份 spec 时，若已存在提案版本，顶部提示「当前有提案（change X）」，
+     并提供一键 diff（复用 `spec/impact?change=` 与版本预览）。这样 N5 不是「草稿态」的变体，
+     而是给已有机制补一个 UI 入口，仍然守住 ADR 0001。
 - **落点**：`web/src/views/panels/SpecsPanel.vue` 的编辑器加「预览变更 / 撤销上一版」；
   复用 `domains/spec/spec-version.ts` 已有的 `readSpecBlob` / `resolveSpecVersionRef`；无需新端点。
-- **需要决策**：写 **ADR 0020《UI 编辑 spec 的语义》**，明确「界面不引入第二事实源；草稿只有 change 提案一种形态；
-  每次保存都是一次版本」。
+- **决策（ADR 0020）**：界面不引入第二事实源；草稿只有 change 提案一种形态；每次保存都是一次版本；
+  一键存提案带上面两个前置条件。
 - **验收**：保存前必出 diff；撤销后 `spec verify` 通过、lock 与版本链一致；USAGE §12 与 ADR 0020 互相引用。
 
 ### N6 收尾项
@@ -154,7 +205,7 @@
 |---|---|---|
 | M1 可见性 | N1 + N2 | 图上能看见引用关系与未解析边；编辑器里错误引用即时变红并可跳转 |
 | M2 可信度 | N3 + N5 | 重启 serve 后任务与日志仍在；spec 编辑有 diff 预览与撤销，语义写进 ADR 0020 |
-| M3 并发与发布 | N4 + N6 | 并发写冲突返回 409 且有恢复路径；发布链路一次构建同时产出 CLI 与前端并做校验 |
+| M3 并发与发布 | N4 + N6 | 并发写冲突返回 409 且有恢复路径；N4 的 `warn` 时间盒到期能自动让 `doctor`/CI 报错（不会静默停在宽模式）；发布链路一次构建同时产出 CLI 与前端并做校验 |
 
 ## 5. 完成定义（DoD）
 
@@ -166,15 +217,30 @@
 4. 用户可见行为变化更新 `docs/USAGE.md`；涉及语义决策的补 ADR；
 5. 浏览器端到端走查一遍（本地 serve + 真实项目），控制台无 error/warning。
 
-## 6. 开放问题（需要先决策）
+## 6. 决策记录（2026-09-14）
 
-1. **N4 的粒度**：CAS 覆盖到 `specs/**` 会不会太严？本地单用户场景下 spec 并发编辑少见，
-   但一旦发生就是「静默覆盖别人的契约」——建议默认覆盖，用 409 + 明确提示换安全。
-2. **N3 的保留策略**：保留期取 14 天，还是「最近 100 条 + 30 天」双阈值？回收必须默认 dry-run。
-3. **N1 是否暴露给 CLI**：`cometflow spec graph --json` 对脚本与 CI 有用（可把「未解析引用数」纳入门禁），
-   但要确认它与 `spec verify` 的职责边界（图是投影，verify 是门禁）。
-4. **N5 的 C 选项体验**：从「编辑 spec」到「建一个 change 承载草稿」之间需要引导，
-   是否提供「把当前编辑内容存成提案」的一键动作（等价写 `changes/<name>/specs/`）。
+四条问题已定；语义级的决策另写在 ADR 0020 / 0021，下面保留原问题作为背景。
+
+1. **N4 的 CAS 粒度 → 覆盖 `specs/**`，分两步上线**（ADR 0021）。
+   原问题是「覆盖到 `specs/**` 会不会太严」。结论是覆盖，但先 `warn`（默认 30 天）后 `fail`：
+   本地单用户场景下 spec 并发编辑少见，一旦发生却是「静默覆盖别人的契约」；warn 阶段既能拿到真实冲突数据，
+   又不卡住日常操作。**防遗忘不靠记忆**：`warnUntil` 到期后 `doctor` 与 `spec verify` 报
+   `concurrency-warn-expired`（error），CI 的 `spec-gates` 直接变红，只能「切 fail」或「显式延长并写下理由」——
+   见 §3 N4「两段式上线与到期硬提醒」。
+2. **N3 的保留策略 → 「最近 200 条 + 30 天」双阈值取更宽**。
+   单按时间会在密集调试期清掉昨天最需要复盘的证据；单按条数会在低频项目里留下一年无用日志。
+   回收默认 dry-run、只走 `change gc`，dry-run 结果进 `doctor`。
+3. **N1 暴露 CLI → 提供 `spec graph --json`，但只做投影**：
+   不设退出码、不进 CI 门禁；「未解析引用数」的判定统一从 `spec validate` 的 findings 取，
+   避免第二个判定源。
+4. **N5 一键存提案 → 提供**（ADR 0020）：前置 change 已存在且处于 `shape` 阶段；路径固定
+   `changes/<change>/specs/`；并补「已有提案」的反向提示与 diff 入口。它不是新的草稿存储，
+   而是已有提案机制的 UI 入口，因此不违反 ADR 0001。
+
+> 留给实施时用真实数据校准、不阻塞开工的三点：
+> a) N4 的多文件事务锁 TTL（默认 120s）是否够——取决于最慢事务（archive 的 applyProposedSpecs）耗时；
+> b) Job 日志轮转阈值（默认 1 MiB）是否需要按项目配置；
+> c) N2 单文件 token 上限（默认 2000，超出只高亮视口附近）是否需要 UI 可调。
 
 ## 7. 与现有机制的关系（复用清单）
 
