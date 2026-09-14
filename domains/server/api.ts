@@ -28,7 +28,19 @@ import { readTextFile } from '../../platform/fs/read-file.js';
 import { listSpecEntries } from '../spec/spec-index.js';
 import { buildSpecIndex } from '../spec/spec-project.js';
 import { validateSpecs } from '../spec/spec-validate.js';
-import { refreshSpecBaseline } from '../spec/spec-version.js';
+import {
+  readSpecBlob,
+  readSpecHistory,
+  refreshSpecBaseline,
+  resolveSpecVersionRef,
+  specVersionsFor,
+} from '../spec/spec-version.js';
+import { diffSpecs } from '../spec/spec-lock.js';
+import { collectSpecDrift } from '../spec/spec-drift.js';
+import { analyzeSpecImpact } from '../spec/spec-impact.js';
+import { verifySpecIntegrity } from '../spec/spec-verify.js';
+import { collectAcceptanceChecks } from '../spec/spec-checks.js';
+import { atomicWriteText } from '../../platform/fs/atomic-write.js';
 import { generateTaskPlan } from '../task-plan/task-plan-generate.js';
 import { validateTaskPlan } from '../task-plan/task-plan-validate.js';
 import { freezeTaskPlan } from '../task-plan/task-plan-freeze.js';
@@ -41,7 +53,7 @@ import {
 } from '../task-plan/task-plan-store.js';
 import { listChangeStates } from '../workflow/change-list.js';
 import { createChangeFromTask } from '../workflow/change-create.js';
-import { archiveChange, runChange, verifyChange } from '../workflow/change-execution.js';
+import { archiveChange, readProposedSpecs, runChange, verifyChange } from '../workflow/change-execution.js';
 import { applyChangeTransition } from '../workflow/change-transitions.js';
 import { commitTransition, readChangeState } from '../workflow/change-store.js';
 import { resumeChange } from '../workflow/change-resume.js';
@@ -383,6 +395,92 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
     }
 
     // ---- specs ----
+
+    // ---- spec kernel: 验收覆盖 / 一致性门禁 / 版本回放 / 影响分析 ----
+    // 这些投影此前只有 CLI 能看到，是「spec 即产物」在前端缺失的部分。
+    if (segments[0] === 'spec' && method === 'GET' && segments[1] === 'checks') {
+      sendOk(res, await collectAcceptanceChecks(root));
+      return true;
+    }
+    if (segments[0] === 'spec' && method === 'GET' && segments[1] === 'verify') {
+      sendOk(res, await verifySpecIntegrity(root));
+      return true;
+    }
+    if (segments[0] === 'spec' && method === 'GET' && segments[1] === 'diff') {
+      sendOk(res, await diffSpecs(root));
+      return true;
+    }
+    if (segments[0] === 'spec' && method === 'GET' && segments[1] === 'drift') {
+      sendOk(res, await collectSpecDrift(root));
+      return true;
+    }
+    if (segments[0] === 'spec' && method === 'GET' && segments[1] === 'impact') {
+      // 带 change 时算的是「归档这个 change 之后谁会漂移」，不修改工作区。
+      const changeName = stringField(url.searchParams.get('change'));
+      const overlay = changeName === '' ? undefined : await readProposedSpecs(root, changeName);
+      sendOk(res, await analyzeSpecImpact(root, { overlay }));
+      return true;
+    }
+    if (segments[0] === 'spec' && method === 'GET' && segments[1] === 'versions') {
+      const history = await readSpecHistory(root);
+      const specPath = stringField(url.searchParams.get('path'));
+      sendOk(res, {
+        schema: history.schema,
+        specs: specPath === '' ? history.specs : { [specPath]: specVersionsFor(history, specPath) },
+      });
+      return true;
+    }
+    if (segments[0] === 'spec' && method === 'GET' && segments[1] === 'version') {
+      const ref = stringField(url.searchParams.get('ref'));
+      try {
+        const resolved = await resolveSpecVersionRef(root, ref);
+        const content = await readSpecBlob(root, resolved.record.hash);
+        if (content === null) {
+          sendError(res, 404, 'missing-version-blob', 'version blob is missing: ' + resolved.record.hash);
+          return true;
+        }
+        sendOk(res, { path: resolved.path, record: resolved.record, content });
+      } catch (error) {
+        sendError(res, 404, 'unknown-spec-version', error instanceof Error ? error.message : String(error));
+      }
+      return true;
+    }
+    if (segments[0] === 'spec' && method === 'POST' && segments[1] === 'lock') {
+      const result = await refreshSpecBaseline(root, { note: 'web lock' });
+      jobs.stateChanged(projectId, '/api/specs');
+      sendOk(res, result);
+      return true;
+    }
+    if (segments[0] === 'spec' && method === 'POST' && segments[1] === 'restore') {
+      const body = await readJsonBody(req);
+      const ref = stringField(body.ref);
+      let resolved: Awaited<ReturnType<typeof resolveSpecVersionRef>>;
+      try {
+        resolved = await resolveSpecVersionRef(root, ref);
+      } catch (error) {
+        sendError(res, 404, 'unknown-spec-version', error instanceof Error ? error.message : String(error));
+        return true;
+      }
+      const content = await readSpecBlob(root, resolved.record.hash);
+      if (content === null) {
+        sendError(res, 404, 'missing-version-blob', 'version blob is missing: ' + resolved.record.hash);
+        return true;
+      }
+      // 覆盖 specs/ 之前先给当前内容记账：未登记的手工改动不能因为一次 restore 就消失。
+      await refreshSpecBaseline(root, { note: 'pre-restore snapshot' });
+      await atomicWriteText(path.join(root, resolved.path), content);
+      const after = await refreshSpecBaseline(root, { note: 'restore v' + resolved.record.spec_version });
+      const restored = after.recorded.find((entry) => entry.path === resolved.path) ?? null;
+      jobs.stateChanged(projectId, '/api/specs');
+      sendOk(res, {
+        path: resolved.path,
+        restoredFrom: resolved.record.spec_version,
+        spec_version: restored?.spec_version ?? null,
+        hash: restored?.hash ?? null,
+      });
+      return true;
+    }
+
     if (segments[0] === 'spec' && segments[1] === 'validate' && method === 'POST') {
       sendOk(res, await validateSpecs(root));
       return true;
@@ -412,8 +510,8 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
         sendError(res, 400, 'invalid-spec-path', 'spec path must stay under specs/');
         return true;
       }
-      await fs.mkdir(path.dirname(absolute), { recursive: true });
-      await fs.writeFile(absolute, content);
+      // spec 是唯一事实源，半写的文件会让「按冻结版本重建」失效：走原子写。
+      await atomicWriteText(absolute, content);
       // 通过 Web 编辑 spec 同样是一次 canonical spec 变更：立即登记版本并刷新 lock，
       // 否则 spec verify 会立刻报 stale-spec-lock，活跃 change 的 CAS 基线也会失真。
       await refreshSpecBaseline(root, { note: 'web edit' });
@@ -430,7 +528,7 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
       }
       if (method === 'PUT') {
         const body = await readJsonBody(req);
-        await fs.writeFile(absolute, stringField(body.content));
+        await atomicWriteText(absolute, stringField(body.content));
         await refreshSpecBaseline(root, { note: 'web edit' });
         jobs.stateChanged(projectId, '/api/specs');
         sendOk(res, { written: absolute });
