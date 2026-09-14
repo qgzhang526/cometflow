@@ -13,6 +13,7 @@ import {
   changeScopeCommand,
   changeStatusCommand,
   changeTransitionCommand,
+  changeUnblockCommand,
   changeVerifyCommand,
 } from '../commands/change.js';
 import {
@@ -214,6 +215,14 @@ change
   .option('--json', 'Output as JSON')
   .action(async (name, targetPath = '.', options) => {
     await changeScopeCommand(name, targetPath, options);
+  });
+
+change
+  .command('unblock <name> [path]')
+  .description('Clear a stalled repair loop after a human has reviewed the failures')
+  .option('--note <text>', 'Why it is safe to retry')
+  .action(async (name, targetPath = '.', options) => {
+    await changeUnblockCommand(name, targetPath, options);
   });
 
 change

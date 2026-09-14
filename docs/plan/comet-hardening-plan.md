@@ -1,6 +1,6 @@
 # Comet 借鉴加固计划（012 的 9 项）
 
-状态：H1、H2 已完成（M1、M2 达成），H3 待开始
+状态：H1、H2、H3-1 已完成（M1、M2 达成），H3-2/H3-3 待开始
 来源：[012-comet-borrowings.md](../design/012-comet-borrowings.md) 第二节「建议后续」
 前置依赖：ADR 0012（spec 版本即产物）、ADR 0013（验收可执行且不可自证）
 
@@ -27,7 +27,7 @@
 | 9 | 快照 manifest 记录 omission | 2 | H2 ✅ | S |
 | 13 | 凭证脱敏 | 6 | H2 ✅ | S |
 | 16 | 证据保留上限 | 9 | H2 ✅ | M |
-| 10 | 有界修复循环 + 停滞检测 | 3 | H3 | M |
+| 10 | 有界修复循环 + 停滞检测 | 3 | H3 ✅ | M |
 | 14 | git 来源绑定 | 7 | H3 | M |
 | 15 | Hook Router 单一归属 | 8 | H3 | L |
 
@@ -102,12 +102,14 @@
 
 ## 批次 H3：流程与仓库加固
 
-### H3-1 有界修复循环与停滞检测（012 #10）
+### H3-1 有界修复循环与停滞检测（012 #10）✅ 已完成
 
 - **目标**：`verify-fail` 不再无条件回到 build；无进展时停机交还人工。
 - **落点**：`change-types` 增加 `repair_attempts`、`last_verdict_hash`；`verifyChange` 在失败时计算结论指纹，连续相同指纹或超过上限则把 change 置为 `blocked`；`change resume` 给出人工介入提示。
 - **验收标准**：单测覆盖「同一结论连续两次失败 → blocked」与「结论变化 → 允许继续」；上限可通过项目配置调整；blocked 的 change 不能被 run/archive。
 - **风险**：指纹过严会误判正常迭代，需要把「结论集合 + 失败项 + scope 违例」纳入指纹并给出可读解释。
+- **实现**：`verdictFingerprint()`（只含未通过验收项与越界项，不含自由文本理由与证据来源）；`ChangeState` 增加 `repair_attempts` / `last_verdict_hash`；连续同指纹累加、指纹变化重置为 1、通过清零；达上限把 `status` 置 `blocked`（阶段仍回 build）；`change run` 拒绝停机 change；新增 `change unblock` 作为唯一的重置入口并写审计流水。
+- **证据**：`test/domains/repair-loop.test.ts`（8 例：指纹语义、三连同一结论停机、换结论继续、成功清零、配置上限、停机后拒跑、解封后可跑、非停机状态拒绝解封）。
 
 ### H3-2 git 来源绑定（012 #14）
 

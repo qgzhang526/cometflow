@@ -68,7 +68,7 @@ CometFlow 的 `verification.mode` 提供三档：
 |---|---|---|---|
 | 8 | 结构化状态用 `canonicalHash(tag, value)` | 已落地 | `domains/state/canonical-hash.ts`；计划与 change 状态盖 `plan_hash` / `state_hash`，`spec verify` 校验 |
 | 9 | 快照 manifest 记录 omission | 已落地 | `implementation-scope.ts` 记录 path/reason/size，明细超 200 条折叠为计数与哈希；`scope.omission_policy` 决定 warn/fail |
-| 10 | 有界修复循环 + 停滞检测 | 待办（H3） | `verify-fail` 现在无条件回 build，可能反复失败 |
+| 10 | 有界修复循环 + 停滞检测 | 已落地 | 失败结论指纹（只含验收结论与越界项）+ `repair_attempts`；达上限置 `blocked`，`change unblock` 显式重置 |
 | 11 | 两阶段状态迁移日志 | 已落地 | `domains/workflow/change-transition-journal.ts`；prepare → 写状态 → 记账 → 清记录，读取前自动收敛 |
 | 12 | 原子写入（fsync + rename） | 已落地 | `platform/fs/atomic-write.ts`；rename 在 Windows 上做有界重试，`doctor` 报告并清理残留 |
 | 13 | 凭证脱敏 | 已落地 | `platform/io/redact.ts`；提示词用高置信档，落盘证据额外启用通用键值档 |

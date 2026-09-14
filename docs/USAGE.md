@@ -630,6 +630,29 @@ verification:
 | `checks+agent` | 检查 + 独立 Verifier 复核未覆盖项；agent 不可用时降级 |
 | `agent-required` | 必须由独立 Verifier 给出完整结论，不可用即失败 |
 
+### 5.9 有界修复循环（停滞停机）
+
+`verify-fail` 不会无限重跑。每轮失败都会算一个**失败结论指纹**（只含未通过的验收项与越界项，不含理由措辞），
+连续得到同一指纹就累加 `repair_attempts`；达到上限后 change 变 `blocked` 停机等人：
+
+```yaml
+# .cometflow/config.yaml
+verification:
+  max_repair_attempts: 2     # 默认 3；无人值守建议调小
+```
+
+停机时：
+
+- `change run` 直接拒绝，并指向 `changes/<name>/verification.md`；
+- `change resume` 不再给下一步 transition，只给人工介入指引；
+- 人看过失败原因（改 spec / 改验收 / 改实现方向）之后，用显式动作重置：
+
+```bash
+cometflow change unblock <name> . --note "spec 已澄清，重试"
+```
+
+「换了失败结论」不会被当作停滞：说明在收敛，计数会重置为 1。
+
 Verifier 使用独立会话、只读提示词，必须对每一条验收项给出 `passed | failed | blocked` 与理由；重复、未知或遗漏任何一条，整份结论作废。失败的 check 不能被 Verifier 判成通过。
 
 ```bash

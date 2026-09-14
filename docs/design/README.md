@@ -40,3 +40,4 @@
 | [0013-verification-must-be-executable.md](../decisions/0013-verification-must-be-executable.md) | 验收必须可执行，且不能由实现者自证 |
 | [0014-atomic-and-recoverable-state.md](../decisions/0014-atomic-and-recoverable-state.md) | 状态写入必须原子，迁移必须可恢复 |
 | [0015-evidence-integrity-and-retention.md](../decisions/0015-evidence-integrity-and-retention.md) | 证据必须留痕、脱敏，并有保留上限 |
+| [0016-bounded-repair-loop.md](../decisions/0016-bounded-repair-loop.md) | 修复循环必须有界，停滞必须停机 |

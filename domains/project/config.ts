@@ -57,6 +57,11 @@ export interface VerificationConfig {
   /** 独立 Verifier 使用的 agent id，默认与 Builder 相同（但用独立会话与只读提示词）。 */
   agent?: string;
   model?: string;
+  /**
+   * 连续同一失败结论的最大轮数；超过即把 change 置为 blocked（默认 3）。
+   * 设为 1 表示「只要一次失败就停机」，适合无人值守场景。
+   */
+  max_repair_attempts?: number;
 }
 
 export const DEFAULT_CONFIG: ProjectConfig = {
@@ -245,6 +250,13 @@ export function validateProjectConfig(config: ProjectConfig): string[] {
     const verifierAgent = config.verification.agent;
     if (verifierAgent !== undefined && !agentIds.has(verifierAgent)) {
       errors.push('verification.agent must be one of: ' + [...agentIds].join(', '));
+    }
+    const maxAttempts = config.verification.max_repair_attempts;
+    if (
+      maxAttempts !== undefined &&
+      (!Number.isInteger(maxAttempts) || maxAttempts < 1)
+    ) {
+      errors.push('verification.max_repair_attempts must be an integer >= 1');
     }
   }
 

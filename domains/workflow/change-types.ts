@@ -15,6 +15,13 @@ export interface ChangeState {
   spec_version: number | null;
   spec_hash: string | null;
   /**
+   * 连续「同一失败结论」的修复轮数。结论发生变化或验证通过时归零/重置，
+   * 超过上限就把 change 置为 blocked，停机交还人工。
+   */
+  repair_attempts?: number;
+  /** 上一次失败结论的指纹（只含验收项结论与越界项，不含自由文本理由）。 */
+  last_verdict_hash?: string | null;
+  /**
    * change 创建时 canonical spec 的内容哈希。归档前会重新比对，
    * 一旦 canonical spec 在 change 生命周期内被改动，就判定为 spec 冲突，
    * 必须显式 rebase 或重建 change，而不是静默覆盖。

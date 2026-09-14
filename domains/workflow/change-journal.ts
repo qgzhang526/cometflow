@@ -17,6 +17,7 @@ export type ChangeJournalEventType =
   | 'transition'
   | 'transition-settled'
   | 'journal-rotated'
+  | 'unblocked'
   | 'archive-started'
   | 'spec-applied'
   | 'spec-version-recorded'

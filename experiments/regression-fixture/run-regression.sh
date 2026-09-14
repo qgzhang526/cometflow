@@ -71,6 +71,29 @@ test -f .cometflow/runtime/changes/archive-change/journal.jsonl || {
 }
 $CF spec verify .
 
+# 有界修复循环：把实现改坏 → 连续同一失败结论 → 停机 → 解封
+cp src/auth/index.ts "$TMP/auth-index.bak"
+printf 'export function login(): boolean {\n  return false;\n}\n' > src/auth/index.ts
+$CF change new stall-demo --goal G2 --task T1 --path .
+$CF change transition stall-demo confirm-acceptance .
+for _ in 1 2 3; do
+  $CF change transition stall-demo submit-candidate .
+  if $CF change verify stall-demo .; then
+    echo "stall-demo verify unexpectedly passed"; exit 1
+  fi
+done
+grep -q 'status: blocked' changes/stall-demo/comet-state.yaml || {
+  echo "stall-demo was not blocked after repeated identical failures"; exit 1;
+}
+if $CF change run stall-demo . --agent mock; then
+  echo "blocked change should not run"; exit 1
+fi
+$CF change unblock stall-demo . --note 'regression: reset the loop'
+grep -q 'status: active' changes/stall-demo/comet-state.yaml || {
+  echo "unblock did not restore active status"; exit 1;
+}
+cp "$TMP/auth-index.bak" src/auth/index.ts
+
 $CF classic status classic-open .
 $CF classic transition classic-open open-complete .
 $CF classic transition classic-open design-complete .

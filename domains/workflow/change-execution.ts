@@ -12,6 +12,7 @@ import { readSpecBlob, recordSpecVersion, refreshSpecBaseline } from '../spec/sp
 import { readTextFile } from '../../platform/fs/read-file.js';
 import { readProjectConfig, type VerificationMode } from '../project/config.js';
 import { redactSecrets } from '../../platform/io/redact.js';
+import { canonicalHash } from '../state/canonical-hash.js';
 import { commitTransition, readChangeState, writeChangeState } from './change-store.js';
 import { applyChangeTransition } from './change-transitions.js';
 import { appendChangeEvent } from './change-journal.js';
@@ -149,6 +150,19 @@ export async function buildChangePrompt(projectRoot: string, name: string): Prom
 export async function runChange(projectRoot: string, name: string, runner: AgentRunner): Promise<ChangeRunOutcome> {
   const state = await readChangeState(projectRoot, name);
   if (state.phase !== 'build') throw new Error('change run requires build phase');
+  // 停机的 change 必须先由人判断（改 spec / 改验收 / 改实现方向），再 unblock 重跑。
+  if (state.status === 'blocked') {
+    throw new Error(
+      'change ' +
+        name +
+        ' is blocked after ' +
+        (state.repair_attempts ?? 0) +
+        ' repair attempt(s) without progress; review changes/' +
+        name +
+        '/verification.md, then run cometflow change unblock ' +
+        name,
+    );
+  }
   const prompt = await buildChangePrompt(projectRoot, name);
   await appendChangeEvent(projectRoot, name, 'run-started', { agent: runner.id }, { phase: state.phase });
   const result = await runner.run({ prompt, cwd: projectRoot });
@@ -195,6 +209,32 @@ export interface ChangeVerifyOptions {
   model?: string;
   timeoutMs?: number;
   now?: Date;
+}
+
+export const VERDICT_FINGERPRINT_TAG = 'cometflow.verify-fingerprint.v1';
+/** 默认的修复轮数上限；可用 verification.max_repair_attempts 覆盖。 */
+export const DEFAULT_MAX_REPAIR_ATTEMPTS = 3;
+
+/**
+ * 失败结论指纹。
+ *
+ * 刻意只包含「结论」——验收项 id 与结果、越界项——不含自由文本理由与证据来源：
+ * - 理由措辞每次都会变，纳入指纹会让停滞检测永远失效；
+ * - 来源（check/document/agent）反映证据质量而非结论，纳入会让同一问题被当成两个。
+ *
+ * 指纹相同 = 修了一轮，问题集合一模一样 = 没有进展。
+ */
+export function verdictFingerprint(
+  verdicts: readonly AcceptanceVerdictRecord[],
+  violations: readonly string[],
+): string {
+  return canonicalHash(VERDICT_FINGERPRINT_TAG, {
+    failing: verdicts
+      .filter((verdict) => verdict.result !== 'passed')
+      .map((verdict) => verdict.id + ':' + verdict.result)
+      .sort(),
+    violations: [...violations].sort(),
+  });
 }
 
 /**
@@ -342,6 +382,14 @@ export async function verifyChange(
 
   const reportPassed = verdicts.every((verdict) => verdict.result === 'passed') && violations.length === 0;
 
+  // 有界修复循环：连续同一失败结论说明「修了但没变」，继续跑只是烧时间。
+  const fingerprint = verdictFingerprint(verdicts, violations);
+  const maxAttempts = config.verification?.max_repair_attempts ?? DEFAULT_MAX_REPAIR_ATTEMPTS;
+  const previousAttempts = state.repair_attempts ?? 0;
+  const sameSignature = !reportPassed && state.last_verdict_hash === fingerprint;
+  const repairAttempts = reportPassed ? 0 : sameSignature ? previousAttempts + 1 : 1;
+  const stalled = !reportPassed && repairAttempts >= maxAttempts;
+
   const dir = path.join(projectRoot, 'changes', name);
   const verification = [
     '# Verification',
@@ -357,6 +405,7 @@ export async function verifyChange(
         : scope.complete
           ? 'complete'
           : 'incomplete'),
+    'repair_attempts: ' + repairAttempts + '/' + maxAttempts,
     ...verdicts.map(
       (entry) =>
         '- ' +
@@ -370,6 +419,15 @@ export async function verifyChange(
     ),
     ...violations.map((entry) => '- violation: ' + redactSecrets(entry, { aggressive: true })),
     ...notes.map((entry) => '- note: ' + redactSecrets(entry, { aggressive: true })),
+    ...(stalled
+      ? [
+          '- stalled: 连续 ' +
+            repairAttempts +
+            ' 轮得到同一失败结论，已停机等待人工介入（cometflow change unblock ' +
+            name +
+            ' 后可重试）',
+        ]
+      : []),
     'result: ' + (reportPassed ? 'pass' : 'fail'),
   ];
   await fs.mkdir(dir, { recursive: true });
@@ -380,9 +438,22 @@ export async function verifyChange(
     verifier: verifierAgent,
     verdicts: verdicts.map((entry) => entry.id + ':' + entry.result + '@' + entry.source),
     violations,
+    repair_attempts: repairAttempts,
+    max_repair_attempts: maxAttempts,
+    stalled,
+    fingerprint: fingerprint.slice(0, 12),
   }, { phase: state.phase, now: options.now });
 
-  const next = applyChangeTransition(state, reportPassed ? 'verify-pass' : 'verify-fail');
+  const transitioned = applyChangeTransition(state, reportPassed ? 'verify-pass' : 'verify-fail');
+  const next: ChangeState = reportPassed
+    ? { ...transitioned, repair_attempts: 0, last_verdict_hash: null }
+    : {
+        ...transitioned,
+        repair_attempts: repairAttempts,
+        last_verdict_hash: fingerprint,
+        // 停机不等于换阶段：phase 仍回到 build，用 status 表达「需要人」。
+        status: stalled ? 'blocked' : transitioned.status,
+      };
   await commitTransition(projectRoot, reportPassed ? 'verify-pass' : 'verify-fail', state, next);
   return { state: next, reportPassed, verdicts, checks, scope, verifierAgent };
 }
@@ -721,6 +792,41 @@ export interface ChangeRebaseOutcome {
   baselineFiles: number;
   specVersion: number | null;
   acceptanceIds: string[];
+}
+
+export interface ChangeUnblockOutcome {
+  state: ChangeState;
+  previousAttempts: number;
+}
+
+/**
+ * 解封停机的 change。
+ *
+ * 停机是「交还人工」而不是「放弃」：人看过失败结论、改完方向之后，
+ * 需要一个显式动作把计数清零重来。这也是唯一应该由人决定的重置点。
+ */
+export async function unblockChange(
+  projectRoot: string,
+  name: string,
+  options: { note?: string; now?: Date } = {},
+): Promise<ChangeUnblockOutcome> {
+  const state = await readChangeState(projectRoot, name);
+  if (state.archived) throw new Error('Change is already archived');
+  if (state.status !== 'blocked') {
+    throw new Error('change ' + name + ' is not blocked (status=' + state.status + ')');
+  }
+  const next: ChangeState = {
+    ...state,
+    status: 'active',
+    repair_attempts: 0,
+    last_verdict_hash: null,
+  };
+  await writeChangeState(projectRoot, next);
+  await appendChangeEvent(projectRoot, name, 'unblocked', {
+    previous_attempts: state.repair_attempts ?? 0,
+    note: options.note ?? null,
+  }, { phase: next.phase, now: options.now });
+  return { state: next, previousAttempts: state.repair_attempts ?? 0 };
 }
 
 /**

@@ -4,6 +4,7 @@ import {
   archiveChange,
   rebaseChange,
   runChange,
+  unblockChange,
   verifyChange,
 } from '../../domains/workflow/change-execution.js';
 import {
@@ -127,9 +128,37 @@ export async function changeVerifyCommand(
       ' reportPassed=' +
       outcome.reportPassed +
       ' verifier=' +
-      (outcome.verifierAgent ?? '(none)'),
+      (outcome.verifierAgent ?? '(none)') +
+      ' repair_attempts=' +
+      (outcome.state.repair_attempts ?? 0),
   );
+  if (outcome.state.status === 'blocked') {
+    console.log(
+      'blocked: 连续同一失败结论，已停机等待人工；查看 changes/' +
+        name +
+        '/verification.md 后运行 cometflow change unblock ' +
+        name,
+    );
+  }
   if (!outcome.reportPassed) process.exitCode = 1;
+}
+
+export async function changeUnblockCommand(
+  name: string,
+  targetPath: string,
+  options: { note?: string } = {},
+): Promise<void> {
+  const projectRoot = root(targetPath);
+  const outcome = await unblockChange(projectRoot, name, { note: options.note });
+  console.log(
+    'unblocked ' +
+      name +
+      ' phase=' +
+      outcome.state.phase +
+      ' previous_repair_attempts=' +
+      outcome.previousAttempts,
+  );
+  console.log('下一步：cometflow change resume ' + name + ' ' + targetPath);
 }
 
 export async function changeScopeCommand(
