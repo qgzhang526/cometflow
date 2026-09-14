@@ -1070,7 +1070,8 @@ cometflow serve [--workspace <dir>] [--port <port>] [--token <token>] [--web-dir
 ```
 
 默认：工作区 `~/.cometflow/workspace`（可用 `COMETFLOW_WORKSPACE` 覆盖）、端口 `4321`、
-随机 token、静态目录 `./web`、绑定 `127.0.0.1`。启动后打印：
+随机 token、静态目录 `./web`（实际命中 `web/dist`，可用 `--web-dir` / `COMETFLOW_WEB_DIR` 覆盖）、
+绑定 `127.0.0.1`。启动后打印：
 
 ```text
 CometFlow: http://127.0.0.1:4321
@@ -1084,14 +1085,29 @@ token: <random>
 
 - **首页**：新建项目（三步向导：基本信息 → 项目类型 → 预览 12-kind 并创建）、打开已有项目、最近项目列表。
 - **项目内 8 个面板**：总览 Overview、目标 Goals、规格 Specs、计划 Plans、变更 Changes、进化 Evolve、评估 Eval、设置 Settings。
+- **任务中心**（顶栏右侧抽屉）：进行中/已完成的 job、实时日志、刷新页面后仍在。
 
 界面能力要点：
 
 - 目录选择器基于 `GET /api/fs/list`，Windows 下从盘符开始浏览。
 - 新建项目 = `init` + 按技术栈/问答裁剪的 `spec scaffold`。
-- Changes 面板运行 Builder 时走 job + SSE 实时日志。
-- `state.changed` / `job.*` 事件通过 `GET /api/events`（SSE）推送，前端自动刷新。
-- 长任务（`change run` / `evolve verify` / `eval`）返回 202 + jobId，前端轮询 `/api/jobs/<id>`。
+- Changes 面板运行 Builder 时走 job + SSE 实时日志；日志归属任务中心，离开面板或刷新都不会丢。
+- `state.changed` / `job.*` 事件通过 `GET /api/events`（SSE）推送。刷新按区域去抖，并且只刷新受影响的面板；
+  编辑 `COMETFLOW.md` / spec 时挂起刷新，避免外部事件覆盖正在输入的内容。
+- 长任务（`change run` / `evolve verify` / `eval`）返回 202 + jobId；结果随 job 记录留存，
+  刷新页面后从 `GET /api/jobs` 仍能取回（例如 eval 报告的 Pass@k / Pass^k）。
+- 设置页保存是**增量合并**：只渲染部分字段的界面不会删掉 `verification` / `scope` 等未展示配置，
+  也不会把全局默认固化进项目文件；`GET .../config/project` 可查看项目层真正覆盖了哪些键。
+
+前端为 Vue 3 + Vite + TypeScript（ADR 0016）。开发与构建：
+
+```bash
+pnpm install                 # 同时安装 CLI 与 Web 依赖
+pnpm web:dev                 # Vite dev server（:5173，/api 代理到 :4321）
+pnpm web:build               # 产出 web/dist
+pnpm web:typecheck           # 前端类型检查（含 .vue）
+pnpm build                   # tsc（CLI）+ vite build（Web）
+```
 
 ### 12.2 REST API 速查
 
@@ -1105,7 +1121,8 @@ token: <random>
 | GET/PUT | `/api/projects/<id>/mission.md` | 读写 `COMETFLOW.md` |
 | POST | `/api/projects/<id>/context/sync` \| `/goals/sync` | 上下文 / 目标同步 |
 | GET | `/api/projects/<id>/goals` | 目标投影 |
-| GET/PUT | `/api/projects/<id>/config` | 配置读写（带校验） |
+| GET/PUT | `/api/projects/<id>/config` | 配置读写（PUT 为增量合并，带校验） |
+| GET | `/api/projects/<id>/config/project` | 项目层覆盖（不含全局默认） |
 | GET | `/api/projects/<id>/agents` | Agent 可用性 |
 | GET | `/api/projects/<id>/init-manifest` | 12-kind 状态 |
 | POST | `/api/projects/<id>/spec/scaffold` \| `/spec/validate` | 脚手架 / 校验 |
@@ -1122,8 +1139,9 @@ token: <random>
 | GET | `/api/events` | SSE 事件流 |
 | GET | `/api/fs/list?path=` | 目录浏览 |
 
-> 打包提醒：npm 包的 `files` 目前只含 `dist/` 与 `README.md`，**不含 `web/`**。
-> 从 npm 全局安装时请显式指定 `--web-dir`（指向仓库或随包提供的 web 目录）。
+> 打包说明：npm 包的 `files` 含 `dist/`、`web/dist/` 与 `README.md`；
+> `pnpm build` 会同时产出两者。若从源码运行而没有构建过前端，
+> `serve` 会在没有 `index.html` 的目录上报 404，先跑一次 `pnpm web:build` 即可。
 
 ---
 
@@ -1320,7 +1338,8 @@ change 存续期间 canonical spec 被外部改动过，归档会覆盖那次变
 还没有登记过版本。运行 `cometflow spec lock .` 建立基线；`plan freeze` 与 `change archive` 也会自动登记。
 
 **`serve` 打开后页面空白 / 401**
-用启动时打印的 `?token=<token>` 访问一次；若用 npm 包安装且缺少 `web/`，需指定 `--web-dir`。
+用启动时打印的 `?token=<token>` 访问一次。页面空白通常是 `web/dist` 未构建（跑 `pnpm web:build`）
+或 `--web-dir` 指到了别处；`--web-dir` 指向 `web/` 时会自动使用 `web/dist/`。
 
 **内网无法安装依赖**
 使用 `offline-npm/` 里的三个 tarball 离线安装，或确认内网仓库已发布 `commander` 与 `yaml`。

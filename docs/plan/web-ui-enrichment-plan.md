@@ -1,6 +1,6 @@
 # Web 前端补齐计划（后端能力 ↔ 前端展示差异）
 
-状态：调研完成，待实施
+状态：**W1 已完成**（Web 客户端迁移到 Vue 3 + Vite + TypeScript，四个 P0 缺陷修复），W2–W5 待开始
 分支：`codex/enrich-web-ui`
 调研基线：`fd870a9` + 工作区未提交改动（H1 加固 + 试验夹具）
 关联：ADR 0007（UI headless）、ADR 0008（工作区/多项目）、ADR 0009（agent/模型分层）、
@@ -167,7 +167,7 @@ ADR 0013（验收必须可执行）、ADR 0014（状态原子可恢复）、[008
 
 ## 6. 建议实施批次
 
-### W1 正确性与可观测性（P0，先修再扩）
+### W1 正确性与可观测性（P0，先修再扩）✅ 已完成
 
 - 目标：让现有 8 个面板**结果正确、状态不丢**。
 - 落点：`domains/server/api.ts` 的 config 合并写入；`web/app.js` 的 `pollJob` / `renderChanges` / `changeAction`
@@ -175,6 +175,33 @@ ADR 0013（验收必须可执行）、ADR 0014（状态原子可恢复）、[008
 - 验收：保存设置不丢 `verification` / `scope`；eval 结束仍在 Eval 面板且能看到 pass@k 报告；
   change 动作后详情不重置、verdict 可见；刷新页面后能看到进行中的 job。
   补 `test/domains/serve-api.test.ts` 的 config 回归用例。
+
+实施结果：
+
+- **前端重建为 Vue 3 + Vite + TypeScript**（ADR 0016）：`web/src/` 下按 view / store / component 分层，
+  依赖只有 `vue` / `vue-router` / `pinia`，样式与类名沿用原设计，产物为 `web/dist`。
+- **P0-1**：`PUT /config` 改为增量合并（`mergeProjectConfigOverride`），新增 `GET .../config/project`
+  暴露项目层覆盖集合；设置页补全 verification / scope / 每 agent 模型 / 调度器窗口，保存后回读并回报写入键。
+- **P0-2**：Eval 面板复用任务记录渲染报告（Pass@k / Pass^k / 每任务轮次明细 / rubric / judge），
+  任务结束后不再切走面板；`JobRecord.result` 落库，刷新页面后仍可从 `GET /api/jobs` 取回。
+- **P0-3**：Change 详情状态驱动渲染，验收结论按 acceptance 列出（含 check 命令、exitCode、stdout/stderr、
+  实现范围越界项），动作完成后不再重置选择。
+- **P0-4 / B 类**：新增任务中心抽屉（`GET /api/jobs` + `job.*` 事件），Builder 日志离开面板也不会丢。
+- **P1-5/6**：SSE 按 `projectId` / `path` 路由到区域、去抖、编辑中挂起、断线退避重连并有横幅提示。
+- **P1-7**：不再用内联 `onclick` 拼接；**P1-8**：Plans 面板由裸 JSON 改为任务表 + 状态驱动按钮 + findings 列表。
+- 测试：`test/domains/serve-api.test.ts` 增补 config 合并回归与 webDir 回退；新增 `test/domains/jobs.test.ts`。
+
+浏览器冒烟（真实 serve + regression fixture 项目，逐面板点击）又暴露三处只在端到端才出现的问题，已一并修掉：
+
+- **P0-5 `workspace.json` 并发读改写会互相截断**：每个项目请求都会 `touchProject`（读→改→写），
+  而新面板普遍用 `Promise.all` 并发取数，于是出现「读到自己/对方写了一半的文件」→ `JSON.parse` 失败 →
+  500 `Unexpected end of JSON input`，前端表现为「加载变更失败」且列表为空。
+  修法：`writeWorkspace` 改原子写（H1-1 的 `atomicWriteJson`），`registerProject` / `touchProject` / `removeProject`
+  走按文件排队的进程内互斥；新增并发回归测试（5 个并发注册 + 30 次并发 touch，断言不丢项目且文件可解析）。
+- **任务中心抽屉遮住面板主操作**：抽屉固定在最右侧，会盖住面板右上角的按钮（例如「运行评估」）。
+  修法：抽屉打开时给内容区留出 `padding-right`，操作按钮始终可点。
+- **`?token=` 未生效**：入口没有调用 `initTokenFromUrl()`，serve 打印的带 token 地址打开后拿不到凭据。
+  修法：在挂载前完成 token 落盘与地址清理，并把 SSE 的 token 收进 `eventStreamUrl()`，常规请求一律走 `Authorization` 头。
 
 ### W2 spec 内核可视化（A 类 + P1-9）
 
@@ -218,8 +245,7 @@ ADR 0013（验收必须可执行）、ADR 0014（状态原子可恢复）、[008
 
 ## 8. 开放问题（需要决策后再动手）
 
-1. **前端技术选型**：当前是 `web/app.js` 单文件约 800 行 vanilla JS。W1–W5 之后面板数会翻倍，
-   是否按 008 §10 迁到 Vue 3 + Vite + TypeScript？若迁移，建议放在 W1 之后、W2 之前，避免两套并存。
+1. ~~**前端技术选型**~~：**已决策**——Vue 3 + Vite + TypeScript，见 ADR 0016；迁移与 W1 一并完成。
 2. **UI 是否有权改 canonical spec**：`POST/PUT /api/specs` 会立即 `refreshSpecBaseline`（登记新版本）。
    这是「UI 编辑即新版本」的强语义，需要确认是否要加草稿态。
 3. **并发写**：CLI 与 serve 同时操作同一项目仍是 last-write-wins（008 风险 3）。前端写操作越多，

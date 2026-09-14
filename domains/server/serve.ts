@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { promises as fs } from 'node:fs';
+import { existsSync, readFileSync, promises as fs } from 'node:fs';
 import { createServer } from 'node:http';
 import path from 'node:path';
 import { handleApiRequest } from './api.js';
@@ -19,7 +19,14 @@ export interface ServeHandle {
   url: string;
   token: string;
   port: number;
+  /** 静态目录的解析结果，用于启动时提示「托管的是构建产物还是源码入口」。 */
+  ui: UiStatus;
   close: () => Promise<void>;
+}
+
+export interface UiStatus {
+  dir: string;
+  state: 'built' | 'unbuilt' | 'missing';
 }
 
 const MIME: Record<string, string> = {
@@ -34,9 +41,58 @@ const MIME: Record<string, string> = {
   '.map': 'application/json; charset=utf-8',
 };
 
+/**
+ * 缓存策略。
+ *
+ * Vite 产物的文件名带内容哈希，可以长期缓存；`index.html` 必须每次回源校验，
+ * 否则浏览器会拿着旧入口去请求已经被删掉的 chunk，页面同样是白页。
+ */
+function cacheControlFor(filePath: string, base: string, servedAsFallback: boolean): string {
+  const relative = path.relative(base, filePath).split(path.sep).join('/');
+  if (servedAsFallback || relative === 'index.html') return 'no-cache';
+  if (relative.startsWith('assets/')) return 'public, max-age=31536000, immutable';
+  return 'no-cache';
+}
+
 function sendUnauthorized(res: import('node:http').ServerResponse): void {
   res.writeHead(401, { 'content-type': 'application/json; charset=utf-8' });
   res.end(JSON.stringify({ ok: false, error: { code: 'unauthorized', message: 'missing or invalid token' } }));
+}
+
+/**
+ * 解析静态目录。
+ *
+ * Web 客户端由 Vite 构建到 `web/dist`，但人们习惯把 `--web-dir web` 或
+ * `COMETFLOW_WEB_DIR=web` 指到项目根。这里在「目标目录没有 index.html」时自动下沉到
+ * `dist/`，让两种写法都能命中已构建的 SPA，而不是把 Vite 的源码入口当成品发出去。
+ */
+function resolveWebDir(explicit?: string): string {
+  const configured = explicit ?? process.env.COMETFLOW_WEB_DIR;
+  const base =
+    configured !== undefined && configured.trim() !== ''
+      ? path.resolve(configured)
+      : path.join(process.cwd(), 'web');
+  const hasIndex = (dir: string): boolean => existsSync(path.join(dir, 'index.html'));
+  // 优先命中已构建产物：Vite 的源码入口也叫 web/index.html（内容是 `src="/src/main.ts"`），
+  // 直接发出去只会得到一个空白页，所以 dist/ 优先于 base 本身。
+  const candidates = [path.join(base, 'dist'), base];
+  return candidates.find(hasIndex) ?? base;
+}
+
+/**
+ * 判断静态目录里放的是构建产物还是 Vite 源码入口。
+ *
+ * 源码入口引用 `/src/main.ts`，而 serve 不编译它：浏览器只会拿到一个加载失败的模块，
+ * 表现就是白页。这种情况必须在启动时就说清楚，而不是让用户对着空白页猜。
+ */
+function inspectUi(webDir: string): UiStatus {
+  const indexPath = path.join(webDir, 'index.html');
+  try {
+    const html = readFileSync(indexPath, 'utf8');
+    return { dir: webDir, state: html.includes('/src/main.ts') ? 'unbuilt' : 'built' };
+  } catch {
+    return { dir: webDir, state: 'missing' };
+  }
 }
 
 async function serveStatic(
@@ -53,11 +109,14 @@ async function serveStatic(
     return;
   }
   const candidates = [filePath, path.join(base, 'index.html')];
-  for (const candidate of candidates) {
+  for (const [index, candidate] of candidates.entries()) {
     try {
       const data = await fs.readFile(candidate);
       const ext = path.extname(candidate).toLowerCase();
-      res.writeHead(200, { 'content-type': MIME[ext] ?? 'application/octet-stream' });
+      res.writeHead(200, {
+        'content-type': MIME[ext] ?? 'application/octet-stream',
+        'cache-control': cacheControlFor(candidate, base, index > 0),
+      });
       res.end(data);
       return;
     } catch {
@@ -71,7 +130,7 @@ async function serveStatic(
 export async function startServe(options: ServeOptions = {}): Promise<ServeHandle> {
   const workspaceRoot = options.workspaceRoot ?? defaultWorkspaceRoot();
   const token = options.token ?? randomUUID().replace(/-/g, '').slice(0, 24);
-  const webDir = options.webDir ?? path.join(process.cwd(), 'web');
+  const webDir = resolveWebDir(options.webDir);
   const host = options.host ?? '127.0.0.1';
   const requestedPort = options.port ?? 4321;
   const jobs = new JobManager();
@@ -124,6 +183,7 @@ export async function startServe(options: ServeOptions = {}): Promise<ServeHandl
     port,
     token,
     url: 'http://' + host + ':' + port,
+    ui: inspectUi(webDir),
     close: () =>
       new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()));
