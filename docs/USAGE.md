@@ -1108,6 +1108,11 @@ token: <random>
 - **任务中心**（顶栏右侧抽屉）：进行中/已完成的 job、实时日志、刷新页面后仍在；
   「清理已完成」只清掉已结束的记录（排队/运行中的保留），带 change 的任务可一键跳到对应 change。
 - **Specs 面板 6 个页签**：12-kind 状态、脚手架、Spec 文件、验收覆盖、版本、影响与门禁。
+- **引用图页签**（W1 之后新增，共 7 个）：按 009 的引用方向表聚合 kind 之间的引用，
+  点击可下钻 kind → 文件 → anchor 并列出该文件的逐条引用与位置；未解析引用红色标注，
+  且与 `spec validate` 同源（图上红的就是门禁会报的）。对应 CLI：`cometflow spec graph [--json]`（只做投影，不设退出码）。
+- **Spec 编辑器引用高亮**：编辑器里 `模型：X` / `错误码：Y` / `配置键：k` / `协议头：h` / `状态码：n` / `调用 METHOD /path`
+  会渲染成 chip，未解析的引用标红并在下方给出跳转按钮；高亮走 `POST /spec/references`（对草稿正文求值，不需要先保存）。
   - 验收覆盖：每个 anchor 的验收项与其可执行 check；没有 check 的项显式标注（ADR 0013）。
   - 版本：按 spec 列出历史版本（含 hash/时间/来源），可查看历史正文并一键恢复（恢复前先把当前内容记一版）。
   - 影响与门禁：与基线的 diff、锚点级影响分析（可选「预演某个 change 归档后」）、一致性门禁、
@@ -1174,6 +1179,8 @@ pnpm build                   # tsc（CLI）+ vite build（Web）
 | GET | `/api/projects/<id>/spec/impact[?change=]` | 锚点级影响分析（可叠加 change 提案） |
 | GET | `/api/projects/<id>/spec/versions[?path=]` | 版本历史 |
 | GET | `/api/projects/<id>/spec/version?ref=<path>@<version>\|<hash>` | 回放某一版正文 |
+| GET | `/api/projects/<id>/spec/graph` | 引用关系图（kind→文件→anchor + 引用边 + 未解析集合） |
+| POST | `/api/projects/<id>/spec/references` | 对给定正文返回带位置的引用 token（编辑器高亮用） |
 | POST | `/api/projects/<id>/spec/lock` | 建立基线：登记版本 + 刷新 spec-lock |
 | POST | `/api/projects/<id>/spec/restore` | 恢复历史版本（覆盖前先给当前内容记一版） |
 | GET | `/api/projects/<id>/changes/<name>/scope` | 实现范围报告（归属解释 + 越界 + omission） |

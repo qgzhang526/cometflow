@@ -40,6 +40,7 @@ import { collectSpecDrift } from '../spec/spec-drift.js';
 import { analyzeSpecImpact } from '../spec/spec-impact.js';
 import { verifySpecIntegrity } from '../spec/spec-verify.js';
 import { collectAcceptanceChecks } from '../spec/spec-checks.js';
+import { buildSpecReferenceIndex, collectSpecGraph, collectSpecReferenceTokens } from '../spec/spec-graph.js';
 import { atomicWriteText } from '../../platform/fs/atomic-write.js';
 import { generateTaskPlan } from '../task-plan/task-plan-generate.js';
 import { validateTaskPlan } from '../task-plan/task-plan-validate.js';
@@ -437,6 +438,17 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
     // 这些投影此前只有 CLI 能看到，是「spec 即产物」在前端缺失的部分。
     if (segments[0] === 'spec' && method === 'GET' && segments[1] === 'checks') {
       sendOk(res, await collectAcceptanceChecks(root));
+      return true;
+    }
+    if (segments[0] === 'spec' && method === 'GET' && segments[1] === 'graph') {
+      sendOk(res, await collectSpecGraph(root));
+      return true;
+    }
+    if (segments[0] === 'spec' && method === 'POST' && segments[1] === 'references') {
+      // 编辑器高亮：对**草稿正文**求 token，因此不落盘、不产生版本。
+      const body = await readJsonBody(req);
+      const index = await buildSpecReferenceIndex(root);
+      sendOk(res, { tokens: collectSpecReferenceTokens(index, stringField(body.content)) });
       return true;
     }
     if (segments[0] === 'spec' && method === 'GET' && segments[1] === 'verify') {

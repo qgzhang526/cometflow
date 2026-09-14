@@ -1,6 +1,6 @@
 # Web 前端后续计划（引用图 / 引用高亮 / Job 持久化 / 并发写 / 编辑语义 / 收尾）
 
-状态：**决策已定**（2026-09-14），待实施；四条开放问题的结论见 §6
+状态：**M1 已完成**（N1 引用图 + N2 引用高亮），M2/M3 待实施；四条开放问题的结论见 §6
 来源：[web-ui-enrichment-plan.md](./web-ui-enrichment-plan.md) 的 §5 P2 与 §8 开放问题、
 [008 客户端可视化](../design/008-client-visualization.md) §8.6②④、
 [comet-hardening-plan](./comet-hardening-plan.md) 遗留
@@ -50,7 +50,7 @@
 
 ## 3. 分项计划
 
-### N1 引用关系图
+### N1 引用关系图 ✅ 已完成
 
 - **目标**：把 009 的引用方向表变成可点的图：kind 层 → 文件层 → anchor/接口层，悬停显示具体引用点，
   未解析引用与 deferred/absent kind 有明确视觉状态。
@@ -70,10 +70,15 @@
   4. deferred/absent kind 置灰；只渲染当前项目、逐级展开。
 - **验收**：把 `specs/rules.md` 的「模型：Building」改成不存在的模型 → 图上出现红色虚线边且悬停指到该行；
   点 capability 节点能展开到 `POST /buildings` 这类 anchor；`spec graph` 与 `spec validate` 的未解析集合完全一致。
+
+实施结果：新增 `domains/spec/spec-graph.ts`（`buildSpecReferenceIndex` + `collectSpecGraph`），
+`GET /spec/graph` 与 CLI `cometflow spec graph [--json]`（只做投影、无退出码）；前端 Specs 面板新增「引用图」页签：
+12 个 kind 节点按 009 方向表聚合连线，点击下钻 kind → 文件 → anchor，右侧列出该文件的逐条引用与 `path:line`，
+未解析引用红色标注。**同源断言**已在测试里钉住：图的未解析集合与 `spec validate` 的 findings 逐条相等。
 - **风险**：节点规模（大项目 flow/capability 很多）→ 只渲染 kind 层，展开才取子层；
   不引入图形库，用固定层级 + 确定性布局（同一份 spec 每次布局一致，便于截图比对）。
 
-### N2 编辑器内引用高亮
+### N2 编辑器内引用高亮 ✅ 已完成
 
 - **目标**：编辑器把可解析引用渲染成 chip，未解析引用红色下划线并提示「目标未定义，点击去补」；
   点击 chip 跳到目标 anchor。
@@ -88,6 +93,12 @@
   4. 点击 chip → 跳到目标 anchor（如 `specs/models.md#实体：Colony`）。
 - **验收**：打开 `specs/rules.md` 时 `模型：Building` 为已解析 chip，改成 `模型：Nope` 后 300ms 内变红并有提示；
   中文输入法组合期不闪烁、不错位；2000 行 spec 打字无可感知卡顿。
+
+实施结果：`spec-structure.ts` 新增 `extractRefSpans(line)`（同一组正则，返回**行内区间**），
+五个取值函数改为在其上取值（语义不变，原有测试未改一行仍全绿）；`POST /spec/references` 对**草稿正文**返回
+`{ line, start, end, kind, value, resolved }`；`SpecEditor.vue` 用「透明 textarea + 镜像层」渲染 chip：
+已解析为蓝底 chip、未解析为红底波浪线，并在编辑器下方给出「L7 Ghost」这类跳转按钮；
+输入去抖 200ms、IME 组合期暂停刷新、镜像层与 textarea 共用同一套字体/内边距/换行样式。
 - **风险**：textarea 与镜像层的像素级对齐（换行、滚动、Tab）；IME 组合期抖动；大文件 token 数量。
   缓解：两者共用同一 CSS；`compositionstart/end` 期间暂停刷新；token 数超上限时只请求视口附近。
 

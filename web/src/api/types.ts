@@ -609,3 +609,71 @@ export interface ClassicState {
 export interface ClassicResponse {
   changes: ClassicState[];
 }
+
+// ---------- 引用关系图与引用高亮（N1/N2） ----------
+
+export type SpecRefKind = 'model' | 'error' | 'config' | 'header' | 'status' | 'api';
+
+export interface SpecRefSpan {
+  kind: SpecRefKind;
+  value: string;
+  start: number;
+  end: number;
+}
+
+export interface SpecReferenceToken extends SpecRefSpan {
+  line: number;
+  resolved: boolean;
+}
+
+export interface SpecReferencesResponse {
+  tokens: SpecReferenceToken[];
+}
+
+export interface SpecGraphNode {
+  id: string;
+  level: 'kind' | 'file' | 'anchor' | 'target';
+  kind: string;
+  label: string;
+  status: 'present' | 'deferred' | 'absent';
+  path?: string;
+  anchor?: string;
+  line?: number;
+  acceptance?: number;
+  hasCheck?: boolean;
+  value?: string;
+}
+
+export interface SpecGraphEdge {
+  from: string;
+  to: string;
+  level: 'containment' | 'reference';
+  resolved: boolean;
+  refKind?: SpecRefKind;
+  site?: { path: string; line: number };
+  count?: number;
+}
+
+export interface SpecGraphUnresolved {
+  path: string;
+  line: number;
+  refKind: SpecRefKind;
+  value: string;
+  code: string;
+  severity: 'error' | 'warning';
+}
+
+export interface SpecGraphProjection {
+  schema: string;
+  nodes: SpecGraphNode[];
+  edges: SpecGraphEdge[];
+  unresolved: SpecGraphUnresolved[];
+  summary: {
+    kinds: number;
+    files: number;
+    anchors: number;
+    targets: number;
+    edges: number;
+    unresolved: number;
+  };
+}

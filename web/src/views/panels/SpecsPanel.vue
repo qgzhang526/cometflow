@@ -17,12 +17,16 @@
     <FilesTab v-else-if="activeTab === 'files'" @open="openSpec" @versions="showVersions" />
     <ChecksTab v-else-if="activeTab === 'checks'" />
     <VersionsTab v-else-if="activeTab === 'versions'" ref="versionsTab" />
+    <SpecGraphTab v-else-if="activeTab === 'graph'" @open="openSpec" />
     <IntegrityTab v-else />
   </div>
 
   <ModalCard v-if="editing !== null" :title="editingPath" wide @close="closeEditor">
-    <textarea v-model="editing" class="modal-textarea" />
-    <p class="muted">保存会登记一次 canonical spec 变更并刷新 lock（等价于 CLI 的 spec lock）。</p>
+    <SpecEditor v-model="editing" />
+    <p class="muted">
+      保存会登记一次 canonical spec 变更并刷新 lock（等价于 CLI 的 spec lock）。
+      改动前想先看影响，可以切到「影响与门禁」用 <code>spec diff --impact</code> 预演。
+    </p>
     <template #footer>
       <button @click="closeEditor">关闭</button>
       <button class="primary" :disabled="saving" @click="saveSpec">保存</button>
@@ -42,6 +46,8 @@ import ScaffoldTab from './specs/ScaffoldTab.vue';
 import FilesTab from './specs/FilesTab.vue';
 import ChecksTab from './specs/ChecksTab.vue';
 import VersionsTab from './specs/VersionsTab.vue';
+import SpecGraphTab from './specs/SpecGraphTab.vue';
+import SpecEditor from './specs/SpecEditor.vue';
 import IntegrityTab from './specs/IntegrityTab.vue';
 
 const TABS = [
@@ -50,6 +56,7 @@ const TABS = [
   { id: 'files', label: 'Spec 文件' },
   { id: 'checks', label: '验收覆盖' },
   { id: 'versions', label: '版本' },
+  { id: 'graph', label: '引用图' },
   { id: 'integrity', label: '影响与门禁' },
 ] as const;
 

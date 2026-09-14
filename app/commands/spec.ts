@@ -20,6 +20,7 @@ import { readInitManifest, scaffoldCapabilities, scaffoldProject } from '../../d
 import { importSpecsFromFile } from '../../domains/spec/spec-import.js';
 import { writeSpecIndex } from '../../domains/spec/spec-project.js';
 import { collectAcceptanceChecks } from '../../domains/spec/spec-checks.js';
+import { collectSpecGraph } from '../../domains/spec/spec-graph.js';
 import { askScaffoldPrompts } from './scaffold-prompts.js';
 
 export async function specValidateCommand(targetPath: string): Promise<void> {
@@ -261,6 +262,51 @@ export async function specChecksCommand(
     }
   }
   console.log('acceptance items: ' + report.total + ' checked: ' + report.checked + ' unchecked: ' + report.unchecked);
+}
+
+/**
+ * 打印跨文件引用关系图（008 §8.6②）。
+ *
+ * 只做投影：输出 nodes/edges 与未解析引用，**不设退出码**——门禁归 `spec validate`，
+ * 这样「图」与「判定」不会变成两个各自维护的真相。
+ */
+export async function specGraphCommand(targetPath: string, options: { json?: boolean } = {}): Promise<void> {
+  const projectRoot = path.resolve(targetPath);
+  const graph = await collectSpecGraph(projectRoot);
+  if (options.json) {
+    console.log(JSON.stringify(graph, null, 2));
+    return;
+  }
+  console.log(
+    'spec graph: kinds=' +
+      graph.summary.kinds +
+      ' files=' +
+      graph.summary.files +
+      ' anchors=' +
+      graph.summary.anchors +
+      ' targets=' +
+      graph.summary.targets +
+      ' edges=' +
+      graph.summary.edges +
+      ' unresolved=' +
+      graph.summary.unresolved,
+  );
+  for (const edge of graph.edges.filter((entry) => entry.level === 'reference' && entry.from.startsWith('kind:'))) {
+    console.log(
+      '  ' +
+        edge.from.replace(/^kind:/u, '') +
+        ' -> ' +
+        edge.to.replace(/^kind:/u, '') +
+        ' refs=' +
+        (edge.count ?? 0) +
+        (edge.resolved ? '' : ' (target kind missing)'),
+    );
+  }
+  for (const entry of graph.unresolved) {
+    console.log(
+      [entry.severity.toUpperCase(), entry.code, entry.path + ':' + entry.line, entry.refKind + '=' + entry.value].join(' '),
+    );
+  }
 }
 
 export async function specIndexCommand(targetPath: string): Promise<void> {
