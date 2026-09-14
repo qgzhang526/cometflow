@@ -5,6 +5,7 @@ import { validateSpecs } from '../spec/spec-validate.js';
 import { verifySpecIntegrity } from '../spec/spec-verify.js';
 import { listIncompleteSpecTransactions } from '../workflow/change-execution.js';
 import { listPendingTransitions } from '../workflow/change-transition-journal.js';
+import { checkGitDrift } from '../workflow/git-provenance.js';
 import { listChangeStates } from '../workflow/change-list.js';
 import { loadProjectContext, validateProjectContext } from '../project/context.js';
 import { findOrphanTempFiles, removeOrphanTempFiles } from '../../platform/fs/atomic-write.js';
@@ -74,6 +75,18 @@ export async function runDoctor(projectRoot: string, options: DoctorOptions = {}
   const activeChanges = (await listChangeStates(projectRoot)).filter((change) => !change.archived);
   if (activeChanges.length > 1) {
     findings.push({ severity: 'warning', code: 'multiple-active-changes', message: activeChanges.length + ' active changes' });
+  }
+
+  // git 来源漂移：历史回退/分叉会让 change 在错误的基础上继续推进。
+  for (const change of activeChanges) {
+    const drift = await checkGitDrift(projectRoot, change);
+    if (drift.blocking) {
+      findings.push({
+        severity: 'error',
+        code: 'git-provenance-drift',
+        message: 'change ' + change.name + ': ' + drift.detail + '；run/verify/archive 会被阻断',
+      });
+    }
   }
 
   // 归档事务停在 staged（进程被杀）时 specs/ 可能处于中间态，必须人工确认。

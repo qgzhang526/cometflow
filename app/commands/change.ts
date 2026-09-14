@@ -12,6 +12,7 @@ import {
   resolveScopeAllow,
 } from '../../domains/workflow/implementation-scope.js';
 import { readChangeJournal } from '../../domains/workflow/change-journal.js';
+import { checkGitDrift } from '../../domains/workflow/git-provenance.js';
 import {
   applyEvidenceGc,
   collectEvidenceUsage,
@@ -84,19 +85,25 @@ export async function changeResumeCommand(
 }
 
 export async function changeStatusCommand(name: string, targetPath: string): Promise<void> {
-  const state = await readChangeState(root(targetPath), name);
+  const projectRoot = root(targetPath);
+  const state = await readChangeState(projectRoot, name);
   console.log(JSON.stringify(state, null, 2));
+  // 来源状态单独一行：它决定 run/verify/archive 会不会被拦。
+  const drift = await checkGitDrift(projectRoot, state);
+  console.log(
+    'git: ' + drift.status + (drift.blocking ? ' [BLOCKING]' : '') + ' — ' + drift.detail,
+  );
 }
 
 export async function changeRunCommand(
   name: string,
   targetPath: string,
-  options: { agent?: string },
+  options: { agent?: string; allowDrift?: boolean },
 ): Promise<void> {
   const projectRoot = root(targetPath);
   const agentId = options.agent ?? (await resolveAgentId(projectRoot));
   const runner = getBuiltInAgentRunner(agentId);
-  const outcome = await runChange(projectRoot, name, runner);
+  const outcome = await runChange(projectRoot, name, runner, { allowDrift: options.allowDrift === true });
   console.log('change ' + name + ' phase=' + outcome.state.phase + ' agentExit=' + outcome.agentExitCode);
   if (outcome.agentExitCode !== 0) process.exitCode = outcome.agentExitCode;
 }
@@ -104,14 +111,18 @@ export async function changeRunCommand(
 export async function changeVerifyCommand(
   name: string,
   targetPath: string,
-  options: { agent?: string; mode?: string } = {},
+  options: { agent?: string; mode?: string; allowDrift?: boolean } = {},
 ): Promise<void> {
   const projectRoot = root(targetPath);
   const config = await readProjectConfig(projectRoot);
   const mode = (options.mode ?? config.verification?.mode) as VerificationMode | undefined;
   const verifierId = options.agent ?? config.verification?.agent;
   const runner = verifierId ? getBuiltInAgentRunner(verifierId) : undefined;
-  const outcome = await verifyChange(projectRoot, name, { runner, mode });
+  const outcome = await verifyChange(projectRoot, name, {
+    runner,
+    mode,
+    allowDrift: options.allowDrift === true,
+  });
   for (const verdict of outcome.verdicts) {
     console.log(
       [verdict.result.toUpperCase(), verdict.id, '[' + verdict.source + ']', verdict.reason].join(' '),
@@ -283,9 +294,15 @@ export async function changeGcCommand(
   else console.log('run cometflow change gc . --apply to remove them');
 }
 
-export async function changeArchiveCommand(name: string, targetPath: string): Promise<void> {
+export async function changeArchiveCommand(
+  name: string,
+  targetPath: string,
+  options: { allowDrift?: boolean } = {},
+): Promise<void> {
   const projectRoot = root(targetPath);
-  const { state, appliedSpecs, specVersions } = await archiveChange(projectRoot, name);
+  const { state, appliedSpecs, specVersions } = await archiveChange(projectRoot, name, {
+    allowDrift: options.allowDrift === true,
+  });
   for (const applied of appliedSpecs) console.log('applied ' + applied);
   for (const version of specVersions) {
     console.log('versioned ' + version.path + ' @v' + version.spec_version + ' ' + version.hash.slice(0, 12));

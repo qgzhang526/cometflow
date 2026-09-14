@@ -13,6 +13,7 @@ import { readTextFile } from '../../platform/fs/read-file.js';
 import { readProjectConfig, type VerificationMode } from '../project/config.js';
 import { redactSecrets } from '../../platform/io/redact.js';
 import { canonicalHash } from '../state/canonical-hash.js';
+import { describeDriftFailure, enforceGitProvenance } from './git-provenance.js';
 import { commitTransition, readChangeState, writeChangeState } from './change-store.js';
 import { applyChangeTransition } from './change-transitions.js';
 import { appendChangeEvent } from './change-journal.js';
@@ -39,6 +40,40 @@ import {
 export interface ChangeRunOutcome {
   state: ChangeState;
   agentExitCode: number;
+}
+
+export interface DriftGuardOptions {
+  /** 显式忽略来源漂移（CLI --allow-drift）。 */
+  allowDrift?: boolean;
+}
+
+/**
+ * 推进前的来源守卫：漂移时阻断，并给出恢复路径。
+ * 放行（配置或 flag）时会记一条审核流水，保证「谁决定忽略漂移」可追溯。
+ */
+async function assertGitProvenance(
+  projectRoot: string,
+  name: string,
+  state: ChangeState,
+  options: DriftGuardOptions,
+): Promise<void> {
+  const config = await readProjectConfig(projectRoot);
+  const enforcement = await enforceGitProvenance(projectRoot, state, {
+    allowDrift: options.allowDrift,
+    configAllowsDrift: config.git?.allow_drift === true,
+  });
+  if (!enforcement.allowed) {
+    throw new Error(describeDriftFailure(name, enforcement.report));
+  }
+  if (enforcement.override) {
+    await appendChangeEvent(projectRoot, name, 'git-drift-overridden', {
+      override: enforcement.override,
+      status: enforcement.report.status,
+      base_commit: enforcement.report.base_commit,
+      current_head: enforcement.report.current_head,
+      detail: enforcement.report.detail,
+    }, { phase: state.phase });
+  }
 }
 
 export class SpecConflictError extends Error {
@@ -147,7 +182,12 @@ export async function buildChangePrompt(projectRoot: string, name: string): Prom
   return redactSecrets(prompt);
 }
 
-export async function runChange(projectRoot: string, name: string, runner: AgentRunner): Promise<ChangeRunOutcome> {
+export async function runChange(
+  projectRoot: string,
+  name: string,
+  runner: AgentRunner,
+  options: DriftGuardOptions = {},
+): Promise<ChangeRunOutcome> {
   const state = await readChangeState(projectRoot, name);
   if (state.phase !== 'build') throw new Error('change run requires build phase');
   // 停机的 change 必须先由人判断（改 spec / 改验收 / 改实现方向），再 unblock 重跑。
@@ -163,6 +203,7 @@ export async function runChange(projectRoot: string, name: string, runner: Agent
         name,
     );
   }
+  await assertGitProvenance(projectRoot, name, state, options);
   const prompt = await buildChangePrompt(projectRoot, name);
   await appendChangeEvent(projectRoot, name, 'run-started', { agent: runner.id }, { phase: state.phase });
   const result = await runner.run({ prompt, cwd: projectRoot });
@@ -209,6 +250,8 @@ export interface ChangeVerifyOptions {
   model?: string;
   timeoutMs?: number;
   now?: Date;
+  /** 显式忽略 git 来源漂移。 */
+  allowDrift?: boolean;
 }
 
 export const VERDICT_FINGERPRINT_TAG = 'cometflow.verify-fingerprint.v1';
@@ -252,6 +295,7 @@ export async function verifyChange(
 ): Promise<ChangeVerifyOutcome> {
   const state = await readChangeState(projectRoot, name);
   if (state.phase !== 'verify') throw new Error('change verify requires verify phase');
+  await assertGitProvenance(projectRoot, name, state, { allowDrift: options.allowDrift });
 
   const config = await readProjectConfig(projectRoot);
   const mode: VerificationMode = options.mode ?? config.verification?.mode ?? 'checks';
@@ -732,10 +776,15 @@ async function assertSpecBaselineIntact(
   }
 }
 
-export async function archiveChange(projectRoot: string, name: string): Promise<ChangeArchiveOutcome> {
+export async function archiveChange(
+  projectRoot: string,
+  name: string,
+  options: DriftGuardOptions = {},
+): Promise<ChangeArchiveOutcome> {
   const state = await readChangeState(projectRoot, name);
   if (state.phase !== 'archive') throw new Error('change archive requires archive phase');
 
+  await assertGitProvenance(projectRoot, name, state, options);
   await appendChangeEvent(projectRoot, name, 'archive-started', {}, { phase: state.phase });
   await assertSpecBaselineIntact(projectRoot, name, state);
   // 最后一道模块闸门：即使 verify 被绕过，越界改动也不能进入归档。

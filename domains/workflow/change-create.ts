@@ -4,6 +4,7 @@ import { hashSpecText } from '../spec/spec-hash.js';
 import { pathExists, readTextFile } from '../../platform/fs/read-file.js';
 import { readTaskPlan } from '../task-plan/task-plan-store.js';
 import { captureChangeSpecBaseline } from './change-spec-baseline.js';
+import { captureGitProvenance } from '../../platform/process/git.js';
 import { captureImplementationBaseline } from './implementation-scope.js';
 import { appendChangeEvent } from './change-journal.js';
 import { changeDir, changeStateFile, writeChangeState } from './change-store.js';
@@ -38,6 +39,8 @@ export async function createChangeFromTask(options: {
   await fs.writeFile(path.join(dir, 'brief.md'), '# ' + task.title + '\n\n' + task.definition_of_done.join('\n') + '\n');
 
   const baseHash = await specBaselineHash(options.projectRoot, task.spec_ref);
+  // 记录来源：change 基于哪个提交开工。非 git 项目留空，后续校验自动降级。
+  const provenance = await captureGitProvenance(options.projectRoot);
   const state: ChangeState = {
     schema: 'cometflow.change.v1',
     name: options.changeName,
@@ -53,6 +56,8 @@ export async function createChangeFromTask(options: {
     spec_base_hash: baseHash,
     anchor_hash: task.anchor_hash ?? null,
     module: task.module ?? null,
+    base_commit: provenance.isRepository ? provenance.head : null,
+    base_branch: provenance.branch,
     created_at: new Date().toISOString(),
     archived: false,
   };
@@ -64,6 +69,8 @@ export async function createChangeFromTask(options: {
     spec_anchor: state.spec_anchor,
     spec_version: state.spec_version,
     module: state.module ?? null,
+    base_commit: state.base_commit ?? null,
+    base_branch: state.base_branch ?? null,
   }, { phase: state.phase });
   // 全量 spec 基线快照：归档时用它做 compare-and-swap，避免覆盖别人的 spec 改动。
   await captureChangeSpecBaseline(options.projectRoot, options.changeName);

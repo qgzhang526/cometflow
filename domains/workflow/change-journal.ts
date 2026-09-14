@@ -18,6 +18,7 @@ export type ChangeJournalEventType =
   | 'transition-settled'
   | 'journal-rotated'
   | 'unblocked'
+  | 'git-drift-overridden'
   | 'archive-started'
   | 'spec-applied'
   | 'spec-version-recorded'

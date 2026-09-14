@@ -21,6 +21,10 @@ export interface ChangeState {
   repair_attempts?: number;
   /** 上一次失败结论的指纹（只含验收项结论与越界项，不含自由文本理由）。 */
   last_verdict_hash?: string | null;
+  /** change 创建时的 git HEAD；用于识别分支漂移与历史回退。 */
+  base_commit?: string | null;
+  /** change 创建时所在分支（仅用于报告，不参与阻断判定）。 */
+  base_branch?: string | null;
   /**
    * change 创建时 canonical spec 的内容哈希。归档前会重新比对，
    * 一旦 canonical spec 在 change 生命周期内被改动，就判定为 spec 冲突，

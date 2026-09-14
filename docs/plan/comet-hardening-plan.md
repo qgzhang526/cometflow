@@ -1,6 +1,6 @@
 # Comet 借鉴加固计划（012 的 9 项）
 
-状态：H1、H2、H3-1 已完成（M1、M2 达成），H3-2/H3-3 待开始
+状态：H1、H2、H3-1、H3-2 已完成（M1、M2 达成），H3-3 待开始
 来源：[012-comet-borrowings.md](../design/012-comet-borrowings.md) 第二节「建议后续」
 前置依赖：ADR 0012（spec 版本即产物）、ADR 0013（验收可执行且不可自证）
 
@@ -28,7 +28,7 @@
 | 13 | 凭证脱敏 | 6 | H2 ✅ | S |
 | 16 | 证据保留上限 | 9 | H2 ✅ | M |
 | 10 | 有界修复循环 + 停滞检测 | 3 | H3 ✅ | M |
-| 14 | git 来源绑定 | 7 | H3 | M |
+| 14 | git 来源绑定 | 7 | H3 ✅ | M |
 | 15 | Hook Router 单一归属 | 8 | H3 | L |
 
 ---
@@ -111,12 +111,14 @@
 - **实现**：`verdictFingerprint()`（只含未通过验收项与越界项，不含自由文本理由与证据来源）；`ChangeState` 增加 `repair_attempts` / `last_verdict_hash`；连续同指纹累加、指纹变化重置为 1、通过清零；达上限把 `status` 置 `blocked`（阶段仍回 build）；`change run` 拒绝停机 change；新增 `change unblock` 作为唯一的重置入口并写审计流水。
 - **证据**：`test/domains/repair-loop.test.ts`（8 例：指纹语义、三连同一结论停机、换结论继续、成功清零、配置上限、停机后拒跑、解封后可跑、非停机状态拒绝解封）。
 
-### H3-2 git 来源绑定（012 #14）
+### H3-2 git 来源绑定（012 #14）✅ 已完成
 
 - **目标**：记录 change 的基准 commit，分支漂移或历史被改写时阻断推进。
 - **落点**：`change-create` 记录 `base_commit` / `base_branch`（`git rev-parse` + `symbolic-ref`）；`change run` / `verify` / `archive` 校验当前 HEAD 与基准的关系；`doctor` 报告漂移。
 - **验收标准**：在 change 创建后切换分支或回退 commit，`change run` 报错并给出恢复路径；显式 `--allow-drift` 或项目配置可放行；非 git 仓库自动降级为警告。
 - **风险**：工作区外（沙箱、CI 临时 checkout）可能没有 git，需要保持「非 git 也能用」。
+- **实现**：新增 `platform/process/git.ts`（只读、永不抛错的 git 封装）与 `domains/workflow/git-provenance.ts`；`change new` 记录 `base_commit`/`base_branch`；run/verify/archive 推进前按祖先关系判定（ok / head-rewound / diverged），非 git、未绑定、基准缺失一律降级为提示；`--allow-drift` 与 `git.allow_drift` 可放行并写 `git-drift-overridden` 流水；`doctor` 报 `git-provenance-drift`。
+- **证据**：`test/domains/git-provenance.test.ts`（10 例：绑定、正常推进、历史回退、分叉、非 git 降级、未绑定、阻断与恢复路径、flag 放行、配置放行、doctor 报告）。
 
 ### H3-3 Hook Router 单一归属（012 #15）
 

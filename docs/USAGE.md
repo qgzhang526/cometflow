@@ -653,6 +653,36 @@ cometflow change unblock <name> . --note "spec 已澄清，重试"
 
 「换了失败结论」不会被当作停滞：说明在收敛，计数会重置为 1。
 
+### 5.10 git 来源绑定（漂移阻断）
+
+`change new` 会记录当时的 `base_commit` 与 `base_branch`。`change run` / `verify` / `archive` 推进前校验来源，
+只看**祖先关系**：
+
+| 情况 | 判定 | 行为 |
+|---|---|---|
+| HEAD 就是基准，或基准仍是 HEAD 的祖先 | `ok` | 放行（正常提交、基于基准开分支都属此类） |
+| HEAD 是基准的祖先 | `head-rewound` | 阻断（历史被回退） |
+| 两者互不为祖先 | `diverged` | 阻断（分叉或切到无关历史） |
+| 非 git 仓库 / 老 change 未记录基准 / 基准对象不存在 | `not-a-repo`、`unbound`、`unknown-base` | 只提示，不阻断 |
+
+```bash
+cometflow change status <name> .        # 多一行 git: <status>
+cometflow change run <name> . --allow-drift        # 显式忽略漂移（会写入审核流水）
+cometflow change verify <name> . --allow-drift
+cometflow change archive <name> . --allow-drift
+```
+
+也可以用项目配置一次性放行（无人值守/沙箱场景）：
+
+```yaml
+# .cometflow/config.yaml
+git:
+  allow_drift: true
+```
+
+漂移的 change 会在 `doctor` 里报 `git-provenance-drift`。恢复路径是回到基准提交或从基准拉出分支重做；
+放行只应作为例外，且每次放行都会记进 `change journal`。
+
 Verifier 使用独立会话、只读提示词，必须对每一条验收项给出 `passed | failed | blocked` 与理由；重复、未知或遗漏任何一条，整份结论作废。失败的 check 不能被 Verifier 判成通过。
 
 ```bash
@@ -1144,6 +1174,9 @@ verification:                   # 验收判定方式
   mode: checks                  # checks | checks+agent | agent-required
   agent: claude-code            # 独立 Verifier 使用的 agent
   model: claude-sonnet-4-5      # 可选，覆盖 Verifier 模型
+  max_repair_attempts: 3        # 连续同一失败结论的轮数上限，超过即 blocked
+git:                            # git 来源绑定
+  allow_drift: false            # true = 允许在历史回退/分叉后继续推进
 ```
 
 ### 14.2 环境变量

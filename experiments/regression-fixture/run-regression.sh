@@ -94,6 +94,18 @@ grep -q 'status: active' changes/stall-demo/comet-state.yaml || {
 }
 cp "$TMP/auth-index.bak" src/auth/index.ts
 
+# git 来源绑定：分叉到无关历史后必须阻断，显式放行才继续
+git init -q .
+git -c user.email=cf@example.com -c user.name=cf add -A
+git -c user.email=cf@example.com -c user.name=cf commit -qm 'regression baseline'
+$CF change new git-demo --goal G2 --task T1 --path .
+git -c user.email=cf@example.com -c user.name=cf checkout -q --orphan unrelated
+git -c user.email=cf@example.com -c user.name=cf commit -q --allow-empty -m 'unrelated history'
+if $CF change run git-demo . --agent mock; then
+  echo "change run should be blocked after git drift"; exit 1
+fi
+$CF change run git-demo . --agent mock --allow-drift
+
 $CF classic status classic-open .
 $CF classic transition classic-open open-complete .
 $CF classic transition classic-open design-complete .

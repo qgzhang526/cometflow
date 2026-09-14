@@ -41,3 +41,4 @@
 | [0014-atomic-and-recoverable-state.md](../decisions/0014-atomic-and-recoverable-state.md) | 状态写入必须原子，迁移必须可恢复 |
 | [0015-evidence-integrity-and-retention.md](../decisions/0015-evidence-integrity-and-retention.md) | 证据必须留痕、脱敏，并有保留上限 |
 | [0016-bounded-repair-loop.md](../decisions/0016-bounded-repair-loop.md) | 修复循环必须有界，停滞必须停机 |
+| [0017-git-provenance-binding.md](../decisions/0017-git-provenance-binding.md) | change 绑定 git 来源，漂移时阻断 |

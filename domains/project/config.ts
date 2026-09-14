@@ -43,6 +43,15 @@ export interface ProjectConfig {
   scheduler?: SchedulerConfig;
   scope?: ScopeConfig;
   verification?: VerificationConfig;
+  git?: GitConfig;
+}
+
+export interface GitConfig {
+  /**
+   * 允许在 git 来源漂移（历史回退/分叉）时继续推进。
+   * 默认 false：漂移必须显式确认，避免在错误的历史上白跑。
+   */
+  allow_drift?: boolean;
 }
 
 export type VerificationMode = 'checks' | 'checks+agent' | 'agent-required';
@@ -258,6 +267,10 @@ export function validateProjectConfig(config: ProjectConfig): string[] {
     ) {
       errors.push('verification.max_repair_attempts must be an integer >= 1');
     }
+  }
+
+  if (config.git?.allow_drift !== undefined && typeof config.git.allow_drift !== 'boolean') {
+    errors.push('git.allow_drift must be a boolean');
   }
 
   return errors;

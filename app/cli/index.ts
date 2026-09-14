@@ -196,6 +196,7 @@ change
   .command('run <name> [path]')
   .description('Run the Builder agent for a change in build phase')
   .option('--agent <agent>', 'Agent id: opencode or claude-code')
+  .option('--allow-drift', 'Proceed even if the git history drifted since the change was created')
   .action(async (name, targetPath = '.', options) => {
     await changeRunCommand(name, targetPath, options);
   });
@@ -205,6 +206,7 @@ change
   .description('Run deterministic checks and apply acceptance verdict')
   .option('--agent <agent>', 'Independent verifier agent id')
   .option('--mode <mode>', 'checks | checks+agent | agent-required')
+  .option('--allow-drift', 'Proceed even if the git history drifted since the change was created')
   .action(async (name, targetPath = '.', options) => {
     await changeVerifyCommand(name, targetPath, options);
   });
@@ -245,8 +247,9 @@ change
 change
   .command('archive <name> [path]')
   .description('Archive a verified change and apply proposed specs')
-  .action(async (name, targetPath = '.') => {
-    await changeArchiveCommand(name, targetPath);
+  .option('--allow-drift', 'Proceed even if the git history drifted since the change was created')
+  .action(async (name, targetPath = '.', options) => {
+    await changeArchiveCommand(name, targetPath, options);
   });
 
 change
