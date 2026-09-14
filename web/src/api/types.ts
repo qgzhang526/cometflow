@@ -144,6 +144,9 @@ export interface ChangeState {
   created_at: string;
   archived: boolean;
   state_hash?: string;
+  /** H3-1：连续相同失败结论的计数与指纹，用于「停滞停机」判定。 */
+  repair_attempts?: number;
+  last_verdict_hash?: string | null;
 }
 
 export interface ChangeResume {
@@ -188,6 +191,7 @@ export interface AcceptanceCheckReport {
 }
 
 export interface ImplementationScopeReport {
+  schema: string;
   change: string;
   module: string | null;
   allow: string[];
@@ -197,6 +201,10 @@ export interface ImplementationScopeReport {
   changes: Array<{ path: string; kind: string; attributed: boolean; attribution: string }>;
   attributed: string[];
   unattributed: string[];
+  /** H2：被跳过的文件（大小/数量上限），跳过什么、为什么、跳过多少都要留痕。 */
+  omitted: ScopeOmission[];
+  omittedCount: number;
+  omissionOverflow: { count: number; hash: string } | null;
 }
 
 export interface ChangeVerifyOutcome {
@@ -475,4 +483,49 @@ export interface SpecRestoreResult {
   restoredFrom: number;
   spec_version: number | null;
   hash: string | null;
+}
+
+// ---------- change 审计：实现范围 / 流水 / 证据 / 恢复路径 ----------
+
+export type ScopeOmissionReason = 'file-size-limit' | 'file-count-limit';
+
+export interface ScopeOmission {
+  path: string;
+  reason: ScopeOmissionReason;
+  size: number | null;
+}
+
+export interface ChangeJournalEvent {
+  schema: string;
+  at: string;
+  change: string;
+  event: string;
+  phase?: string;
+  data?: Record<string, unknown>;
+}
+
+export interface ChangeEvidence {
+  artifacts: Array<{ name: string; bytes: number; content: string }>;
+  staleVerification: string[];
+  proposedSpecs: string[];
+  incompleteTransactions: Array<{ txId: string; status: string; dir: string }>;
+}
+
+export interface ChangeRebaseOutcome {
+  state: ChangeState;
+  baselineFiles: number;
+  specVersion: number | null;
+  acceptanceIds: string[];
+}
+
+export interface ChangeUnblockOutcome {
+  state: ChangeState;
+  previousAttempts: number;
+}
+
+export interface SpecConflictDetail {
+  path: string;
+  expected: string | null;
+  actual: string | null;
+  kind: string;
 }

@@ -1,6 +1,6 @@
 # Web 前端补齐计划（后端能力 ↔ 前端展示差异）
 
-状态：**W1、W2 已完成**（Vue 3 迁移 + P0 修复 + spec 内核可视化），W3–W5 待开始
+状态：**W1、W2、W3 已完成**（Vue 3 迁移 + P0 修复 + spec 内核可视化 + change 审计与恢复路径），W4–W5 待开始
 分支：`codex/enrich-web-ui`
 调研基线：`fd870a9` + 工作区未提交改动（H1 加固 + 试验夹具）
 关联：ADR 0007（UI headless）、ADR 0008（工作区/多项目）、ADR 0009（agent/模型分层）、
@@ -228,13 +228,29 @@ ADR 0013（验收必须可执行）、ADR 0014（状态原子可恢复）、[008
   验收覆盖计数、门禁、diff、漂移、change 提案叠加后的影响分析、版本回放与 404、
   恢复后「当前内容先被记账」、建立基线后 diff 归零。
 
-### W3 change 审计与恢复路径（A 类 + P0-3）
+### W3 change 审计与恢复路径（A 类 + P0-3）✅ 已完成
 
 - 目标：让 change 的「为什么」可回答。
 - 落点：`GET /changes/{name}/scope`、`/journal`、`POST /rebase`；Change 面板改为步骤条 +
   标签页（概览 / 范围 / 流水 / 证据）。
 - 验收：越界改动有归属解释；归档冲突时 UI 给出 rebase 或 reconciliation 两条明确路径；
   时间线含全部迁移事件。
+
+实施结果：
+
+- **新增 5 个端点**：`GET /changes/{name}/scope`（实现范围报告，含 H2 的 omission）、`/journal[?limit=]`
+  （含轮转后的历史）、`/evidence`（brief/verification 正文 + 提案 spec + 未完成归档事务）、
+  `POST /changes/{name}/rebase`、`POST /changes/{name}/unblock`。
+- **错误语义从 500 变成可决策的 409**：归档冲突 `spec-base-conflict`（带 `details.conflicts` 的期望/实际哈希）、
+  `change-not-rebasable`、`change-not-blocked`。`sendError` 支持结构化 details，客户端 `ApiError` 一并携带。
+- **路径安全**：change 名参与 `changes/<name>/...` 拼接，先解码再拒绝含路径分隔符/`.`/`..` 的名字（400
+  `invalid-change-name`），避免 `..%2F..%2Fetc` 这类写法把读写带出项目目录。
+- **前端 Changes 面板拆成 4 个页签**（`web/src/views/panels/changes/`）：概览（元数据 + 动作 + 流水入口 +
+  验收/归档结论 + 冲突恢复面板）、范围、流水、证据；`status=blocked` 时显示停机原因与「解除停机」；
+  归档冲突时给出 rebase（应用内确认）与 reconciliation（预填新 change）两条路径。
+- 测试：新增 `test/domains/serve-change-audit.test.ts`（8 例）：范围「无法判定」、流水完整性与 limit、
+  证据文件、rebase 成功与已归档 409、unblock 的 409/成功两态、归档冲突 409 + conflicts 明细、
+  路径穿越名字被拒。
 
 ### W4 事件与 job 体系收口（B 类 + P1-5/6）
 

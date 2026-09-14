@@ -16,10 +16,16 @@ export function sendJson(res: ServerResponse, status: number, body: unknown): vo
   res.end(payload);
 }
 
-export function sendError(res: ServerResponse, status: number, code: string, message: string): void {
+export function sendError(
+  res: ServerResponse,
+  status: number,
+  code: string,
+  message: string,
+  details?: unknown,
+): void {
   sendJson(res, status, {
     ok: false,
-    error: { code, message },
+    error: details === undefined ? { code, message } : { code, message, details },
     requestId: randomUUID(),
   });
 }

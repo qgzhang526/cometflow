@@ -1086,6 +1086,21 @@ token: <random>
 - **首页**：新建项目（三步向导：基本信息 → 项目类型 → 预览 12-kind 并创建）、打开已有项目、最近项目列表。
 - **项目内 8 个面板**：总览 Overview、目标 Goals、规格 Specs、计划 Plans、变更 Changes、进化 Evolve、评估 Eval、设置 Settings。
 - **任务中心**（顶栏右侧抽屉）：进行中/已完成的 job、实时日志、刷新页面后仍在。
+- **Specs 面板 6 个页签**：12-kind 状态、脚手架、Spec 文件、验收覆盖、版本、影响与门禁。
+  - 验收覆盖：每个 anchor 的验收项与其可执行 check；没有 check 的项显式标注（ADR 0013）。
+  - 版本：按 spec 列出历史版本（含 hash/时间/来源），可查看历史正文并一键恢复（恢复前先把当前内容记一版）。
+  - 影响与门禁：与基线的 diff、锚点级影响分析（可选「预演某个 change 归档后」）、一致性门禁、
+    冻结任务漂移、跨文件引用校验，以及「建立基线（spec lock）」。
+- **Changes 面板 4 个页签**（选中 change 后）：概览、范围、流水、证据。
+  - 范围：实现范围报告——每个改动文件的归属（module / module-prefix / allow-list / OUTSIDE）、
+    越界清单，以及快照跳过哪些路径（omission）。没有基线的老 change 明确报告「无法判定」，不猜。
+  - 流水：`.cometflow/runtime/changes/<name>/journal.jsonl` 的全部事件（新建、基线捕获、迁移、
+    运行、验收结论、rebase、解封、归档），新→旧排列。
+  - 证据：`brief.md` / `verification.md` / `verification.yaml` 正文，提案 spec 列表、被 rebase 作废的
+    验收记录、以及停在 staged 的归档事务（需要人工确认）。
+  - 恢复路径：status=blocked 时出现「解除停机」（等价 `change unblock`）；归档遇到
+    `spec-base-conflict`（HTTP 409）时给出两条明确路径——A 重新冻结基线（rebase）、B 按 ADR 0004 建
+    reconciliation change。
 
 界面能力要点：
 
@@ -1129,10 +1144,25 @@ pnpm build                   # tsc（CLI）+ vite build（Web）
 | GET | `/api/projects/<id>/spec-index` | spec 投影 |
 | GET/POST | `/api/projects/<id>/specs` | 列 spec / 新建 spec 文件 |
 | GET/PUT | `/api/projects/<id>/specs/content?path=...` | 读写单个 spec |
+| GET | `/api/projects/<id>/spec/checks` | 验收项与其可执行 check（含未覆盖计数） |
+| GET | `/api/projects/<id>/spec/verify` \| `/spec/diff` \| `/spec/drift` | 一致性门禁 / 基线 diff / 冻结任务漂移 |
+| GET | `/api/projects/<id>/spec/impact[?change=]` | 锚点级影响分析（可叠加 change 提案） |
+| GET | `/api/projects/<id>/spec/versions[?path=]` | 版本历史 |
+| GET | `/api/projects/<id>/spec/version?ref=<path>@<version>\|<hash>` | 回放某一版正文 |
+| POST | `/api/projects/<id>/spec/lock` | 建立基线：登记版本 + 刷新 spec-lock |
+| POST | `/api/projects/<id>/spec/restore` | 恢复历史版本（覆盖前先给当前内容记一版） |
+| GET | `/api/projects/<id>/changes/<name>/scope` | 实现范围报告（归属解释 + 越界 + omission） |
+| GET | `/api/projects/<id>/changes/<name>/journal[?limit=]` | 审计流水（含崩溃收敛与轮转后的历史） |
+| GET | `/api/projects/<id>/changes/<name>/evidence` | 证据文件与提案 spec、未完成归档事务 |
+| POST | `/api/projects/<id>/changes/<name>/rebase` | 重新冻结到当前 spec 版本（409 = 不可 rebase） |
+| POST | `/api/projects/<id>/changes/<name>/unblock` | 解除停机（409 = 该 change 未停机） |
 | GET/POST | `/api/projects/<id>/plans`、`/plans/generate`、`/plans/regenerate` | 计划列表 / 生成 / 重生成 |
 | GET/POST | `/api/projects/<id>/plans/<goal>`、`/plans/<goal>/{validate,review,approve,freeze}` | 计划读写与状态推进 |
 | GET/POST | `/api/projects/<id>/changes` | change 列表 / 新建 |
 | POST | `/api/projects/<id>/changes/<name>/{resume,transition,run,verify,archive}` | change 操作（`run` 为 job） |
+
+> `archive` 在 canonical spec 被外部改动时返回 **409 `spec-base-conflict`**，`error.details.conflicts`
+> 列出每份冲突 spec 的期望/实际哈希；界面据此给出 rebase 与 reconciliation 两条路径，而不是只报一句失败。
 | GET/POST | `/api/projects/<id>/evolutions`、`/evolutions/<name>/{verify,submit,approve,reject}` | 进化提案 |
 | POST | `/api/projects/<id>/eval/run` | 触发评估（job） |
 | GET | `/api/jobs`、`/api/jobs/<id>` | job 列表 / 详情 |

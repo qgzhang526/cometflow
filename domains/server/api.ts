@@ -53,10 +53,21 @@ import {
 } from '../task-plan/task-plan-store.js';
 import { listChangeStates } from '../workflow/change-list.js';
 import { createChangeFromTask } from '../workflow/change-create.js';
-import { archiveChange, readProposedSpecs, runChange, verifyChange } from '../workflow/change-execution.js';
+import {
+  archiveChange,
+  listIncompleteSpecTransactions,
+  readProposedSpecs,
+  rebaseChange,
+  runChange,
+  SpecConflictError,
+  unblockChange,
+  verifyChange,
+} from '../workflow/change-execution.js';
 import { applyChangeTransition } from '../workflow/change-transitions.js';
 import { commitTransition, readChangeState } from '../workflow/change-store.js';
 import { resumeChange } from '../workflow/change-resume.js';
+import { readChangeJournal } from '../workflow/change-journal.js';
+import { collectImplementationScope, resolveScopeAllow } from '../workflow/implementation-scope.js';
 import type { ChangeEvent } from '../workflow/change-types.js';
 import {
   approveEvolution,
@@ -604,6 +615,21 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
     }
 
     // ---- changes ----
+    // change 名字会参与 `changes/<name>/...` 的路径拼接，先挡住路径分隔符，
+    // 避免 `..%2f` 之类的名字把读写引到项目外。
+    if (segments[0] === 'changes' && segments.length >= 2) {
+      // 先解码再判定：`..%2F..%2Fetc` 这类写法在编码状态下看不出是路径，解码后就一目了然。
+      let candidate = segments[1];
+      try {
+        candidate = decodeURIComponent(candidate);
+      } catch {
+        // 非法的百分号编码不是合法 change 名，保持原样走后面的校验。
+      }
+      if (candidate === '' || candidate === '.' || candidate === '..' || /[\\/]/u.test(candidate)) {
+        sendError(res, 400, 'invalid-change-name', 'change name must not contain path separators');
+        return true;
+      }
+    }
     if (segments[0] === 'changes' && segments.length === 1 && method === 'GET') {
       sendOk(res, { changes: await listChangeStates(root) });
       return true;
@@ -665,9 +691,102 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
       return true;
     }
     if (segments[0] === 'changes' && segments.length === 3 && segments[2] === 'archive' && method === 'POST') {
-      const { state, appliedSpecs } = await archiveChange(root, segments[1]);
-      jobs.stateChanged(projectId, '/api/changes/' + segments[1]);
-      sendOk(res, { change: state, appliedSpecs });
+      try {
+        const { state, appliedSpecs, specVersions } = await archiveChange(root, segments[1]);
+        jobs.stateChanged(projectId, '/api/changes/' + segments[1]);
+        sendOk(res, { change: state, appliedSpecs, specVersions });
+      } catch (error) {
+        // spec 基线冲突是「可预期的人工决策点」，不是 500：把它和两份冲突证据一起交给界面，
+        // 让用户明确选择 rebase（接受新基线）还是建 reconciliation change（ADR 0004）。
+        if (error instanceof SpecConflictError) {
+          sendError(res, 409, 'spec-base-conflict', error.message, { conflicts: error.conflicts });
+          return true;
+        }
+        throw error;
+      }
+      return true;
+    }
+
+    // ---- change 审计：实现范围 / 流水 / 证据 / 恢复路径 ----
+    if (segments[0] === 'changes' && segments.length === 3 && segments[2] === 'scope' && method === 'GET') {
+      const name = segments[1];
+      const state = await readChangeState(root, name);
+      sendOk(
+        res,
+        await collectImplementationScope(root, name, {
+          module: state.module ?? null,
+          allow: await resolveScopeAllow(root),
+        }),
+      );
+      return true;
+    }
+    if (segments[0] === 'changes' && segments.length === 3 && segments[2] === 'journal' && method === 'GET') {
+      const rawLimit = stringField(url.searchParams.get('limit'));
+      const limit = rawLimit === '' ? undefined : Number.parseInt(rawLimit, 10);
+      sendOk(res, {
+        events: await readChangeJournal(root, segments[1], {
+          limit: limit === undefined || Number.isNaN(limit) ? undefined : limit,
+        }),
+      });
+      return true;
+    }
+    if (segments[0] === 'changes' && segments.length === 3 && segments[2] === 'evidence' && method === 'GET') {
+      const name = segments[1];
+      const dir = path.join(root, 'changes', name);
+      const artifacts: Array<{ name: string; bytes: number; content: string }> = [];
+      // 只读白名单内的固定文件名，不接受来自请求的路径片段。
+      for (const fileName of ['brief.md', 'verification.md', 'verification.yaml']) {
+        try {
+          const content = await fs.readFile(path.join(dir, fileName), 'utf8');
+          artifacts.push({ name: fileName, bytes: Buffer.byteLength(content, 'utf8'), content });
+        } catch {
+          // 没写过就跳过
+        }
+      }
+      let staleVerification: string[] = [];
+      try {
+        staleVerification = (await fs.readdir(dir))
+          .filter((entry) => /^verification\.stale-\d+\.yaml$/u.test(entry))
+          .sort();
+      } catch {
+        staleVerification = [];
+      }
+      const proposed = await readProposedSpecs(root, name);
+      const incompleteTransactions = (await listIncompleteSpecTransactions(root)).filter(
+        (transaction) => transaction.change === name,
+      );
+      sendOk(res, {
+        artifacts,
+        staleVerification,
+        proposedSpecs: Object.keys(proposed).sort(),
+        incompleteTransactions: incompleteTransactions.map((transaction) => ({
+          txId: transaction.txId,
+          status: transaction.status,
+          dir: transaction.dir,
+        })),
+      });
+      return true;
+    }
+    if (segments[0] === 'changes' && segments.length === 3 && segments[2] === 'rebase' && method === 'POST') {
+      try {
+        const outcome = await rebaseChange(root, segments[1]);
+        jobs.stateChanged(projectId, '/api/changes/' + segments[1]);
+        sendOk(res, outcome);
+      } catch (error) {
+        // 「已归档 / 没有绑定锚点 / 锚点已删」都是可预期的人工决策点，不是服务端故障。
+        sendError(res, 409, 'change-not-rebasable', error instanceof Error ? error.message : String(error));
+      }
+      return true;
+    }
+    if (segments[0] === 'changes' && segments.length === 3 && segments[2] === 'unblock' && method === 'POST') {
+      const body = await readJsonBody(req);
+      try {
+        const outcome = await unblockChange(root, segments[1], { note: stringField(body.note) || undefined });
+        jobs.stateChanged(projectId, '/api/changes/' + segments[1]);
+        sendOk(res, outcome);
+      } catch (error) {
+        sendError(res, 409, 'change-not-blocked', error instanceof Error ? error.message : String(error));
+      }
       return true;
     }
 
