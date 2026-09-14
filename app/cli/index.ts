@@ -52,6 +52,7 @@ import {
   evolveVerifyCommand,
 } from '../commands/evolve.js';
 import { statusCommand } from '../commands/status.js';
+import { metricsCommand } from '../commands/metrics.js';
 import { daemonStartCommand } from '../commands/daemon.js';
 import { goalSyncCommand } from '../commands/goal.js';
 import { initCommand } from '../commands/init.js';
@@ -332,6 +333,14 @@ program
   .description('Show CometFlow project status')
   .action(async (targetPath = '.') => {
     await statusCommand(targetPath);
+  });
+
+program
+  .command('metrics [path]')
+  .description('Report rebuild-quality and spec-health metrics (read-only)')
+  .option('--json', 'Output as JSON')
+  .action(async (targetPath = '.', options) => {
+    await metricsCommand(targetPath, options);
   });
 
 program

@@ -14,6 +14,7 @@ $CF spec scaffold --list .
 $CF spec drift .
 $CF change list --all .
 $CF change gc . --json > /dev/null
+$CF metrics . --json > /dev/null
 $CF evolve review-list .
 $CF status .
 $CF doctor . --clean-temp

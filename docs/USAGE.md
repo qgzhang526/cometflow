@@ -1136,6 +1136,7 @@ cometflow doctor [path] [--json] [--clean-temp]
                                      # + spec 完整性（plan/state 内容哈希）
                                      # + 残留写入临时文件与滞留迁移；--clean-temp 才删除
 cometflow dashboard [path] [--port]  # 只读 Dashboard（默认 4321，暴露 /api/status）
+cometflow metrics [path] [--json]    # 只读度量：重建质量（首轮通过率/修复轮数/停机率）+ spec 健康度（可判定率/anchor 覆盖/漂移/版本）
 cometflow project migrate [path]     # NIGHTSHIFT.md → COMETFLOW.md；.nightshift/config → .cometflow/config.yaml
 cometflow hook check <target> [path] --event write|edit   # 写保护判定
 cometflow update                     # MVP stub：请重装 npm 包升级
@@ -1156,6 +1157,37 @@ cometflow uninstall [path] --force   # 删除 .cometflow/（必须 --force）
 8. 其余情况放行（`build`/`archive` 的实现写入）。
 
 退出码非 0 表示被拒绝，可直接用于 CI 或 Agent 的 hook。
+
+### 13.2 度量（metrics）
+
+`cometflow metrics` 把已经记录的证据（journal、change 状态、spec 版本链、漂移）聚合成两组数字，**纯只读**：
+
+```bash
+cometflow metrics .            # 人类可读摘要
+cometflow metrics . --json     # cometflow.metrics.v1 报告
+```
+
+| 指标组 | 指标 | 口径 |
+|---|---|---|
+| 重建质量 | `first_pass_rate` | 首次验证即通过的 change 占比 |
+| 重建质量 | `mean_attempts_to_pass` | 首次通过之前失败了几轮的均值（0 = 一轮就对） |
+| 重建质量 | `pass_rate` / `blocked_rate` | 已归档占比 / 因同一失败结论停机占比 |
+| 重建质量 | `verdict_sources` | 结论来源分布：check / document / agent / eval / uncovered |
+| 重建质量 | `check_coverage_rate` | 结论全部来自 `check` 的 change 占比 |
+| spec 健康度 | `acceptance_checkable_rate` | 带 `- check:` 的验收项占比 |
+| spec 健康度 | `anchor_coverage_rate` | 被冻结/已批准任务绑定的 anchor 占比（附未覆盖清单） |
+| spec 健康度 | `drift` | 漂移数量、按 kind/severity 分布、最早漂移 spec 的变更年龄 |
+| spec 健康度 | `versions` | 被跟踪 spec 数、版本总数、出现过多版本的 spec 数 |
+
+口径上有三条刻意设计：
+
+1. **分母分离**：比率类指标只用「至少验证过一次」的 change 作分母（`sample_size`），
+   从未走到验证的 change 单独计数（`total_changes`），避免稀释结论。
+2. **空即 null**：没有数据时输出 `null` 而不是 `0`，避免把「没测过」读成「表现完美」。
+3. **样本量提示**：`sample_size < 5` 时会在 `notes` 里明确写出「不要据此判断趋势」。
+
+度量回答的是两个问题：**按 spec 重建出来的代码一次能不能过**（重建质量），**spec 本身够不够格当判据**（spec 健康度）。
+它是后续所有改进的验证手段——例如「acceptance 可判定率」从 0 涨到 100%，就是「spec 能控制实现」的直接证据。
 
 ---
 
