@@ -47,3 +47,5 @@
 | [0020-ui-edit-spec-semantics.md](../decisions/0020-ui-edit-spec-semantics.md) | UI 编辑 spec：保存即版本，草稿只有 change 提案一种形态 |
 | [0021-concurrent-write-protection.md](../decisions/0021-concurrent-write-protection.md) | 并发写保护：单文件 CAS + 多文件锁，warn 是有期限的过渡态 |
 | [0022-verifier-resolution-and-policy.md](../decisions/0022-verifier-resolution-and-policy.md) | 独立 Verifier 的 agent 解析回退与不可用策略 |
+| [0023-platform-hook-install.md](../decisions/0023-platform-hook-install.md) | 把写保护装进平台，而不是只提供判定函数 |
+| [0024-scheduler-durability.md](../decisions/0024-scheduler-durability.md) | 调度器要能崩溃恢复、有失败上限、预算跨重启、任务有超时 |

@@ -940,6 +940,8 @@ cometflow daemon start [path] \
   [--cpu-threshold <value>] \
   [--start HH:MM] [--end HH:MM] \
   [--safety-bundle]
+
+cometflow daemon budget [path] [--reset]   # 查看/清零跨重启累计的已用预算
 ```
 
 | 模式 | 行为 |
@@ -956,6 +958,28 @@ cometflow daemon start [path] \
 - 启动时先做 git 安全快照并打印回滚指引；`--safety-bundle` 额外生成
   `.cometflow/runtime/safety.bundle`（`git bundle create ... --all`）。
 - 每个任务执行成功/失败都会结算为 `done`/`failed` 并写回队列。
+
+#### 崩溃恢复与重试（ADR 0024）
+
+队列是**至少一次**语义：任务带租约，崩溃后能被收回并重试。
+
+| 机制 | 行为 |
+|---|---|
+| 租约 | 任务置 `running` 时写下 `lease_until` 与 `owner`（pid@host） |
+| 回收 | daemon 启动时与每轮循环各扫一次；过期租约回到 `queued` |
+| 失败上限 | 同一任务启动满 3 次（含崩溃那次）仍失败 → 标 `failed`，打印 `daemon giving-up`，需人工介入后重新入队 |
+| 预算累计 | 已用时长写 `.cometflow/runtime/budget.json`，重启不重置；`cometflow daemon budget [--reset]` 查看/清零 |
+| 单任务超时 | 默认 30 分钟；超时按失败处理（`timed-out`），不会永久阻塞 daemon |
+| 退避 | 失败后按尝试次数递增间隔重试，避免立刻重跑同一个必然失败的任务 |
+
+```
+daemon budget used=120000ms remaining=1800000ms
+daemon reclaimed T3 attempts=2          # 上次崩在 running
+daemon 0 T3 done
+daemon giving-up T4 attempts=3 （需人工介入）
+```
+
+> 因为会回收，**队列任务必须幂等**——重复执行一次不应产生不可逆副作用。
 
 ---
 

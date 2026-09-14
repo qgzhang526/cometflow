@@ -1,6 +1,6 @@
 # 平台侧后续计划（四项）
 
-状态：待开始
+状态：A / B / D 已完成；C 的设计归 [web-ui-followup-plan.md](./web-ui-followup-plan.md) 的 N4
 来源：H1–H3 加固、度量批次、CI 门禁之后的排序结论
 前置依赖：[ADR 0012](../decisions/0012-spec-version-as-artifact.md)–[ADR 0018](../decisions/0018-current-change-routing.md)、[metrics-plan.md](./metrics-plan.md)、[ci-plan.md](./ci-plan.md)
 
@@ -10,16 +10,16 @@
 
 | 顺序 | 方向 | 解决的问题 | 成本 | 依赖 |
 |---|---|---|---|---|
-| A | 独立验证默认化 | 谁在判 | 中 | 度量（已就绪）——用来衡量引入 Verifier 的收益与代价 |
-| B | hook 真正接线 | 谁在拦 | 中高 | 需要 A 的度量来证明拦截有效 |
+| A | 独立验证默认化 | 谁在判 | 中 | 度量（已就绪）——用来衡量引入 Verifier 的收益与代价 ✅ |
+| B | hook 真正接线 | 谁在拦 | 中高 | 需要 A 的度量来证明拦截有效 ✅（当前仅 claude-code） |
 | C | 并发写锁（**设计归 [web-ui-followup-plan.md](./web-ui-followup-plan.md) 的 N4**） | 谁在写 | 中 | 无；若 serve 已成为日常入口，可提到 B 之前 |
-| D | 调度器健壮性 | 谁在跑 | 中高 | 复用 H1 的原子写与 H3-1 的停机语义 |
+| D | 调度器健壮性 | 谁在跑 | 中高 | 复用 H1 的原子写与 H3-1 的停机语义 ✅ |
 
 一句话：**A 让判据完整，B 让约束生效，C 让并发安全，D 让长跑可靠。**
 
 ---
 
-## A. 独立验证默认化
+## A. 独立验证默认化 ✅ 已完成
 
 ### 现状与证据
 
@@ -53,9 +53,17 @@ ADR 0013 的原则是「实现者不能自证」，但**默认配置下 Verifier
 - **延迟**：CI 里没有 agent CLI，所以 `checks` 仍是 CI 的默认路径——这一点不改变。
 - **不偷偷改默认**：`verification.mode` 默认值保持 `checks`，靠文档与配置推动，而不是静默改变已有项目的行为。
 
+### 实现记录
+
+- 落点：`app/commands/change.ts`（agent 解析回退 + 可用性检查）、`domains/workflow/change-execution.ts`（策略分支、成本透传、默认超时）、`domains/workflow/change-verifier.ts`（耗时统计）、`domains/project/config.ts`（`verifier_policy`）、`domains/metrics/*`（`verifier.runs/total_ms/mean_ms`）。
+- 修正了本节开头那条错误判断本身：没有 agent 解析回退时，`checks+agent` 与 `checks` 完全等价。
+- 由 A 连带发现的隐患：Verifier 一旦真的会被调用，`runner.run` 不传 timeout 就是无限等待 → 补默认 10 分钟超时。
+- 测试：`test/domains/verifier-policy.test.ts` 7 例；回归脚本新增 `agent-policy-demo` 场景（显式用 mock 固定路径，避免本机装没装 opencode 影响回归）。
+- 文档：[ADR 0022](../decisions/0022-verifier-resolution-and-policy.md)、USAGE §5.8。
+
 ---
 
-## B. hook 真正接线
+## B. hook 真正接线 ✅ 已完成（当前仅 claude-code）
 
 ### 现状与证据
 
@@ -87,6 +95,16 @@ ADR 0013 的原则是「实现者不能自证」，但**默认配置下 Verifier
 - 各平台 hooks 配置格式不同且会演进；必须可逆、可检测、可降级（平台不支持时明确报错而不是静默不装）。
 - 拦截只覆盖**支持 hooks 的平台**；其余平台仍需 A/D 的机制兜底。
 - 与 `scope.allow`、`current-change` 的交互要写测试：多 change 时按指针路由（ADR 0018），共享路径放行（`COMETFLOW.md` 的「模块归属」）。
+
+### 实现记录
+
+- 落点：`domains/guard/hook-install.ts`、`app/commands/hook.ts`、`app/cli/index.ts`（`hook install|status|uninstall`）。
+- 只实现有可依据格式的平台：`claude-code`（`settings.json` → `hooks.PreToolUse[]`，matcher `Write|Edit|MultiEdit`）。**`opencode` / `codex` 显式报「不支持」并返回非零退出码**——猜错格式会在用户机器上静默失效，比不装更糟。
+- 守卫脚本随项目安装（`.claude/hooks/cometflow-guard.mjs`），配置用 `$CLAUDE_PROJECT_DIR` 引用，不写死绝对路径；被拒时以退出码 2 阻止写入；CLI 不可用时放行，避免把开发环境锁死。
+- 可逆性：安装时备份原文件与「安装后内容」的哈希，卸载时未改动则逐字还原、改过则只摘自己的条目。
+- 测试：`test/domains/hook-install.test.ts` 7 例；回归脚本补安装→校验→卸载还原链路。
+- 未完成项：**「真实 agent 会话被拦下」这条验收需要一次真实 Claude Code 会话**，无法在本地自动化完成（文件级契约已由单测覆盖）。
+- 文档：[ADR 0023](../decisions/0023-platform-hook-install.md)、USAGE §13.1。
 
 ---
 
@@ -140,7 +158,7 @@ H1-1 让**单次写入**原子，但没有任何互斥：CLI 与 `serve` 同时�
 
 ---
 
-## D. 调度器健壮性
+## D. 调度器健壮性 ✅ 已完成
 
 ### 现状与证据
 
@@ -177,16 +195,25 @@ H1-1 让**单次写入**原子，但没有任何互斥：CLI 与 `serve` 同时�
 - **至少一次语义**：回收意味着任务可能被执行两次，必须在文档里讲清「队列任务要幂等」。
 - 超时值需要按项目规模可配；默认值取保守的大值，避免误杀长任务。
 
+### 实现记录
+
+- 落点：`domains/scheduler/queue.ts`（`lease_until` / `owner` / `reclaimExpiredLeases`）、`domains/scheduler/budget.ts`（`budget.json` 累计与 `daemon budget [--reset]`）、`domains/scheduler/daemon.ts`（`runDaemonLoop`：启动与每轮回收、失败上限、退避、超时透传）。
+- **口径修正**：`attempts` 统计「启动过几次」，增量只发生在置 running 时；回收不再 +1，否则一次崩溃会被记成两次尝试（测试先暴露了重复计数）。
+- 租约时长取 `max(DEFAULT_LEASE_MS, taskTimeoutMs + 60s)`，保证正常执行中不会被误判过期。
+- 语义：租约回收意味着**至少一次**执行，队列任务必须幂等——已写进代码注释与 USAGE。
+- 测试：`test/domains/scheduler-durability.test.ts` 7 例（过期租约回收、上限即放弃、有效租约不回收、预算累计、超时透传、启动回收崩溃任务、连续失败停止重试）。
+- 文档：[ADR 0024](../decisions/0024-scheduler-durability.md)、USAGE §8.3。
+
 ---
 
 ## 里程碑
 
 | 里程碑 | 内容 | 完成标志 |
 |---|---|---|
-| N1 | A 落地 | 未配置项目行为不变（逐字对比）+ 配置后 `verdict_sources.agent > 0` |
-| N2 | B 落地 | 真实 agent 会话中被平台 hook 拦下一次越界写入；卸载后配置逐字还原 |
+| N1 | A 落地 ✅ | 未配置项目行为不变（默认 mode 仍是 checks，不产生任何提示）+ 配置后 `verdict_sources.agent > 0` |
+| N2 | B 落地 ◐ | 文件级契约已达成（安装/幂等/逐字还原/drift 检测）；「真实会话被拦下」待一次真实 Claude Code 会话验证 |
 | N3 | C 落地 | 并发 transition 只有一个成功；陈旧锁可回收 |
-| N4 | D 落地 | kill 后重启可恢复；失败有上限；预算累计；超时生效 |
+| N4 | D 落地 ✅ | kill 后重启可恢复；失败有上限；预算累计；超时生效（7 例单测覆盖） |
 
 ## 完成定义（DoD）
 
