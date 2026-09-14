@@ -58,6 +58,28 @@ afterAll(async () => {
 });
 
 describe('jobs API', () => {
+  it('keeps jobs and their results across a serve restart', async () => {
+    const started = await call<{ jobId: string }>('POST', base + '/eval/run', {});
+    const jobId = started.data.jobId;
+    for (let attempt = 0; attempt < 80; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      const polled = await call<{ job: { status: string } }>('GET', '/api/jobs/' + jobId);
+      if (polled.data.job.status === 'succeeded' || polled.data.job.status === 'failed') break;
+    }
+
+    // 重启：新进程、新的内存态，任务与结果应当从 .cometflow/runtime/jobs/ 读回来。
+    await server.close();
+    server = await startServe({ workspaceRoot: workspace, webDir, port: 0, host: '127.0.0.1' });
+
+    const reopened = await call<{ job: { id: string; result?: { report?: { passed: boolean } }; logTail: string[] } }>(
+      'GET',
+      '/api/jobs/' + jobId,
+    );
+    expect(reopened.data.job.id).toBe(jobId);
+    expect(reopened.data.job.result?.report?.passed).toBe(true);
+    expect(reopened.data.job.logTail.length).toBeGreaterThan(0);
+  });
+
   it('keeps job results available after the fact and clears finished jobs on demand', async () => {
     const started = await call<{ jobId: string }>('POST', base + '/eval/run', {});
     const jobId = started.data.jobId;

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { appendJobLog, listJobRecords, removeJob, writeJobRecord } from './job-store.js';
 
 export type JobStatus = 'queued' | 'running' | 'succeeded' | 'failed';
 export type JobKind =
@@ -61,6 +62,35 @@ export const MAX_RETAINED_JOBS = 200;
 export class JobManager {
   private jobs = new Map<string, JobRecord>();
   private listeners = new Set<(event: JobEvent) => void>();
+  /** 已经落盘/加载过的项目（避免每次列表都重复读盘）。 */
+  private hydrated = new Set<string>();
+  private projectRoots = new Map<string, string>();
+  /** 落盘是异步的：跟踪在途写入，便于测试与优雅停机等待落盘完成。 */
+  private pending = new Set<Promise<void>>();
+
+  constructor(
+    private options: {
+      resolveProjectRoot?: (projectId: string) => Promise<string | null>;
+    } = {},
+  ) {}
+
+  /** 首次访问某项目时，把落盘的任务读回内存（进程重启后仍能看到历史）。 */
+  async hydrate(projectId: string, projectRoot: string): Promise<void> {
+    this.projectRoots.set(projectId, projectRoot);
+    if (this.hydrated.has(projectId)) return;
+    this.hydrated.add(projectId);
+    for (const record of await listJobRecords(projectRoot)) {
+      if (!this.jobs.has(record.id)) this.jobs.set(record.id, record);
+    }
+  }
+
+  private async persist(job: JobRecord, options: { log?: string } = {}): Promise<void> {
+    const root = this.projectRoots.get(job.projectId) ?? (await this.options.resolveProjectRoot?.(job.projectId)) ?? null;
+    if (root === null) return;
+    this.projectRoots.set(job.projectId, root);
+    await writeJobRecord(root, job);
+    if (options.log !== undefined) await appendJobLog(root, job.id, options.log);
+  }
 
   create(projectId: string, kind: JobKind, meta: { goal?: string; change?: string } = {}): JobRecord {
     const job: JobRecord = {
@@ -75,6 +105,7 @@ export class JobManager {
     };
     this.jobs.set(job.id, job);
     this.emit({ type: 'job.queued', jobId: job.id, projectId, at: new Date().toISOString() });
+    this.track(this.persist(job));
     this.evictFinished();
     return job;
   }
@@ -90,12 +121,14 @@ export class JobManager {
   }
 
   /** 清理已结束的任务，返回清理条数；排队/运行中的任务不受影响。 */
-  clearFinished(): number {
+  async clearFinished(): Promise<number> {
     let removed = 0;
     for (const job of [...this.jobs.values()]) {
       if (job.status !== 'succeeded' && job.status !== 'failed') continue;
       this.jobs.delete(job.id);
       removed += 1;
+      const root = this.projectRoots.get(job.projectId) ?? (await this.options.resolveProjectRoot?.(job.projectId)) ?? null;
+      if (root !== null) await removeJob(root, job.id).catch(() => undefined);
     }
     return removed;
   }
@@ -114,6 +147,25 @@ export class JobManager {
     job.logTail.push(line);
     if (job.logTail.length > 500) job.logTail.shift();
     this.emit({ type: 'job.log', jobId: id, projectId: job.projectId, line, at: new Date().toISOString() });
+    // 日志逐行落盘（脱敏在存储层做）；记录本身只在状态变化时写，避免写放大。
+    this.track(this.appendLog(job, line));
+  }
+
+  private async appendLog(job: JobRecord, line: string): Promise<void> {
+    const root = this.projectRoots.get(job.projectId) ?? (await this.options.resolveProjectRoot?.(job.projectId)) ?? null;
+    if (root === null) return;
+    this.projectRoots.set(job.projectId, root);
+    await appendJobLog(root, job.id, line);
+  }
+
+  private track(task: Promise<void>): void {
+    this.pending.add(task);
+    void task.catch(() => undefined).finally(() => this.pending.delete(task));
+  }
+
+  /** 等待所有在途落盘完成（测试与优雅停机用）。 */
+  async flush(): Promise<void> {
+    await Promise.all([...this.pending]);
   }
 
   start(id: string): void {
@@ -122,6 +174,7 @@ export class JobManager {
     job.status = 'running';
     job.startedAt = new Date().toISOString();
     this.emit({ type: 'job.started', jobId: id, projectId: job.projectId, at: new Date().toISOString() });
+    this.track(this.persist(job));
   }
 
   complete(id: string, result?: unknown, exitCode?: number): void {
@@ -132,6 +185,7 @@ export class JobManager {
     job.exitCode = exitCode;
     job.result = result ?? job.result;
     this.emit({ type: 'job.completed', jobId: id, projectId: job.projectId, result, at: new Date().toISOString() });
+    this.track(this.persist(job));
   }
 
   fail(id: string, error: string, exitCode?: number): void {
@@ -142,6 +196,7 @@ export class JobManager {
     job.error = error;
     job.exitCode = exitCode;
     this.emit({ type: 'job.failed', jobId: id, projectId: job.projectId, error, at: new Date().toISOString() });
+    this.track(this.persist(job));
   }
 
   stateChanged(projectId: string, pathValue: string): void {

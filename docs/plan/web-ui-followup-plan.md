@@ -1,6 +1,6 @@
 # Web 前端后续计划（引用图 / 引用高亮 / Job 持久化 / 并发写 / 编辑语义 / 收尾）
 
-状态：**M1 已完成**（N1 引用图 + N2 引用高亮），M2/M3 待实施；四条开放问题的结论见 §6
+状态：**M1、M2 已完成**（引用图/引用高亮 + Job 持久化 + 编辑语义），M3 待实施；四条开放问题的结论见 §6
 来源：[web-ui-enrichment-plan.md](./web-ui-enrichment-plan.md) 的 §5 P2 与 §8 开放问题、
 [008 客户端可视化](../design/008-client-visualization.md) §8.6②④、
 [comet-hardening-plan](./comet-hardening-plan.md) 遗留
@@ -102,7 +102,7 @@
 - **风险**：textarea 与镜像层的像素级对齐（换行、滚动、Tab）；IME 组合期抖动；大文件 token 数量。
   缓解：两者共用同一 CSS；`compositionstart/end` 期间暂停刷新；token 数超上限时只请求视口附近。
 
-### N3 Job 持久化
+### N3 Job 持久化 ✅ 已完成
 
 - **目标**：serve 重启后任务中心、change 运行日志、eval 报告仍在；过期任务可回收。
 - **落点**：
@@ -120,6 +120,14 @@
   日志轮转后读取端仍返回「摘要 + 最近 N 行」；日志含 `sk-` / `Bearer ` 形态时不落原文；
   `change gc --apply` 只回收已结束任务。
 - **风险**：写放大（每 job 两个文件）→ 只在状态变化时写记录、日志按行追加；磁盘上限由保留期 + 上限共同约束。
+
+实施结果：新增 `domains/server/job-store.ts`（记录 `runtime/jobs/<id>.json` 原子写、日志 `<id>.log`
+追加写 + 1 MiB 轮转、读取回拼尾部、`planJobGc`/`applyJobGc` 双阈值回收）；
+`JobManager` 接 `resolveProjectRoot` 并新增 `hydrate`/`flush`：serve 启动后首次访问 `GET /api/jobs`
+即把各项目落盘的任务读回内存，**重启后任务与结果仍在**；日志落盘前过 `redactSecrets`（脱敏）；
+`doctor` 报告占用与可回收量，新增 `doctor --clean-jobs` 执行回收（默认只报告）。
+测试新增 `test/domains/job-store.test.ts`（5 例：往返、脱敏、轮转、双阈值回收、JobManager 落盘 + 清理）
+与 `serve-jobs-api` 的「重启后仍能读到任务与报告」端到端断言。
 
 ### N4 并发写保护
 
@@ -169,7 +177,7 @@
   时钟漂移让 TTL 误判（同时校验 pid 是否存活）；过度加锁拖慢长任务 → agent 运行期间不持锁
   （它本来就只写 `changes/<name>/`），只在多文件提交窗口持锁。
 
-### N5 UI 编辑 spec 的语义（草稿 vs 立即版本）
+### N5 UI 编辑 spec 的语义（草稿 vs 立即版本）✅ 已完成
 
 - **目标**：把「在界面上改 spec 意味着什么」写清楚，并给出撤销路径。
 - **三个选项**：
@@ -198,6 +206,13 @@
 - **决策（ADR 0020）**：界面不引入第二事实源；草稿只有 change 提案一种形态；每次保存都是一次版本；
   一键存提案带上面两个前置条件。
 - **验收**：保存前必出 diff；撤销后 `spec verify` 通过、lock 与版本链一致；USAGE §12 与 ADR 0020 互相引用。
+
+实施结果：编辑器工具栏新增「预览变更（相对当前版本）」「撤销到上一版」「存为提案」；
+预览用无依赖的行级 LCS diff（`web/src/utils/diff.ts`，超长文件退化为整块替换而不是卡住界面），
+撤销复用 `spec restore`（当前内容先记账，实测 toast 会显示「已撤销到 v1，当前内容已登记为 v3」）；
+新增 `POST /spec/proposal`（只允许「已存在且处于 shape 阶段」的 change，路径固定
+`changes/<change>/specs/<spec 相对路径>`）与 `GET /spec/proposals[?path=]`（带 path 时回正文），
+编辑器打开时反查提案并显示「当前有提案版本：X」与「与提案对比」——草稿只有这一种形态（ADR 0020）。
 
 ### N6 收尾项
 
@@ -252,6 +267,10 @@
 > a) N4 的多文件事务锁 TTL（默认 120s）是否够——取决于最慢事务（archive 的 applyProposedSpecs）耗时；
 > b) Job 日志轮转阈值（默认 1 MiB）是否需要按项目配置；
 > c) N2 单文件 token 上限（默认 2000，超出只高亮视口附近）是否需要 UI 可调。
+>
+> 实施中新发现（建议随 M3 一起处理）：`platform/io/redact.ts` 的 aggressive 规则在**超长同字符行**
+> （如一行 600 KB 的 `xxxx…`）上会出现灾难性回溯，把调用方钉在 100% CPU。job 日志按行脱敏、
+> agent 输出不可控，因此建议给单行长度设上限（先截断再脱敏）或改写该组正则。
 
 ## 7. 与现有机制的关系（复用清单）
 

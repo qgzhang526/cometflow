@@ -12,6 +12,7 @@ import { loadProjectContext, validateProjectContext } from '../project/context.j
 import { findOrphanTempFiles, removeOrphanTempFiles } from '../../platform/fs/atomic-write.js';
 import { collectEvidenceUsage, formatBytes, planEvidenceGc } from '../workflow/evidence-retention.js';
 import { collectProjectStatus } from './collector.js';
+import { applyJobGc, collectJobUsage, planJobGc } from '../server/job-store.js';
 
 export interface DoctorFinding {
   severity: 'error' | 'warning' | 'info';
@@ -31,6 +32,8 @@ async function exists(filePath: string): Promise<boolean> {
 export interface DoctorOptions {
   /** 清理残留的原子写入临时文件（默认只报告不删除）。 */
   cleanTemp?: boolean;
+  /** 回收超出保留窗口的任务证据（默认只报告）。 */
+  cleanJobs?: boolean;
 }
 
 export async function runDoctor(projectRoot: string, options: DoctorOptions = {}): Promise<DoctorReport> {
@@ -185,6 +188,33 @@ export async function runDoctor(projectRoot: string, options: DoctorOptions = {}
         '）；可回收 ' +
         formatBytes(plan.reclaimableBytes) +
         '，运行 cometflow change gc . --apply 清理',
+    });
+  }
+
+  // 任务证据：默认只报告占用与可回收量，`--clean-jobs` 才真正回收（双阈值：最近 200 条 + 30 天）。
+  const jobUsage = await collectJobUsage(projectRoot);
+  const jobPlan = await planJobGc(projectRoot);
+  if (options.cleanJobs) {
+    const cleaned = await applyJobGc(projectRoot, jobPlan);
+    findings.push({
+      severity: 'info',
+      code: 'cleaned-job-evidence',
+      message: '已回收 ' + cleaned.removed + ' 个过期任务（' + formatBytes(cleaned.bytes) + '）',
+    });
+  } else if (jobPlan.candidates.length > 0) {
+    findings.push({
+      severity: 'warning',
+      code: 'job-evidence-reclaimable',
+      message:
+        '任务证据占用 ' +
+        formatBytes(jobUsage.bytes) +
+        '（' +
+        jobUsage.files +
+        ' 个文件），其中 ' +
+        jobPlan.candidates.length +
+        ' 个已结束任务超出保留窗口，可回收 ' +
+        formatBytes(jobPlan.reclaimableBytes) +
+        '；确认后运行 cometflow doctor . --clean-jobs',
     });
   }
 

@@ -396,6 +396,7 @@ program
   .description('Diagnose CometFlow project health')
   .option('--json', 'Output as JSON')
   .option('--clean-temp', 'Remove leftover atomic-write temporary files')
+  .option('--clean-jobs', 'Reclaim job evidence beyond the retention window')
   .action(async (targetPath = '.', options) => {
     await doctorCommand(targetPath, options);
   });

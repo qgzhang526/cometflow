@@ -3,10 +3,13 @@ import { runDoctor } from '../../domains/dashboard/doctor.js';
 
 export async function doctorCommand(
   targetPath: string,
-  options: { json?: boolean; cleanTemp?: boolean } = {},
+  options: { json?: boolean; cleanTemp?: boolean; cleanJobs?: boolean } = {},
 ): Promise<void> {
   const projectRoot = path.resolve(targetPath);
-  const report = await runDoctor(projectRoot, { cleanTemp: options.cleanTemp === true });
+  const report = await runDoctor(projectRoot, {
+    cleanTemp: options.cleanTemp === true,
+    cleanJobs: options.cleanJobs === true,
+  });
   if (options.json) {
     console.log(JSON.stringify(report, null, 2));
     return;

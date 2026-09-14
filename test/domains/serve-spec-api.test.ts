@@ -219,4 +219,34 @@ describe('spec kernel API', () => {
     expect(diff.body.data.added).toHaveLength(0);
     expect(diff.body.data.removed).toHaveLength(0);
   });
+
+  it('accepts a spec proposal only for an existing change in shape phase', async () => {
+    const proposed = await post<{ change: string; path: string; written: string }>('/spec/proposal', {
+      change: 'shape-change',
+      path: 'specs/core/spec.md',
+      content: '# core（提案版）\n\n## CORE-001 add\n\n改动提案。\n',
+    });
+    expect(proposed.status).toBe(200);
+    expect(proposed.body.data.written).toContain(path.join('changes', 'shape-change', 'specs', 'core', 'spec.md'));
+
+    // 提案只有一种存放形态：change 目录下的 specs/ 副本，且能被反查。
+    const listed = await get<{ proposals: Array<{ change: string; path: string }> }>('/spec/proposals?path=specs/core/spec.md');
+    // 带 path 查询时会一并返回正文，所以按「change|path」比较而不是深比较整个对象。
+    expect(listed.body.data.proposals.map((entry) => entry.change + '|' + entry.path)).toContain(
+      'shape-change|specs/core/spec.md',
+    );
+
+    // 归档前影响分析能看到这份提案（复用 readProposedSpecs）。
+    const impact = await get<{ summary: { files_changed: number } }>('/spec/impact?change=shape-change');
+    expect(impact.body.data.summary.files_changed).toBe(1);
+
+    // build 阶段的 change 不能再提契约提案；未知 change 直接 404。
+    const wrongPhase = await post('/spec/proposal', { change: 'build-change', path: 'specs/core/spec.md', content: 'x' });
+    expect(wrongPhase.status).toBe(409);
+    expect(wrongPhase.body.error?.code).toBe('change-not-in-shape');
+    const unknown = await post('/spec/proposal', { change: 'nope', path: 'specs/core/spec.md', content: 'x' });
+    expect(unknown.status).toBe(404);
+    const outside = await post('/spec/proposal', { change: 'shape-change', path: '../evil.md', content: 'x' });
+    expect(outside.status).toBe(400);
+  });
 });

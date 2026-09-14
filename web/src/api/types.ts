@@ -677,3 +677,14 @@ export interface SpecGraphProjection {
     unresolved: number;
   };
 }
+
+export interface SpecProposal {
+  change: string;
+  path: string;
+  /** 仅当查询带 `path` 时返回（编辑器对比用）。 */
+  content?: string;
+}
+
+export interface SpecProposalsResponse {
+  proposals: SpecProposal[];
+}

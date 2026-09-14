@@ -166,6 +166,12 @@ tr.selected td { background: #eef2ff; }
 .step.done { border-color: var(--ok); color: var(--ok); }
 .step.blocked { border-color: var(--err); color: var(--err); }
 .finding.info { border-left-color: var(--accent); }
+/* 变更预览：+/- 行按 diff 语义着色，等宽字体便于比对缩进 */
+.diff-view { margin-top: 10px; }
+.diff-body { background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 10px; max-height: 320px; overflow: auto; font-family: ui-monospace, "SFMono-Regular", Consolas, monospace; font-size: 12px; margin: 6px 0 0; }
+.diff-body .diff-add { color: #166534; background: #f0fdf4; display: block; }
+.diff-body .diff-del { color: #991b1b; background: #fef2f2; display: block; }
+.diff-body .diff-same { color: #6b7280; display: block; }
 .card h3 { margin-top: 18px; }
 .wizard { border: 1px solid var(--border); }
 .empty code { background: transparent; }
