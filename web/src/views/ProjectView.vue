@@ -55,6 +55,8 @@ import PlansPanel from './panels/PlansPanel.vue';
 import ChangesPanel from './panels/ChangesPanel.vue';
 import EvolvePanel from './panels/EvolvePanel.vue';
 import EvalPanel from './panels/EvalPanel.vue';
+import SchedulerPanel from './panels/SchedulerPanel.vue';
+import AssetsPanel from './panels/AssetsPanel.vue';
 import SettingsPanel from './panels/SettingsPanel.vue';
 import type { Component } from 'vue';
 
@@ -73,6 +75,8 @@ const COMPONENTS: Record<PanelId, Component> = {
   changes: ChangesPanel,
   evolve: EvolvePanel,
   eval: EvalPanel,
+  scheduler: SchedulerPanel,
+  assets: AssetsPanel,
   settings: SettingsPanel,
 };
 

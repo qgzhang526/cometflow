@@ -23,6 +23,8 @@ export const PANELS = [
   { id: 'changes', label: '变更', icon: '🔀' },
   { id: 'evolve', label: '进化', icon: '🧬' },
   { id: 'eval', label: '评估', icon: '🧪' },
+  { id: 'scheduler', label: '调度', icon: '🛰️' },
+  { id: 'assets', label: '资产', icon: '📦' },
   { id: 'settings', label: '设置', icon: '⚙️' },
 ] as const;
 

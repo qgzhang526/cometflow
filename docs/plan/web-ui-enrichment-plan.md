@@ -1,6 +1,6 @@
 # Web 前端补齐计划（后端能力 ↔ 前端展示差异）
 
-状态：**W1、W2、W3 已完成**（Vue 3 迁移 + P0 修复 + spec 内核可视化 + change 审计与恢复路径），W4–W5 待开始
+状态：**W1–W5 全部完成**（Vue 3 迁移 + P0 修复 + spec 内核 + change 审计 + 任务收口 + 资产覆盖）
 分支：`codex/enrich-web-ui`
 调研基线：`fd870a9` + 工作区未提交改动（H1 加固 + 试验夹具）
 关联：ADR 0007（UI headless）、ADR 0008（工作区/多项目）、ADR 0009（agent/模型分层）、
@@ -272,11 +272,25 @@ ADR 0013（验收必须可执行）、ADR 0014（状态原子可恢复）、[008
 - 测试：`test/domains/jobs.test.ts` 增补保留上限与 `clearFinished` 两态；新增
   `test/domains/serve-jobs-api.test.ts`（eval job 结果留存 + 清理只删已结束）；浏览器实测清理与刷新后日志回填。
 
-### W5 覆盖面扩展（A 类余项）
+### W5 覆盖面扩展（A 类余项）✅ 已完成
 
 - 目标：把 8 面板之外的资产（调度队列、Skill/Bundle、Hook 预览、Classic）纳入界面。
 - 落点：`GET /scheduler/queue`、`GET /skills`、`GET /bundles`、`POST /hook/check`、Classic 读写端点。
 - 验收：每个新面板都有空状态引导，且全部只读优先、写操作二次确认。
+
+实施结果：
+
+- **新增 6 个端点**：`GET /scheduler/queue`（daemon 队列 + 按冻结计划推导的待办 + 下一个任务 + 调度器参数）、
+  `GET /skills`、`GET /skills/{name}`（含 SKILL.md 正文）、`GET /bundles`（manifest + 编译产物预览 + 平台列表）、
+  `POST /hook/check`（写入门禁预览）、`GET /classic`（只读）。
+- **`listClassicStates`**：classic 状态与 native change 共用 `changes/` 目录，按文件名扫描而不是维护第二份注册表。
+- **路径片段统一解码**：`safePathSegment` 负责「解码 + 拒绝分隔符/`.`/`..`」，change 名与 skill 名都走它；
+  顺带修掉一个真实缺陷——客户端用 `encodeURIComponent` 传名字时，含空格/非 ASCII 的名字此前会去找带 `%20` 的目录。
+- **新增 2 个面板**：调度（队列内容 + 下一个待办 + 调度器参数只读 + 没有 daemon 队列时用推导视图）、
+  资产（Skills / Bundle / Classic / Hook 预览 四个页签）。全部只读，写操作仍走 CLI；每个页签都有空状态引导。
+- Hook 预览按项目根解析路径，直接复用 `evaluateHook`，界面结论与 `cometflow hook check` 完全一致。
+- 测试：新增 `test/domains/serve-assets-api.test.ts`（5 例）：队列推导视图与 next、skill 列表/详情/404/穿越名、
+  bundle manifest 与编译产物、hook 三态（机器路径拒绝、多活跃 change fail closed、指定指针后放行）、classic 只读列表。
 
 ## 7. 与 008 设计文档的完成度对照
 
