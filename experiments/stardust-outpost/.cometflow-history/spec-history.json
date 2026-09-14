@@ -1,0 +1,145 @@
+{
+  "schema": "cometflow.spec-history.v1",
+  "specs": {
+    "specs/build/spec.md": [
+      {
+        "spec_version": 1,
+        "hash": "5d1d3a983ebe5a0dab5e79f31332845be50eca04cdaed3352527a9e947eee66a",
+        "recorded_at": "2026-09-14T09:39:17.041Z",
+        "change": null,
+        "parent": null,
+        "note": "web lock"
+      }
+    ],
+    "specs/config.md": [
+      {
+        "spec_version": 1,
+        "hash": "fbb247110ae31cdda60a678fb7e60236bd34fa620c6173e5b8a3206ee8aefe28",
+        "recorded_at": "2026-09-14T09:39:17.058Z",
+        "change": null,
+        "parent": null,
+        "note": "web lock"
+      }
+    ],
+    "specs/constraints.md": [
+      {
+        "spec_version": 1,
+        "hash": "ca5fa5bb2eaf6d23da5f3852d2c5ff874bee1004c0b79eaaca3cbc74afd39914",
+        "recorded_at": "2026-09-14T09:39:17.074Z",
+        "change": null,
+        "parent": null,
+        "note": "web lock"
+      }
+    ],
+    "specs/engine/spec.md": [
+      {
+        "spec_version": 1,
+        "hash": "84b89b4ef58af345752eb507139638873838b22e113cccbf7fd18fd0f29224be",
+        "recorded_at": "2026-09-14T09:39:17.088Z",
+        "change": null,
+        "parent": null,
+        "note": "web lock"
+      }
+    ],
+    "specs/errors.md": [
+      {
+        "spec_version": 1,
+        "hash": "5d7451d834eb9f4742ac0be495087ff5eb17e238dd75d230b37ce8c48692dbee",
+        "recorded_at": "2026-09-14T09:39:17.105Z",
+        "change": null,
+        "parent": null,
+        "note": "web lock"
+      }
+    ],
+    "specs/flows/build-facility.md": [
+      {
+        "spec_version": 1,
+        "hash": "c21cbf670997a042b06663a7c0ddfda4007aedcaab996c0dda8a318458fc4f5b",
+        "recorded_at": "2026-09-14T09:39:17.120Z",
+        "change": null,
+        "parent": null,
+        "note": "web lock"
+      }
+    ],
+    "specs/flows/research-tech.md": [
+      {
+        "spec_version": 1,
+        "hash": "30cbe973611b5b7b266b68efb165d7228171a6c86e7248efebe1c5ca71949c27",
+        "recorded_at": "2026-09-14T09:39:17.134Z",
+        "change": null,
+        "parent": null,
+        "note": "web lock"
+      }
+    ],
+    "specs/models.md": [
+      {
+        "spec_version": 1,
+        "hash": "707a871c5ebdb82bc261b3bc35de5de825275284e660ffdb7ce6ed5823bf2cd8",
+        "recorded_at": "2026-09-14T09:39:17.149Z",
+        "change": null,
+        "parent": null,
+        "note": "web lock"
+      }
+    ],
+    "specs/pages.md": [
+      {
+        "spec_version": 1,
+        "hash": "d77922fb1b1c2f0f70f7be77f127a475067134fe29cb713570353386b3647797",
+        "recorded_at": "2026-09-14T09:39:17.164Z",
+        "change": null,
+        "parent": null,
+        "note": "web lock"
+      }
+    ],
+    "specs/permissions.md": [
+      {
+        "spec_version": 1,
+        "hash": "cd40b623a00754f9c28e7f23245df8dd4bb6e504d719e3513ea44a533cb50c16",
+        "recorded_at": "2026-09-14T09:39:17.179Z",
+        "change": null,
+        "parent": null,
+        "note": "web lock"
+      }
+    ],
+    "specs/processes.md": [
+      {
+        "spec_version": 1,
+        "hash": "675cda0efee836430521eb9ff540d8f1c4faaac8684225d3e8e5ed348bb4b515",
+        "recorded_at": "2026-09-14T09:39:17.194Z",
+        "change": null,
+        "parent": null,
+        "note": "web lock"
+      }
+    ],
+    "specs/protocol.md": [
+      {
+        "spec_version": 1,
+        "hash": "d6d7a1d2ddf9ee4bf8fb4731b06555e5bcf7cc24577fd6eb08c2666905453737",
+        "recorded_at": "2026-09-14T09:39:17.209Z",
+        "change": null,
+        "parent": null,
+        "note": "web lock"
+      }
+    ],
+    "specs/research/spec.md": [
+      {
+        "spec_version": 1,
+        "hash": "5403c02955f1167109970642de0865cf2713bd579052af033b68f19c2cb4178a",
+        "recorded_at": "2026-09-14T09:39:17.224Z",
+        "change": null,
+        "parent": null,
+        "note": "web lock"
+      }
+    ],
+    "specs/rules.md": [
+      {
+        "spec_version": 1,
+        "hash": "9fab24e359942e3607dc0a8a20acc724a10be41425bce6a6062aa3d1c5129692",
+        "recorded_at": "2026-09-14T09:39:17.236Z",
+        "change": null,
+        "parent": null,
+        "note": "web lock"
+      }
+    ]
+  }
+}

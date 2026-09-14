@@ -72,3 +72,6 @@ pnpm exec tsx app/cli/index.ts serve --workspace <你的工作区目录>   # 或
 
 - Settings 面板当前只暴露平台 config（agent/model/scheduler）；游戏平衡参数在 `specs/config.md`，经 Specs 面板编辑。
 - .cometflow/ 按平台约定不入库；换机器后先点 Goals 面板 [同步]、Specs 面板 [生成/补全] 即可重建。
+- `.cometflow-history/` **入库**：它是 spec 的内容寻址版本仓（`spec lock` 登记，14 个 spec 各 v1）。
+  换机器后 `cometflow spec versions .` / `spec show specs/engine/spec.md@1` 仍可回放；
+  这也是 Specs 面板「版本」页签的数据来源。运行状态（config/goals/plans/runtime）仍在 `.cometflow/`，不入库。
