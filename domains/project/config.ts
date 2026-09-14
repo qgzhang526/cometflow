@@ -26,6 +26,11 @@ export interface ScopeConfig {
    * 典型用途：package.json / lockfile / tsconfig.json 这类仓库级共享文件。
    */
   allow?: string[];
+  /**
+   * 快照存在 omission（超大文件、超出文件数上限等）时的处理级别。
+   * warn：只提示（默认，兼容老项目）；fail：视为越界，验证与归档都会被拒。
+   */
+  omission_policy?: 'warn' | 'fail';
 }
 
 export interface ProjectConfig {
@@ -123,6 +128,52 @@ export async function readProjectConfig(projectRoot: string): Promise<ProjectCon
   return mergeConfigs(global, toConfig(parsed));
 }
 
+/**
+ * 只读项目文件本身写了什么，不叠加全局默认。
+ *
+ * 用途有两个：一是增量写入时以它为基底，避免把「全局默认」固化成项目值；
+ * 二是让界面能回答「这个字段到底是被项目覆盖了，还是继承全局」。
+ */
+export async function readProjectConfigOverride(projectRoot: string): Promise<Partial<ProjectConfig>> {
+  const filePath = projectConfigPath(projectRoot);
+  let parsed: unknown;
+  try {
+    const source = await fs.readFile(filePath, 'utf8');
+    parsed = parse(source);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {};
+    throw error;
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+  return parsed as Partial<ProjectConfig>;
+}
+
+/**
+ * 把一次配置写入合并进项目文件，而不是整体覆盖。
+ *
+ * 覆盖写会让「只改 agent 的界面」顺手删掉 verification / scope 这些它没渲染的字段，
+ * 所以这里做两层合并：顶层键覆盖，嵌套对象逐键覆盖。
+ */
+export function mergeProjectConfigOverride(
+  base: Partial<ProjectConfig>,
+  patch: Partial<ProjectConfig>,
+): ProjectConfig {
+  const merged: ProjectConfig = {
+    ...base,
+    ...patch,
+    schema: CONFIG_SCHEMA,
+  };
+  merged.agents = { ...(base.agents ?? {}), ...(patch.agents ?? {}) };
+  if (Object.keys(merged.agents).length === 0) delete merged.agents;
+  merged.scheduler = { ...(base.scheduler ?? {}), ...(patch.scheduler ?? {}) };
+  if (Object.keys(merged.scheduler).length === 0) delete merged.scheduler;
+  merged.scope = { ...(base.scope ?? {}), ...(patch.scope ?? {}) };
+  if (Object.keys(merged.scope).length === 0) delete merged.scope;
+  merged.verification = { ...(base.verification ?? {}), ...(patch.verification ?? {}) };
+  if (Object.keys(merged.verification).length === 0) delete merged.verification;
+  return merged;
+}
+
 export async function writeProjectConfig(projectRoot: string, config: ProjectConfig): Promise<string> {
   const filePath = projectConfigPath(projectRoot);
   await fs.mkdir(path.dirname(filePath), { recursive: true });
@@ -176,6 +227,12 @@ export function validateProjectConfig(config: ProjectConfig): string[] {
   if (config.scope?.allow !== undefined) {
     if (!Array.isArray(config.scope.allow) || config.scope.allow.some((entry) => typeof entry !== 'string')) {
       errors.push('scope.allow must be an array of project-relative paths');
+    }
+  }
+
+  if (config.scope?.omission_policy !== undefined) {
+    if (config.scope.omission_policy !== 'warn' && config.scope.omission_policy !== 'fail') {
+      errors.push('scope.omission_policy must be one of: warn, fail');
     }
   }
 

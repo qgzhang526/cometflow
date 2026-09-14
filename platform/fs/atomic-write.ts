@@ -41,7 +41,7 @@ async function delay(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function renameWithRetry(from: string, to: string): Promise<void> {
+export async function renameWithRetry(from: string, to: string): Promise<void> {
   const attempts = 8;
   let lastError: unknown;
   for (let attempt = 0; attempt < attempts; attempt += 1) {

@@ -1,4 +1,5 @@
 import { promises as fs } from 'node:fs';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { toPosix } from '../../platform/paths/relative.js';
 import { readTextFile } from '../../platform/fs/read-file.js';
@@ -13,6 +14,8 @@ export const IMPLEMENTATION_SCOPE_SCHEMA = 'cometflow.implementation-scope.v1';
 export const MAX_SCOPE_FILE_BYTES = 1024 * 1024;
 /** 快照文件数上限，防止在大仓库里被 node_modules 之类的目录拖垮。 */
 export const MAX_SCOPE_FILES = 5000;
+/** 快照里最多保留多少条 omission 明细；超出后只保留计数与哈希。 */
+export const MAX_SCOPE_OMISSIONS = 200;
 
 /**
  * 不参与实现范围的目录：机器状态、变更产物、spec、依赖与构建产物。
@@ -64,6 +67,23 @@ export interface ImplementationBaseline {
   complete: boolean;
   fileCount: number;
   files: Record<string, ImplementationFileIdentity>;
+  /** 被跳过的路径及原因；`complete=false` 时这里是「为什么不能宣称完整」的答案。 */
+  omitted?: ScopeOmission[];
+  omittedCount?: number;
+  /** omission 明细超过上限时的折叠信息（只保留计数与哈希）。 */
+  omissionOverflow?: { count: number; hash: string };
+}
+
+export type ScopeOmissionReason =
+  | 'file-too-large'
+  | 'file-unreadable'
+  | 'directory-unreadable'
+  | 'file-count-limit';
+
+export interface ScopeOmission {
+  path: string;
+  reason: ScopeOmissionReason;
+  size: number | null;
 }
 
 export interface ImplementationScopeReport {
@@ -77,6 +97,9 @@ export interface ImplementationScopeReport {
   changes: ImplementationChange[];
   attributed: string[];
   unattributed: string[];
+  omitted: ScopeOmission[];
+  omittedCount: number;
+  omissionOverflow: { count: number; hash: string } | null;
 }
 
 export interface ImplementationScopeOptions {
@@ -92,10 +115,18 @@ function implementationBaselinePath(projectRoot: string, name: string): string {
 async function walk(
   root: string,
   current: string,
-  state: { files: Record<string, ImplementationFileIdentity>; complete: boolean; count: number },
+  state: {
+    files: Record<string, ImplementationFileIdentity>;
+    complete: boolean;
+    count: number;
+    omitted: ScopeOmission[];
+    omittedCount: number;
+    omissionHash: ReturnType<typeof createHash>;
+  },
 ): Promise<void> {
   if (state.count >= MAX_SCOPE_FILES) {
     state.complete = false;
+    recordOmission(state, { path: toPosix(path.relative(root, current)) || '.', reason: 'file-count-limit', size: null });
     return;
   }
   let entries;
@@ -103,6 +134,11 @@ async function walk(
     entries = await fs.readdir(current, { withFileTypes: true });
   } catch {
     state.complete = false;
+    recordOmission(state, {
+      path: toPosix(path.relative(root, current)) || '.',
+      reason: 'directory-unreadable',
+      size: null,
+    });
     return;
   }
   for (const entry of entries) {
@@ -126,22 +162,72 @@ async function walk(
       stat = await fs.stat(absolute);
     } catch {
       state.complete = false;
+      recordOmission(state, { path: relative, reason: 'file-unreadable', size: null });
       continue;
     }
-    if (stat.size > MAX_SCOPE_FILE_BYTES) continue;
+    if (stat.size > MAX_SCOPE_FILE_BYTES) {
+      // 跳过超大文件是必要的，但必须留痕：否则「没比对过」会被当成「没越界」。
+      recordOmission(state, { path: relative, reason: 'file-too-large', size: stat.size });
+      state.complete = false;
+      continue;
+    }
     let content: string;
     try {
       content = await readTextFile(absolute);
     } catch {
+      recordOmission(state, { path: relative, reason: 'file-unreadable', size: stat.size });
+      state.complete = false;
       continue;
     }
     state.files[relative] = { hash: hashSpecText(content), size: stat.size };
     state.count += 1;
     if (state.count >= MAX_SCOPE_FILES) {
       state.complete = false;
+      recordOmission(state, { path: relative, reason: 'file-count-limit', size: null });
       return;
     }
   }
+}
+
+/**
+ * 记录一条 omission。
+ *
+ * 明细超过上限后只累加计数并把被折叠的条目哈希进 `omissionHash`，
+ * 这样即使不保留全部明细，快照之间仍能判断「跳过的东西是否变过」。
+ */
+function recordOmission(
+  state: {
+    omitted: ScopeOmission[];
+    omittedCount: number;
+    omissionHash: ReturnType<typeof createHash>;
+  },
+  omission: ScopeOmission,
+): void {
+  state.omittedCount += 1;
+  state.omissionHash.update(omission.path + '\u0000' + omission.reason + '\u0000' + (omission.size ?? '') + '\n');
+  if (state.omitted.length < MAX_SCOPE_OMISSIONS) state.omitted.push(omission);
+}
+
+function emptyWalkState() {
+  return {
+    files: {} as Record<string, ImplementationFileIdentity>,
+    complete: true,
+    count: 0,
+    omitted: [] as ScopeOmission[],
+    omittedCount: 0,
+    omissionHash: createHash('sha256'),
+  };
+}
+
+function omissionSummary(state: { omittedCount: number; omitted: ScopeOmission[]; omissionHash: ReturnType<typeof createHash> }) {
+  return {
+    omitted: state.omitted,
+    omittedCount: state.omittedCount,
+    omissionOverflow:
+      state.omittedCount > state.omitted.length
+        ? { count: state.omittedCount - state.omitted.length, hash: state.omissionHash.digest('hex') }
+        : undefined,
+  };
 }
 
 export async function captureImplementationBaseline(
@@ -149,7 +235,7 @@ export async function captureImplementationBaseline(
   name: string,
   options: { now?: Date } = {},
 ): Promise<ImplementationBaseline> {
-  const state = { files: {} as Record<string, ImplementationFileIdentity>, complete: true, count: 0 };
+  const state = emptyWalkState();
   await walk(projectRoot, projectRoot, state);
   const baseline: ImplementationBaseline = {
     schema: IMPLEMENTATION_SCOPE_SCHEMA,
@@ -158,6 +244,7 @@ export async function captureImplementationBaseline(
     complete: state.complete,
     fileCount: state.count,
     files: state.files,
+    ...omissionSummary(state),
   };
   const filePath = implementationBaselinePath(projectRoot, name);
   await atomicWriteText(filePath, JSON.stringify(baseline, null, 2));
@@ -232,8 +319,12 @@ export async function collectImplementationScope(
 ): Promise<ImplementationScopeReport> {
   const baseline = await readImplementationBaseline(projectRoot, name);
   const allow = normalizeAllow(options.allow ?? []);
-  const current = { files: {} as Record<string, ImplementationFileIdentity>, complete: true, count: 0 };
+  const current = emptyWalkState();
   await walk(projectRoot, projectRoot, current);
+
+  const omission = omissionSummary(current);
+  const baselineOmissions = baseline?.omitted ?? [];
+  const baselineOmittedCount = baseline?.omittedCount ?? baselineOmissions.length;
 
   // 没有基线就等于没有参照物：不能拿「空快照」去比，否则仓库里每个文件都会被算成越界新增。
   // 这类 change（在实现范围机制之前创建）只能报告「无法判定」，把判断权交回给人。
@@ -249,6 +340,9 @@ export async function collectImplementationScope(
       changes: [],
       attributed: [],
       unattributed: [],
+      omitted: omission.omitted,
+      omittedCount: omission.omittedCount,
+      omissionOverflow: omission.omissionOverflow ?? null,
     };
   }
 
@@ -286,5 +380,10 @@ export async function collectImplementationScope(
     changes,
     attributed,
     unattributed,
+    // 快照本身的 omission 也要暴露：它是「判定可能不完整」的直接证据。
+    omitted: [...baselineOmissions, ...omission.omitted],
+    omittedCount: baselineOmittedCount + omission.omittedCount,
+    omissionOverflow:
+      baseline?.omissionOverflow ?? omission.omissionOverflow ?? null,
   };
 }

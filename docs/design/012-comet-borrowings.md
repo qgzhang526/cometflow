@@ -67,14 +67,14 @@ CometFlow 的 `verification.mode` 提供三档：
 | # | comet 机制 | 状态 | 落点 / 说明 |
 |---|---|---|---|
 | 8 | 结构化状态用 `canonicalHash(tag, value)` | 已落地 | `domains/state/canonical-hash.ts`；计划与 change 状态盖 `plan_hash` / `state_hash`，`spec verify` 校验 |
-| 9 | 快照 manifest 记录 omission | 待办（H2） | 跳过超大文件却没有记录，`complete` 只能靠猜 |
+| 9 | 快照 manifest 记录 omission | 已落地 | `implementation-scope.ts` 记录 path/reason/size，明细超 200 条折叠为计数与哈希；`scope.omission_policy` 决定 warn/fail |
 | 10 | 有界修复循环 + 停滞检测 | 待办（H3） | `verify-fail` 现在无条件回 build，可能反复失败 |
 | 11 | 两阶段状态迁移日志 | 已落地 | `domains/workflow/change-transition-journal.ts`；prepare → 写状态 → 记账 → 清记录，读取前自动收敛 |
 | 12 | 原子写入（fsync + rename） | 已落地 | `platform/fs/atomic-write.ts`；rename 在 Windows 上做有界重试，`doctor` 报告并清理残留 |
-| 13 | 凭证脱敏 | 待办（H2） | journal / 提示词可能带出 token |
+| 13 | 凭证脱敏 | 已落地 | `platform/io/redact.ts`；提示词用高置信档，落盘证据额外启用通用键值档 |
 | 14 | git 来源绑定 | 待办（H3） | 记录 change 的 base commit，分支漂移时阻止推进 |
 | 15 | Hook Router 单一归属 | 待办（H3） | 我们用「有多个 active change 就拒绝」，comet 用 current-change 指针路由 |
-| 16 | 证据保留上限 | 待办（H2） | journal / verification.md / evidence 会无限增长 |
+| 16 | 证据保留上限 | 已落地 | journal 超阈值轮转（保留一代）+ `change gc [--apply]` 回收 runtime 证据，doctor 报告占用 |
 
 ## 三、明确不照搬
 

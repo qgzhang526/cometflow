@@ -8,6 +8,7 @@ import { listPendingTransitions } from '../workflow/change-transition-journal.js
 import { listChangeStates } from '../workflow/change-list.js';
 import { loadProjectContext, validateProjectContext } from '../project/context.js';
 import { findOrphanTempFiles, removeOrphanTempFiles } from '../../platform/fs/atomic-write.js';
+import { collectEvidenceUsage, formatBytes, planEvidenceGc } from '../workflow/evidence-retention.js';
 import { collectProjectStatus } from './collector.js';
 
 export interface DoctorFinding {
@@ -134,6 +135,30 @@ export async function runDoctor(projectRoot: string, options: DoctorOptions = {}
           '；确认无需保留后运行 cometflow doctor . --clean-temp',
       });
     }
+  }
+
+  // 证据保留：报告占用与可回收量，具体清理交给 `change gc --apply`。
+  const plan = await planEvidenceGc(projectRoot);
+  const usage = await collectEvidenceUsage(projectRoot);
+  if (plan.totalBytes > 0) {
+    const top = usage
+      .slice(0, 3)
+      .map((entry) => entry.change + '=' + formatBytes(entry.bytes))
+      .join(', ');
+    findings.push({
+      severity: 'info',
+      code: 'evidence-usage',
+      message:
+        'change 运行证据 ' +
+        formatBytes(plan.totalBytes) +
+        '（' +
+        usage.length +
+        ' 个 change；' +
+        top +
+        '）；可回收 ' +
+        formatBytes(plan.reclaimableBytes) +
+        '，运行 cometflow change gc . --apply 清理',
+    });
   }
 
   return { healthy: findings.every((finding) => finding.severity !== "error"), findings };

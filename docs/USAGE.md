@@ -607,6 +607,14 @@ spec 的验收项可以直接携带可执行命令，让「代码能不能用」
 本地临时例外（不想写进 COMETFLOW.md 时）用 `.cometflow/config.yaml` 的 `scope.allow` 覆盖；
 注意该目录被 gitignore，不会随仓库分发。
 
+快照会跳过超大文件（>1MB）与超出计数上限的目录；这些跳过会记录为 omission 并让快照标记为不完整。
+默认只提示，需要严格把关时：
+
+```yaml
+scope:
+  omission_policy: fail     # warn（默认）| fail
+```
+
 ### 5.8 独立 Verifier 与审计流水
 
 ```yaml
@@ -628,10 +636,16 @@ Verifier 使用独立会话、只读提示词，必须对每一条验收项给�
 cometflow change verify <name> . --mode checks+agent --agent claude-code
 cometflow change scope <name> .          # 本次改动与越界情况
 cometflow change journal <name> .        # 追加式审计流水
+cometflow change gc [path] [--json]      # 查看 change 运行证据占用与可回收量
+cometflow change gc [path] --apply       # 回收：仅 .cometflow/runtime/ 下可重新推导的内容
 ```
 
 change 的生命周期事件（创建、基线快照、run、验证结论、rebase、spec 应用、归档、回滚）都会写入
 `.cometflow/runtime/changes/<name>/journal.jsonl`。
+
+journal 超过 1 MiB 会自动轮转为 `journal.1.jsonl` 并保留一代；`readChangeJournal` 默认返回最近
+2000 条事件。落盘的证据（journal、命令输出、验证理由）会经过凭证脱敏，出现 `***redacted***` 属预期；
+Builder/Verifier 提示词只裁剪高置信凭证，不会改动 spec 里的契约示例。
 
 归档写入是事务化的：先 stage 提案与被覆盖文件备份，再逐个提交；任一步失败会回滚已写入的目标，
 并把事务停在 `rolled-back`。未完成的事务会被 `cometflow doctor` 报为 `incomplete-spec-transaction`。

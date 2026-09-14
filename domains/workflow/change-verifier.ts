@@ -3,6 +3,7 @@ import type { AgentRunner } from '../../platform/agents/types.js';
 import { extractAnchorSection } from '../spec/spec-parse.js';
 import { readSpecBlob } from '../spec/spec-version.js';
 import { readTextFile } from '../../platform/fs/read-file.js';
+import { redactSecrets } from '../../platform/io/redact.js';
 import path from 'node:path';
 import { appendChangeEvent } from './change-journal.js';
 import { collectImplementationScope, resolveScopeAllow } from './implementation-scope.js';
@@ -117,7 +118,8 @@ export function buildVerifierPrompt(input: VerifierPromptInput): string {
   lines.push('```');
   lines.push('');
   lines.push('A deterministic check that FAILED cannot be overridden to passed.');
-  return lines.join('\n');
+  // 同 Builder：只裁剪高置信凭证，保留 spec 原文的契约示例。
+  return redactSecrets(lines.join('\n'));
 }
 
 const YAML_BLOCK = /```ya?ml\s*\n([\s\S]*?)```/u;

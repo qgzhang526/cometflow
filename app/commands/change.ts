@@ -11,6 +11,12 @@ import {
   resolveScopeAllow,
 } from '../../domains/workflow/implementation-scope.js';
 import { readChangeJournal } from '../../domains/workflow/change-journal.js';
+import {
+  applyEvidenceGc,
+  collectEvidenceUsage,
+  formatBytes,
+  planEvidenceGc,
+} from '../../domains/workflow/evidence-retention.js';
 import { readProjectConfig, type VerificationMode } from '../../domains/project/config.js';
 import { listChangeStates } from '../../domains/workflow/change-list.js';
 import { resumeChange } from '../../domains/workflow/change-resume.js';
@@ -157,6 +163,15 @@ export async function changeScopeCommand(
       [change.kind, change.path, change.attributed ? '[' + change.attribution + ']' : '[OUTSIDE]'].join(' '),
     );
   }
+  if (scope.omittedCount > 0) {
+    console.log('omitted: ' + scope.omittedCount + '（未参与比对，快照不完整）');
+    for (const entry of scope.omitted.slice(0, 5)) {
+      console.log('  - ' + entry.path + ' ' + entry.reason + (entry.size === null ? '' : ' (' + entry.size + ' bytes)'));
+    }
+    if (scope.omissionOverflow) {
+      console.log('  …另有 ' + scope.omissionOverflow.count + ' 条，折叠哈希 ' + scope.omissionOverflow.hash.slice(0, 12));
+    }
+  }
   console.log('changes: ' + scope.changes.length + ' unattributed: ' + scope.unattributed.length);
   if (scope.unattributed.length > 0) {
     console.log('unattributed: ' + scope.unattributed.join(', '));
@@ -182,6 +197,61 @@ export async function changeJournalCommand(
   for (const event of events) {
     console.log(event.at + ' ' + event.event + (event.phase ? ' phase=' + event.phase : '') + (event.data ? ' ' + JSON.stringify(event.data) : ''));
   }
+}
+
+/**
+ * 证据回收。
+ *
+ * 默认只做计划（dry-run）：列出每个 change 的占用与可回收项。
+ * `--apply` 才真正删除，且只碰 `.cometflow/runtime/` 下可重新推导的内容。
+ */
+export async function changeGcCommand(
+  targetPath: string,
+  options: { apply?: boolean; json?: boolean } = {},
+): Promise<void> {
+  const projectRoot = root(targetPath);
+  const plan = await planEvidenceGc(projectRoot);
+  const usage = await collectEvidenceUsage(projectRoot);
+
+  if (options.apply === true) {
+    const result = await applyEvidenceGc(projectRoot, plan);
+    if (options.json) {
+      console.log(JSON.stringify({ plan, result }, null, 2));
+      return;
+    }
+    for (const entry of result.removed) {
+      console.log('removed ' + entry.path + ' (' + formatBytes(entry.bytes) + ')');
+    }
+    for (const change of result.rotatedJournals) {
+      console.log('rotated journal for ' + change);
+    }
+    console.log('freed ' + formatBytes(result.freedBytes));
+    return;
+  }
+
+  if (options.json) {
+    console.log(JSON.stringify({ usage, plan }, null, 2));
+    return;
+  }
+  console.log('evidence usage: ' + formatBytes(plan.totalBytes) + ' across ' + usage.length + ' change(s)');
+  for (const entry of usage.slice(0, 10)) {
+    console.log(
+      '  ' +
+        entry.change +
+        (entry.archived ? ' [archived]' : ' [active]') +
+        ' ' +
+        formatBytes(entry.bytes) +
+        ' / ' +
+        entry.files +
+        ' files',
+    );
+  }
+  console.log('reclaimable: ' + formatBytes(plan.reclaimableBytes));
+  for (const candidate of plan.candidates.slice(0, 20)) {
+    console.log('  - ' + candidate.change + ' ' + candidate.reason + ' ' + formatBytes(candidate.bytes) + ' ' + candidate.path);
+  }
+  if (plan.candidates.length === 0) console.log('  (nothing to reclaim)');
+  else console.log('run cometflow change gc . --apply to remove them');
 }
 
 export async function changeArchiveCommand(name: string, targetPath: string): Promise<void> {

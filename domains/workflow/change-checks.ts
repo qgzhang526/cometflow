@@ -2,6 +2,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { runCommand } from '../../platform/process/spawn-command.js';
 import { readTextFile } from '../../platform/fs/read-file.js';
+import { redactSecrets } from '../../platform/io/redact.js';
 import { extractAnchorSection } from '../spec/spec-parse.js';
 import { readSpecBlob } from '../spec/spec-version.js';
 import { readChangeState } from './change-store.js';
@@ -180,8 +181,9 @@ export async function runAcceptanceChecks(
       passed: outcome.exitCode === 0 && !outcome.timedOut,
       exitCode: outcome.exitCode,
       timedOut: outcome.timedOut,
-      stdout: outcome.stdout.slice(0, 8_000),
-      stderr: outcome.stderr.slice(0, 8_000),
+      // 命令输出会落盘成证据，按 aggressive 档裁剪（含 `token: xxx` 这类键值）。
+      stdout: redactSecrets(outcome.stdout, { aggressive: true }).slice(0, 8_000),
+      stderr: redactSecrets(outcome.stderr, { aggressive: true }).slice(0, 8_000),
       reason:
         outcome.exitCode === 0
           ? 'check passed'

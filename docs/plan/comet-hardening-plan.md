@@ -1,6 +1,6 @@
 # Comet 借鉴加固计划（012 的 9 项）
 
-状态：H1 已完成（M1 达成），H2/H3 待开始
+状态：H1、H2 已完成（M1、M2 达成），H3 待开始
 来源：[012-comet-borrowings.md](../design/012-comet-borrowings.md) 第二节「建议后续」
 前置依赖：ADR 0012（spec 版本即产物）、ADR 0013（验收可执行且不可自证）
 
@@ -24,9 +24,9 @@
 | 12 | 原子写入（fsync + rename） | 5 | H1 ✅ | M |
 | 11 | 两阶段状态迁移日志 | 4 | H1 ✅ | M |
 | 8 | 规范 JSON 哈希（带域标签） | 1 | H1 ✅ | S |
-| 9 | 快照 manifest 记录 omission | 2 | H2 | S |
-| 13 | 凭证脱敏 | 6 | H2 | S |
-| 16 | 证据保留上限 | 9 | H2 | M |
+| 9 | 快照 manifest 记录 omission | 2 | H2 ✅ | S |
+| 13 | 凭证脱敏 | 6 | H2 ✅ | S |
+| 16 | 证据保留上限 | 9 | H2 ✅ | M |
 | 10 | 有界修复循环 + 停滞检测 | 3 | H3 | M |
 | 14 | git 来源绑定 | 7 | H3 | M |
 | 15 | Hook Router 单一归属 | 8 | H3 | L |
@@ -71,26 +71,32 @@
 
 ## 批次 H2：证据完整性
 
-### H2-1 快照 manifest 记录 omission（012 #9）
+### H2-1 快照 manifest 记录 omission（012 #9）✅ 已完成
 
 - **目标**：实现范围快照不再「静默跳过」——跳过什么、为什么跳过、跳过多少，都要有记录。
 - **落点**：`implementation-scope.ts` 采集时记录 `omitted: { path, reason, size }[]` 与 `complete: false`；`change scope --json` 暴露；`change verify` 在「声明了 module 且存在 omission」时给出可配置的失败级别。
 - **验收标准**：构造一个超过 `MAX_SCOPE_FILE_BYTES` 的文件与一个超过 `MAX_SCOPE_FILES` 的目录，快照记录 omission 且 `complete: false`；`change scope` 打印跳过原因。
 - **风险**：仓库较大时 omission 可能很多，输出需要截断策略（与 H2-3 一起设计）。
+- **实现**：`implementation-scope.ts` 记录 `omitted[{path,reason,size}]` 与 `omittedCount`；明细上限 200 条，超出折叠为计数与哈希；`scope.omission_policy`（warn/fail）决定是否致命；`change scope` 与 `verify` 都会输出。
+- **证据**：`test/domains/evidence-retention.test.ts` 的 omission 三例（超大文件留痕、报告标记不完整、明细折叠）。
 
-### H2-2 凭证脱敏（012 #13）
+### H2-2 凭证脱敏（012 #13）✅ 已完成
 
 - **目标**：journal、Verifier/Builder 提示词、verification.md 中不出现 token、密钥、连接串口令。
 - **落点**：新增 `platform/io/redact.ts`；在 `change-journal` 写入、`buildChangePrompt` / `buildVerifierPrompt` 组装、agent stdout 摘要落盘三处统一调用。
 - **验收标准**：单测覆盖 `sk-`、`ghp_`、`Bearer `、`AKIA`、`postgres://user:pass@host` 等形态；断言 journal 与 prompt 中不出现原文，且脱敏后的哈希/长度信息仍可用于排查。
 - **风险**：过度脱敏会把正常内容改花，需要白名单与最小化匹配范围。
+- **实现**：`platform/io/redact.ts` 两档规则；接入 journal（aggressive）、命令输出（aggressive）、verification 理由（aggressive）、Builder/Verifier 提示词（高置信档，避免改动 spec 契约示例）。
+- **证据**：`test/platform/redact.test.ts`（7 例，含「非 aggressive 档不得改动 spec 契约示例」的回归）。
 
-### H2-3 证据保留上限（012 #16）
+### H2-3 证据保留上限（012 #16）✅ 已完成
 
 - **目标**：journal、verification、evidence 不随运行时长无限增长。
 - **落点**：`change-journal` 按条数或字节数轮转（`journal.1.jsonl` + 折叠摘要）；`change archive` 收敛该 change 的 runtime 目录；`doctor` 报告占用与可回收量；新增 `cometflow change gc [--apply]`。
 - **验收标准**：写入超过阈值的 journal 后自动轮转，读取端仍能返回「摘要 + 最近 N 条完整事件」；`gc --apply` 只删除已归档 change 的 runtime 证据，且不触碰 `changes/<name>/` 与 `.cometflow-history/`。
 - **风险**：误删证据会破坏审计，必须先做 `--dry-run` 与白名单。
+- **实现**：journal 超阈值自动轮转（`journal.1.jsonl` + 轮转摘要事件），`readChangeJournal` 拼接历史与当前并支持 limit；新增 `change gc [--apply]`，dry-run 只输出计划、apply 只删 `.cometflow/runtime/` 下可推导内容；doctor 报告占用与可回收量。
+- **证据**：`test/domains/evidence-retention.test.ts` 的轮转与 gc 六例（含「apply 后 journal 与 change 状态必须仍在」）。
 
 ---
 
@@ -124,7 +130,7 @@
 | 里程碑 | 内容 | 完成标志 |
 |---|---|---|
 | M1 | H1 全部落地 ✅ | 崩溃注入单测通过；`doctor` 能识别孤儿临时文件与滞留迁移；plan/state 有内容哈希（48 测试文件 / 230 例） |
-| M2 | H2 全部落地 | 快照 omission 可见；脱敏单测覆盖常见凭证形态；journal 轮转与 `gc` 可用 |
+| M2 | H2 全部落地 ✅ | 快照 omission 可见；脱敏单测覆盖常见凭证形态；journal 轮转与 `gc` 可用（50 测试文件 / 250 例） |
 | M3 | H3 全部落地 | 停滞自动停机；分支漂移阻断；多 change 场景按指针精确路由 |
 
 ## 完成定义（DoD）

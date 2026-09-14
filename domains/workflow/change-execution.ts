@@ -11,6 +11,7 @@ import { hashSpecText } from '../spec/spec-hash.js';
 import { readSpecBlob, recordSpecVersion, refreshSpecBaseline } from '../spec/spec-version.js';
 import { readTextFile } from '../../platform/fs/read-file.js';
 import { readProjectConfig, type VerificationMode } from '../project/config.js';
+import { redactSecrets } from '../../platform/io/redact.js';
 import { commitTransition, readChangeState, writeChangeState } from './change-store.js';
 import { applyChangeTransition } from './change-transitions.js';
 import { appendChangeEvent } from './change-journal.js';
@@ -115,7 +116,7 @@ export async function buildChangePrompt(projectRoot: string, name: string): Prom
   let brief = '';
   try { brief = await fs.readFile(path.join(dir, 'brief.md'), 'utf8'); } catch { brief = state.name; }
   const specSection = await frozenSpecSection(projectRoot, state);
-  return [
+  const prompt = [
     'You are the Builder for a CometFlow change.',
     'Implement the change described in brief.md and satisfy every acceptance criterion.',
     'The spec section below is the frozen contract for this change; treat it as the source of truth.',
@@ -140,6 +141,9 @@ export async function buildChangePrompt(projectRoot: string, name: string): Prom
     '## brief.md',
     brief,
   ].join('\n');
+  // 提示词会带上人写的 brief 与 spec 原文，其中的高置信凭证先裁剪再送给 agent。
+  // 这一档不启用通用键值规则，避免把 spec 里的 `password: string` 之类契约示例改花。
+  return redactSecrets(prompt);
 }
 
 export async function runChange(projectRoot: string, name: string, runner: AgentRunner): Promise<ChangeRunOutcome> {
@@ -273,6 +277,7 @@ export async function verifyChange(
   // 独立 Verifier：Builder 不能自证。
   let verifierAgent: string | null = null;
   const violations: string[] = [];
+  const notes: string[] = [];
   if (mode === 'checks+agent' || mode === 'agent-required') {
     const runner = options.runner;
     if (!runner && mode === 'agent-required') {
@@ -322,6 +327,18 @@ export async function verifyChange(
       'implementation baseline is missing; module boundary ' + state.module + ' could not be verified',
     );
   }
+  // 快照有 omission 就说明「有东西没被比对」；是否致命由 scope.omission_policy 决定。
+  const omissionPolicy = config.scope?.omission_policy ?? 'warn';
+  if (scope.omittedCount > 0) {
+    const summary =
+      scope.omittedCount +
+      ' path(s) were not compared (' +
+      scope.omitted.slice(0, 3).map((entry) => entry.path + ': ' + entry.reason).join(', ') +
+      (scope.omittedCount > 3 ? ' 等' : '') +
+      ')';
+    if (omissionPolicy === 'fail') violations.push('implementation scope is incomplete: ' + summary);
+    else notes.push('scope omission: ' + summary);
+  }
 
   const reportPassed = verdicts.every((verdict) => verdict.result === 'passed') && violations.length === 0;
 
@@ -340,8 +357,19 @@ export async function verifyChange(
         : scope.complete
           ? 'complete'
           : 'incomplete'),
-    ...verdicts.map((entry) => '- ' + entry.id + ': ' + entry.result + ' [' + entry.source + '] - ' + entry.reason),
-    ...violations.map((entry) => '- violation: ' + entry),
+    ...verdicts.map(
+      (entry) =>
+        '- ' +
+        entry.id +
+        ': ' +
+        entry.result +
+        ' [' +
+        entry.source +
+        '] - ' +
+        redactSecrets(entry.reason, { aggressive: true }),
+    ),
+    ...violations.map((entry) => '- violation: ' + redactSecrets(entry, { aggressive: true })),
+    ...notes.map((entry) => '- note: ' + redactSecrets(entry, { aggressive: true })),
     'result: ' + (reportPassed ? 'pass' : 'fail'),
   ];
   await fs.mkdir(dir, { recursive: true });

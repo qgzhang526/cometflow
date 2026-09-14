@@ -3,6 +3,7 @@ import { Command } from 'commander';
 import { agentCheckCommand, agentListCommand } from '../commands/agent.js';
 import {
   changeArchiveCommand,
+  changeGcCommand,
   changeJournalCommand,
   changeListCommand,
   changeNewCommand,
@@ -221,6 +222,15 @@ change
   .option('--json', 'Output as JSON')
   .action(async (name, targetPath = '.', options) => {
     await changeJournalCommand(name, targetPath, options);
+  });
+
+change
+  .command('gc [path]')
+  .description('Report (or with --apply, reclaim) change runtime evidence')
+  .option('--apply', 'Actually remove reclaimable evidence')
+  .option('--json', 'Output as JSON')
+  .action(async (targetPath = '.', options) => {
+    await changeGcCommand(targetPath, options);
   });
 
 change
