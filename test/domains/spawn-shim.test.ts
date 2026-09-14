@@ -27,7 +27,10 @@ const progVarShim = [
   '"%_prog%"  "%dp0%\\node_modules\\pnpm\\bin\\pnpm.cjs" %*',
 ].join('\n');
 
-describe('npm shim parser', () => {
+// parseNpmShim 解析的是 Windows 的 .cmd/.bat shim，内部用 path.resolve/path.sep 处理
+// `%~dp0` 与 `%_prog%`；在 POSIX 上这些路径语义不成立，模块本身也只在 win32 分支被调用。
+// 因此这组用例按平台跳过，而不是把它改成一份跨平台的假测试。
+describe.skipIf(process.platform !== 'win32')('npm shim parser', () => {
   it('解析 exe shim（opencode 形式）', () => {
     const shimDir = 'C:\\Users\\me\\AppData\\Roaming\\npm';
     const resolved = parseNpmShim(exeShim, shimDir);

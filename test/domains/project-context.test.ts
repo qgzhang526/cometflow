@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { parseProjectContext, syncProjectContext, validateProjectContext } from '../../domains/project/context.js';
 import { validateSpecs } from '../../domains/spec/spec-validate.js';
@@ -57,7 +58,14 @@ describe('project context', () => {
 
 describe('context-aware validation', () => {
   it('spec validate accepts fixture context', async () => {
-    const result = await validateSpecs('D:/zqg/github/cometflow/test/fixtures/spec-kernel-project');
+    // 用相对本文件的解析：绝对路径只在开发机上存在，CI 上会直接读不到 fixture。
+    const fixture = path.join(
+      path.dirname(fileURLToPath(import.meta.url)),
+      '..',
+      'fixtures',
+      'spec-kernel-project',
+    );
+    const result = await validateSpecs(fixture);
     expect(result.valid).toBe(true);
   });
 

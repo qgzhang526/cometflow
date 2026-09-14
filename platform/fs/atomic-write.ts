@@ -181,7 +181,10 @@ export async function findOrphanTempFiles(
       } catch {
         continue;
       }
-      if (now - stat.mtimeMs < maxAgeMs) continue;
+      // maxAgeMs=0 语义是「不过滤」，必须显式区分：
+      // 若写成 `now - mtime < maxAgeMs`，文件 mtime 比 now 略新（CI 虚拟机时钟同步、
+      // 文件系统时间粒度）时会被误判成「刚写的」而漏报——默认调用正是 maxAgeMs=0。
+      if (maxAgeMs > 0 && now - stat.mtimeMs < maxAgeMs) continue;
       found.push({
         path: absolute,
         size: stat.size,

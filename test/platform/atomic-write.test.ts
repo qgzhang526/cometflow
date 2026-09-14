@@ -110,4 +110,17 @@ describe('orphan temp files', () => {
     expect(await findOrphanTempFiles(tmp, { maxAgeMs: 60_000 })).toEqual([]);
     expect((await findOrphanTempFiles(tmp)).map((entry) => entry.path)).toEqual([fresh]);
   });
+
+  it('reports files whose mtime is slightly in the future when no age filter is set', async () => {
+    // CI 虚拟机时钟同步会让刚创建的文件 mtime 比 Date.now() 略新；
+    // maxAgeMs=0 表示「不过滤」，此时这类文件必须照样报出来。
+    const skewed = path.join(tmp, ATOMIC_TEMP_PREFIX + 'skewed.tmp');
+    await fs.writeFile(skewed, 'clock skew');
+    const ahead = new Date(Date.now() + 5_000);
+    await fs.utimes(skewed, ahead, ahead);
+
+    expect((await findOrphanTempFiles(tmp)).map((entry) => entry.path)).toEqual([skewed]);
+    // 带年龄过滤时，未来时间戳按「刚写的」处理，不报。
+    expect(await findOrphanTempFiles(tmp, { maxAgeMs: 1_000 })).toEqual([]);
+  });
 });

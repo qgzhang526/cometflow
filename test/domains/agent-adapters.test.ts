@@ -1,3 +1,5 @@
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { createClaudeCodeRunner } from '../../platform/agents/claude-code.js';
 import { createOpenCodeRunner } from '../../platform/agents/opencode.js';
@@ -38,7 +40,13 @@ describe('flow run scheduler', () => {
   });
 
   it('builds a prompt containing the project mission', async () => {
-    const prompt = await buildFlowPrompt('D:/zqg/github/cometflow/test/fixtures/spec-kernel-project');
+    const fixture = path.join(
+      path.dirname(fileURLToPath(import.meta.url)),
+      '..',
+      'fixtures',
+      'spec-kernel-project',
+    );
+    const prompt = await buildFlowPrompt(fixture);
     expect(prompt).toContain('构建一个内部数据查询平台');
   });
 });
