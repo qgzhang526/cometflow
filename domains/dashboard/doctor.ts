@@ -15,6 +15,7 @@ import { collectProjectStatus } from './collector.js';
 import { applyJobGc, collectJobUsage, planJobGc } from '../server/job-store.js';
 import { readCasConflicts, resolveConcurrencyPolicy } from '../project/concurrency.js';
 import { forceUnlock, inspectLock } from '../../platform/fs/file-lock.js';
+import { hookGuardPath, hookStatus } from '../guard/hook-install.js';
 
 export interface DoctorFinding {
   severity: 'error' | 'warning' | 'info';
@@ -95,6 +96,65 @@ export async function runDoctor(projectRoot: string, options: DoctorOptions = {}
         (pointsAtActive
           ? '；current-change = ' + pointer!.change + '，hook 按该指针路由写入'
           : '；未指定 current-change，hook 会拒绝归属不明的写入，运行 cometflow change select <name>'),
+    });
+  }
+
+  // 写保护（ADR 0023）：只在**装过**的项目里产生需要处理的 findings。
+  // 没装只给 info —— 写保护是显式安装的增强，不是项目健康的前提，
+  // 否则每个没装 hook 的项目都会「需要关注」，doctor 会被人直接无视。
+  const guard = await hookStatus(projectRoot, 'claude-code');
+  const installHint = '运行 cometflow hook install . --platform claude-code 重新安装';
+  if (guard.entries > 0 && !guard.guardExists) {
+    findings.push({
+      severity: 'error',
+      code: 'hook-guard-missing',
+      message:
+        'claude-code 的 hook 条目还在，但守卫脚本 ' +
+        hookGuardPath(projectRoot) +
+        ' 缺失：平台的每次写入都会因为 hook 命令失败而报错；' +
+        installHint,
+    });
+  } else if (guard.entries === 0 && guard.guardExists) {
+    findings.push({
+      severity: 'warning',
+      code: 'hook-entry-missing',
+      message: '守卫脚本存在但 settings.json 里没有对应条目：写保护不会生效；' + installHint,
+    });
+  }
+  if (guard.installed && guard.guardOutdated) {
+    findings.push({
+      severity: 'warning',
+      code: 'hook-guard-outdated',
+      message:
+        '守卫脚本与当前版本的生成器不一致（升级 cometflow 不会自动更新它，旧版可能放过越界写入）：' +
+        installHint,
+    });
+  }
+  if (guard.installed && !guard.cli.resolved) {
+    findings.push({
+      severity: 'error',
+      code: 'hook-cli-missing',
+      message:
+        '守卫要调用的 CLI 解析不到（' +
+        guard.cli.command +
+        '：' +
+        (guard.cli.detail ?? '未知原因') +
+        '）：按 ADR 0023 决策 5，守卫在 CLI 不可用时**放行**，写保护等于没有生效；' +
+        '把 cometflow 放进 PATH，或用 COMETFLOW_CLI 指定可用的命令',
+    });
+  }
+  if (guard.installed && !guard.guardOutdated && guard.cli.resolved) {
+    findings.push({
+      severity: 'info',
+      code: 'hook-installed',
+      message: 'claude-code 写保护已安装且可用（守卫调用 ' + guard.cli.path + '）',
+    });
+  }
+  if (!guard.installed && !guard.guardExists && guard.entries === 0) {
+    findings.push({
+      severity: 'info',
+      code: 'hook-not-installed',
+      message: '未安装平台写保护（可选）：装它之后 agent 越界写入会在工具层被拦下',
     });
   }
 

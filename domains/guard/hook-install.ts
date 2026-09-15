@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { atomicWriteText } from '../../platform/fs/atomic-write.js';
+import { resolveCommand, type CommandResolution } from '../../platform/process/resolve-command.js';
 import { hashSpecText } from '../spec/spec-hash.js';
 
 export const HOOK_PLATFORMS = ['claude-code', 'opencode', 'codex'] as const;
@@ -234,21 +235,49 @@ export interface HookStatusResult {
   settingsPath: string | null;
   entries: number;
   drift: string | null;
+  /**
+   * 已安装的守卫脚本内容与**当前生成器**的输出是否一致。
+   *
+   * 升级 `cometflow` 不会自动更新已经装进项目的守卫脚本；本轮修掉的「Windows 参数被空格切碎」
+   * 正是生成器缺陷——装了旧版脚本的项目仍在静默放行，而今天没有任何地方能看出来。
+   */
+  guardOutdated: boolean;
+  /**
+   * 守卫实际会调用的 CLI（`COMETFLOW_CLI` 或 PATH 上的 `cometflow`）能否解析。
+   *
+   * 注意：这里读的是**当前进程**的环境变量。平台拉起守卫时的环境可能不同，
+   * 所以这是「最接近的可观测代理」，不是等价物。
+   */
+  cli: CommandResolution;
 }
 
 export async function hookStatus(
   projectRoot: string,
   platform: HookPlatform,
 ): Promise<HookStatusResult> {
+  const cliCommand = process.env.COMETFLOW_CLI ?? 'cometflow';
+  const cli = resolveCommand(cliCommand, { cwd: projectRoot });
   const supported = SUPPORTED_HOOK_PLATFORMS.includes(platform);
   if (!supported) {
-    return { platform, supported: false, installed: false, guardExists: false, settingsPath: null, entries: 0, drift: null };
+    return {
+      platform,
+      supported: false,
+      installed: false,
+      guardExists: false,
+      settingsPath: null,
+      entries: 0,
+      drift: null,
+      guardOutdated: false,
+      cli,
+    };
   }
   const settingsPath = claudeSettingsPath(projectRoot);
   const guardPath = hookGuardPath(projectRoot);
   let guardExists = true;
+  let guardOutdated = false;
   try {
-    await fs.access(guardPath);
+    const installed = await fs.readFile(guardPath, 'utf8');
+    guardOutdated = hashSpecText(installed) !== hashSpecText(hookGuardSource());
   } catch {
     guardExists = false;
   }
@@ -267,6 +296,8 @@ export async function hookStatus(
     settingsPath,
     entries,
     drift: entries > 0 && !guardExists ? 'hook 条目存在但守卫脚本缺失，请重新安装' : null,
+    guardOutdated,
+    cli,
   };
 }
 

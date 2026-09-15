@@ -400,6 +400,31 @@ check(
   'status=' + guardBlockedSpacedCli.status + ' stderr=' + (guardBlockedSpacedCli.stderr ?? '').trim().slice(0, 200),
 );
 
+// doctor 必须能回答「写保护还在不在生效」——装了要看得见，失效要报 error。
+const doctorReady = cli(['doctor', '.', '--json'], { cwd: project, env: { COMETFLOW_CLI: guardCli } });
+check(
+  'doctor 报告 hook 已安装可用',
+  (doctorReady.stdout ?? '').includes('"hook-installed"'),
+  (doctorReady.stdout ?? '').trim().slice(0, 200),
+);
+rmSync(guardScript, { force: true });
+const doctorMissingGuard = cli(['doctor', '.', '--json'], { cwd: project, env: { COMETFLOW_CLI: guardCli } });
+check(
+  '守卫脚本被删后 doctor 报 error hook-guard-missing',
+  doctorMissingGuard.code !== 0 && (doctorMissingGuard.stdout ?? '').includes('"hook-guard-missing"'),
+  'code=' + doctorMissingGuard.code + ' ' + (doctorMissingGuard.stdout ?? '').trim().slice(0, 200),
+);
+expectOk('hook install（复原守卫脚本）', ['hook', 'install', '.', '--platform', 'claude-code'], project);
+const doctorBadCli = cli(['doctor', '.', '--json'], {
+  cwd: project,
+  env: { COMETFLOW_CLI: path.join(project, 'nope', 'cometflow') },
+});
+check(
+  'CLI 失效时 doctor 报 error hook-cli-missing（守卫会放行，写保护等于没有）',
+  doctorBadCli.code !== 0 && (doctorBadCli.stdout ?? '').includes('"hook-cli-missing"'),
+  'code=' + doctorBadCli.code + ' ' + (doctorBadCli.stdout ?? '').trim().slice(0, 200),
+);
+
 expectOk('change select --clear', ['change', 'select', 'stall-demo', '.', '--clear'], project);
 expectDenied(
   '无指针时拒绝归属不明的写入',

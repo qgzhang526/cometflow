@@ -25,7 +25,7 @@
 ## 后果
 
 - Claude Code 用户在 `cometflow hook install --platform claude-code` 之后，agent 写入模块外文件会被平台自身拦下。
-- `hook status` 报告已装/未装/守卫脚本缺失（drift）；`doctor` 后续可复用同一接口。
+- `hook status` 报告已装/未装/守卫脚本缺失（drift）；`doctor` 复用同一接口汇总写保护状态（见文末「补充」）。
 - opencode / codex 用户暂时只能依赖 `hook check` 手工接入；等拿到各自可靠的 hook 契约再实现。
 - 守卫依赖 `cometflow` 在 PATH 上（或用 `COMETFLOW_CLI` 指定），这一点在安装输出里明确提示。
 
@@ -91,3 +91,20 @@ CLI 2.1.237）跑过一次，两个用例都拿到预期结果，且在**路径�
 且 CLI 直连 `api.anthropic.com` 受区域限制（403，需代理）。实际跑通用的是桌面应用的**本地推理网关**
 （`ANTHROPIC_BASE_URL` / `ANTHROPIC_AUTH_TOKEN` 指向 `http://127.0.0.1:15721/claude-desktop`）。
 完整步骤见 [platform-next-plan.md](../plan/platform-next-plan.md) 的「无头会话的环境结论」。
+
+## 补充（platform-next-plan-2 的 P1）：`doctor` 汇总写保护状态
+
+装 hook 是一次性动作，**生效**却是持续状态：守卫脚本可能被删（平台每次写入都会因 hook 命令失败而报错）、
+可能是升级前的旧版（决策 3 里「猜错格式会静默失效」的同类风险，只是换成了「生成器修了但项目里那份没更新」）、
+守卫要调的 CLI 也可能解析不到（决策 5 的放行分支，等于写保护消失）。这三种情况此前**都不可见**。
+
+因此把 `hookStatus()` 的两个新事实接进 `doctor`：
+
+- `guardOutdated`：把已安装的守卫脚本与 `hookGuardSource()` 的**当前输出**做哈希比对——
+  用生成器而不是写死常量，升级后不会误报；
+- `cli`：守卫实际会调用的命令能否解析（`platform/process/resolve-command.ts`，
+  只读、不抛错，支持 `node "x.js"` 这类命令行前缀与未加引号的带空格路径）。
+
+分级原则：**未安装只给 info**（写保护是可选增强，不是项目健康的前提，否则 doctor 会被无视）；
+「条目在但脚本缺失」和「CLI 解析不到」都是 error，因为前者让平台每次写入报错、后者让写保护静默失效。
+判定细节与 `--json` 退出码的一致性见 USAGE §13.1。

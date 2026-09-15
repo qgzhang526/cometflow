@@ -1315,6 +1315,23 @@ cometflow hook uninstall . --platform claude-code
   所以任何真实判定都不会被误判成「CLI 不在」而放行。
 - 卸载是可逆的：安装时备份原始 `settings.json`；未被用户改动过就逐字还原，改过则只摘除 CometFlow 自己的条目。
 
+#### 用 `doctor` 确认写保护还在生效
+
+装了 hook 不等于写保护还在生效——守卫脚本可能被删、可能是升级前的旧版，`COMETFLOW_CLI` 也可能指向失效路径
+（那种情况下守卫按上文**放行**，等于没有防护）。`cometflow doctor` 会把这些一次性报出来：
+
+| 情况 | severity | code |
+|---|---|---|
+| 条目还在、守卫脚本缺失 | error | `hook-guard-missing` |
+| 守卫脚本存在、配置里没有条目 | warning | `hook-entry-missing` |
+| 守卫脚本与当前版本的生成器不一致（升级后未重装） | warning | `hook-guard-outdated` |
+| 守卫要调用的 CLI 解析不到（会静默放行） | error | `hook-cli-missing` |
+| 已安装且可用 | info | `hook-installed` |
+| 未安装（写保护是可选增强，不影响健康） | info | `hook-not-installed` |
+
+`hook status --json` 暴露同样的字段（`guardOutdated` / `cli`），面板与 CLI 同源。
+另外 `doctor --json` 的**退出码与人类可读模式一致**：不健康时退出码 1，机器可读不影响结论。
+
 ### 13.2 度量（metrics）
 
 `cometflow metrics` 把已经记录的证据（journal、change 状态、spec 版本链、漂移）聚合成两组数字，**纯只读**：

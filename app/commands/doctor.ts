@@ -13,6 +13,9 @@ export async function doctorCommand(
   });
   if (options.json) {
     console.log(JSON.stringify(report, null, 2));
+    // `--json` 只改变**输出格式**，不改变结论：机器可读模式同样要能用退出码判断健康，
+    // 否则调用方（脚本、门禁）拿到一份 healthy:false 的报告却看到退出码 0。
+    if (!report.healthy) process.exitCode = 1;
     return;
   }
   for (const finding of report.findings) {
