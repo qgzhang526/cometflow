@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { parse, stringify } from 'yaml';
 import { builtInAgentRunners } from '../../platform/agents/registry.js';
+import { parseMetricsGateConfig } from '../metrics/metric-gates.js';
 import type { SchedulerMode } from '../scheduler/idle-governor.js';
 
 export const CONFIG_SCHEMA = 'cometflow.project.v1';
@@ -45,6 +46,16 @@ export interface ProjectConfig {
   concurrency?: ConcurrencyConfig;
   verification?: VerificationConfig;
   git?: GitConfig;
+  gates?: GatesConfig;
+}
+
+/**
+ * 门禁配置（P3）。目前只有指标阈值一节：
+ * `gates.metrics.<指标名>: { min | max | direction | tolerance }`。
+ * 不配就是「不新增约束」，与这一批之前的行为逐字一致。
+ */
+export interface GatesConfig {
+  metrics?: Record<string, unknown>;
 }
 
 /**
@@ -210,6 +221,8 @@ export function mergeProjectConfigOverride(
   if (Object.keys(merged.scope).length === 0) delete merged.scope;
   merged.verification = { ...(base.verification ?? {}), ...(patch.verification ?? {}) };
   if (Object.keys(merged.verification).length === 0) delete merged.verification;
+  merged.gates = { ...(base.gates ?? {}), ...(patch.gates ?? {}) };
+  if (Object.keys(merged.gates).length === 0) delete merged.gates;
   return merged;
 }
 
@@ -317,6 +330,13 @@ export function validateProjectConfig(config: ProjectConfig): string[] {
 
   if (config.git?.allow_drift !== undefined && typeof config.git.allow_drift !== 'boolean') {
     errors.push('git.allow_drift must be a boolean');
+  }
+
+  // 指标阈值：未知指标名 / 非数字 / min > max 都要报出来（静默忽略等于给出一条假约束）。
+  if (config.gates !== undefined) {
+    if (config.gates.metrics !== undefined) {
+      errors.push(...parseMetricsGateConfig(config.gates.metrics).errors);
+    }
   }
 
   return errors;

@@ -347,6 +347,24 @@ check(
   !existsSync(path.join(project, '.git', 'hooks', 'pre-commit')),
 );
 
+// P3：指标阈值可配。gate check 在这份副本上是否整体通过取决于回归改动，所以只断言
+// 「配置的阈值真的被采纳」——挑一个必然是数字的指标（specs = spec 数量），把上限设成 -1，
+// 它必定被触发；文案里必须出现这条判定。
+const gateConfigPath = path.join(project, '.cometflow', 'config.yaml');
+const gateConfigBefore = readFileSync(gateConfigPath, 'utf8');
+writeFileSync(
+  gateConfigPath,
+  (gateConfigBefore.endsWith('\n') ? gateConfigBefore : gateConfigBefore + '\n') +
+    'gates:\n  metrics:\n    specs:\n      max: -1\n',
+);
+const gatedCheck = cli(['gate', 'check', '.', '--json'], { cwd: project });
+check(
+  'gates.metrics 的绝对阈值被 gate check 采纳',
+  (gatedCheck.stdout ?? '').includes('specs 超过上限'),
+  (gatedCheck.stdout ?? '').trim().slice(0, 200),
+);
+writeFileSync(gateConfigPath, gateConfigBefore);
+
 expectOk('classic status', ['classic', 'status', 'classic-open', '.'], project);
 for (const event of ['open-complete', 'design-complete', 'build-complete', 'verify-pass', 'archive-complete']) {
   expectOk('classic ' + event, ['classic', 'transition', 'classic-open', event, '.'], project);

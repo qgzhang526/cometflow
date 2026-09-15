@@ -85,6 +85,33 @@ describe('spec gates（CI 与本地提交门禁的唯一实现）', () => {
     expect(step(result, 'metrics baseline')?.ok).toBe(true);
     await expect(fs.access(path.join(project, 'metrics-baseline.json'))).resolves.toBeUndefined();
   });
+
+  it('P3：配了绝对阈值就按阈值判（默认不做任何新增约束）', async () => {
+    const project = await copyFixture();
+    const configPath = path.join(project, '.cometflow', 'config.yaml');
+    await fs.appendFile(configPath, 'gates:\n  metrics:\n    anchor_coverage_rate:\n      min: 0.8\n');
+
+    const result = await runSpecGates(project);
+
+    expect(result.ok).toBe(false);
+    expect(step(result, 'metrics thresholds')?.ok).toBe(true);
+    expect(step(result, 'metrics baseline')?.detail).toContain('anchor_coverage_rate 低于下限');
+  });
+
+  it('P3：阈值配置本身有问题要报错，不能当成没配', async () => {
+    const project = await copyFixture();
+    await fs.appendFile(
+      path.join(project, '.cometflow', 'config.yaml'),
+      'gates:\n  metrics:\n    coverage_rate:\n      min: 1\n',
+    );
+
+    const result = await runSpecGates(project);
+    const thresholds = step(result, 'metrics thresholds');
+
+    expect(result.ok).toBe(false);
+    expect(thresholds?.ok).toBe(false);
+    expect(thresholds?.detail).toContain('不是已知指标');
+  });
 });
 
 describe('compareToBaseline', () => {

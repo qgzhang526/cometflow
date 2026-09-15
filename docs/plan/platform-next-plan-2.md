@@ -1,6 +1,6 @@
 # 平台侧第二批：把门禁延伸到运行期与本地提交
 
-状态：P1 / P2 已完成；P3 规划中
+状态：P1 / P2 / P3 全部完成
 来源：[platform-next-plan.md](./platform-next-plan.md) 的 A/B/D 完成后的剩余方向
 前置依赖：[ADR 0023](../decisions/0023-platform-hook-install.md)、[ci-plan.md](./ci-plan.md)、[metrics-plan.md](./metrics-plan.md)
 
@@ -183,11 +183,25 @@
 
 ### 验收标准
 
-- [ ] 无配置：与今天逐字一致（含 fixture 基线对比的通过/失败结论）
-- [ ] `anchor_coverage_rate: { min: 0.8 }` 且实际 0.75 → 门禁红，并说明是绝对阈值还是基线退化
-- [ ] `drift_count: { max: 0 }` 且实际 1 → 门禁红
-- [ ] 未知指标名 → 报错（不静默忽略）
-- [ ] `--update-baseline` 只更新基线，不覆盖配置里的阈值
+- [x] 无配置：与今天逐字一致（含 fixture 基线对比的通过/失败结论）
+- [x] `anchor_coverage_rate: { min: 0.8 }` 且实际 0.75 → 门禁红，并说明是绝对阈值还是基线退化
+- [x] `drift_count: { max: 0 }` 且实际大于 0 → 门禁红
+- [x] 未知指标名 → 报错（不静默忽略），`PUT /config` 走同一份校验
+- [x] `--update-baseline` 只更新基线，不覆盖配置里的阈值
+
+### 实现记录
+
+- 落点：新增 `domains/metrics/metric-gates.ts`（**叶子模块**：方向表、阈值解析与校验、判定、可读描述；
+  不 import 任何东西，避免 `project/config` ↔ `gates` 的循环引用）、`domains/gates/metrics-gate.ts`（读项目配置）、
+  `domains/project/config.ts`（`gates` 字段 + 复用同一份校验）、`domains/gates/spec-gates.ts`（新增
+  `metrics thresholds` 判定项）、`app/commands/metrics.ts`（回显生效阈值）。
+- 语义：`min`/`max` 判当前值；`direction`/`tolerance` 覆盖默认方向与容差；**不配就不新增约束**——
+  升级版本不应该让任何项目突然变红。
+- 配置错误（未知指标名、非数字、`min > max`、非法方向、负容差）一律让门禁变红并列出可用指标名，
+  同一份校验也用在 `PUT /config` 上（否则界面能存下一份永远不生效的配置）。
+- 测试：`test/domains/metric-gates.test.ts` 12 例 + `spec-gates` 新增 2 例；回归脚本新增 1 步
+  （把 min 设成不可能达到的值，断言判定里真的出现它）。
+- 文档：USAGE §13.3 / §14.1。
 
 ### 风险与取舍
 
@@ -203,7 +217,7 @@
 |---|---|---|
 | P1 | doctor 汇总 hook 状态 ✅ | 已安装/缺失/条目缺失/过期/CLI 失效都能报出来，未安装只给 info；`doctor --json` 退出码与结论一致 |
 | P2 | git 提交门禁 ✅ | 本地 commit 与 CI 同源判定（CI 脚本退化为薄壳）；已有 pre-commit 链式安装与逐字还原；顺带修掉 `spec validate` / `plan validate` 恒返回 0 |
-| P3 | metrics 阈值可配 | 无配置行为不变；配置非法报错；阈值在 `metrics` 输出里可见 |
+| P3 | metrics 阈值可配 ✅ | 无配置行为不变；配置非法报错（`PUT /config` 同源）；阈值在 `metrics` 输出里可见 |
 
 ## 完成定义（DoD）
 

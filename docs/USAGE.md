@@ -1385,7 +1385,11 @@ cometflow gate uninstall . --git-hooks                # 卸载（逐字还原原
 | `doctor` | 项目健康（含写保护状态、git 漂移、证据占用、残留临时文件、滞留锁） |
 | `change gc (dry-run)` | 证据回收计划可计算（不修改任何东西） |
 | `plan validate <goal>` | 计划覆盖度、依赖环、模块归属；跳过故意损坏的 `broken.*` |
-| `metrics baseline` | 关键指标只许持平或变好（方向见 §15） |
+| `metrics thresholds` | `gates.metrics` 配置本身合法（未知指标名 / min>max / 非法方向直接算失败） |
+| `metrics baseline` | 关键指标只许持平或变好；配了 `min`/`max`/`tolerance` 就按配置判（见 §14.1） |
+
+> 首次在某个项目上使用：先 `cometflow gate check . --update-baseline` 生成 `metrics-baseline.json` 并提交，
+> 否则门禁会以「缺少基线」失败（这一条与 CI 完全一致，避免本地和 CI 两套语义）。
 
 安装语义：
 
@@ -1440,7 +1444,26 @@ verification:                   # 验收判定方式
   verifier_policy: warn         # Verifier 不可用时的策略：skip | warn | fail
 git:                            # git 来源绑定
   allow_drift: false            # true = 允许在历史回退/分叉后继续推进
+gates:                          # 门禁阈值（可选；不配 = 不新增约束）
+  metrics:
+    anchor_coverage_rate:
+      min: 0.8                  # 绝对下限
+    drift_count:
+      max: 0                    # 绝对上限
+    specs:
+      direction: up             # 覆盖内置方向（up | down）
+      tolerance: 1              # 相对基线允许的波动
 ```
+
+`gates.metrics` 的三条口径：
+
+1. **不配就不新增约束**：没写的指标沿用内置方向表（只许持平或变好），升级版本不会让项目突然变红。
+2. **绝对阈值与相对基线互不替代**：`min`/`max` 判当前值本身；`direction`/`tolerance` 判它相对
+   `metrics-baseline.json` 的变化。
+3. **配置错误会让门禁变红**：未知指标名、非数字、`min > max`、非法方向都会直接失败并列出可用指标名——
+   静默忽略等于给出一条假约束。同一份校验也用在 `PUT /config` 上。
+
+`cometflow metrics` 会在末尾回显**当前生效的阈值**（哪些是默认、哪些被显式配置）。
 
 ### 14.2 环境变量
 

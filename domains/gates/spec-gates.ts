@@ -3,12 +3,14 @@ import path from 'node:path';
 import { atomicWriteText } from '../../platform/fs/atomic-write.js';
 import { runDoctor } from '../dashboard/doctor.js';
 import { collectMetrics } from '../metrics/metrics-service.js';
+import { evaluateMetricsGate, METRIC_DIRECTIONS } from '../metrics/metric-gates.js';
 import type { MetricsReport } from '../metrics/types.js';
 import { validateSpecs } from '../spec/spec-validate.js';
 import { verifySpecIntegrity } from '../spec/spec-verify.js';
 import { readTaskPlan } from '../task-plan/task-plan-store.js';
 import { validateTaskPlan } from '../task-plan/task-plan-validate.js';
 import { planEvidenceGc } from '../workflow/evidence-retention.js';
+import { readMetricsGate } from './metrics-gate.js';
 
 /**
  * 只读门禁的**唯一实现**：把「spec 是不是还是唯一根源」变成一组可判定的步骤。
@@ -20,15 +22,8 @@ import { planEvidenceGc } from '../workflow/evidence-retention.js';
 export const BASELINE_FILE = 'metrics-baseline.json';
 export const BASELINE_SCHEMA = 'cometflow.metrics-baseline.v1';
 
-/** 指标方向：up = 越大越好，down = 越小越好。 */
-export const METRIC_DIRECTIONS: Readonly<Record<string, 'up' | 'down'>> = {
-  acceptance_checkable_rate: 'up',
-  anchor_coverage_rate: 'up',
-  specs: 'up',
-  capabilities: 'up',
-  versions_total: 'up',
-  drift_count: 'down',
-};
+/** 默认指标方向（配置可覆盖；语义定义在 `domains/metrics/metric-gates.ts`）。 */
+export { METRIC_DIRECTIONS } from '../metrics/metric-gates.js';
 
 export interface GateStepResult {
   name: string;
@@ -62,15 +57,7 @@ export function compareToBaseline(
   baseline: Record<string, unknown>,
   current: Record<string, number | null>,
 ): string[] {
-  const failures: string[] = [];
-  for (const [key, direction] of Object.entries(METRIC_DIRECTIONS)) {
-    const before = baseline[key];
-    const after = current[key];
-    if (typeof before !== 'number' || typeof after !== 'number') continue;
-    if (direction === 'up' && after < before) failures.push(key + ' 退化：' + before + ' → ' + after);
-    if (direction === 'down' && after > before) failures.push(key + ' 升高：' + before + ' → ' + after);
-  }
-  return failures;
+  return evaluateMetricsGate({ thresholds: {}, baseline, current }).failures;
 }
 
 function summarize(findings: { severity: string; code: string }[], limit = 3): string {
@@ -124,6 +111,9 @@ export async function runSpecGates(
 
   const report = await collectMetrics(projectRoot);
   const current = flattenMetrics(report);
+  const configured = await readMetricsGate(projectRoot);
+  // 配置本身有问题（未知指标名、min > max）必须让门禁变红：静默忽略等于给出一条假约束。
+  record('metrics thresholds', configured.errors.length === 0, configured.errors.join('; '));
   const baselinePath = path.join(projectRoot, BASELINE_FILE);
   if (options.updateBaseline === true) {
     await atomicWriteText(
@@ -144,8 +134,8 @@ export async function runSpecGates(
     record('metrics baseline', false, baselinePath + ' 无法解析');
     return { ok: false, steps };
   }
-  const regressions = compareToBaseline(baseline, current);
-  record('metrics baseline', regressions.length === 0, regressions.join('; '));
+  const failures = evaluateMetricsGate({ thresholds: configured.thresholds, baseline, current }).failures;
+  record('metrics baseline', failures.length === 0, failures.join('; '));
 
   return { ok: steps.every((step) => step.ok), steps };
 }
