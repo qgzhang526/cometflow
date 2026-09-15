@@ -103,41 +103,67 @@ ADR 0013 的原则是「实现者不能自证」，但**默认配置下 Verifier
 - 守卫脚本随项目安装（`.claude/hooks/cometflow-guard.mjs`），配置用 `$CLAUDE_PROJECT_DIR` 引用，不写死绝对路径；被拒时以退出码 2 阻止写入；CLI 不可用时放行，避免把开发环境锁死。
 - 可逆性：安装时备份原文件与「安装后内容」的哈希，卸载时未改动则逐字还原、改过则只摘自己的条目。
 - 测试：`test/domains/hook-install.test.ts` 7 例（安装 / 幂等 / 逐字还原 / drift / 拒绝猜格式）；
-  `test/domains/hook-guard-script.test.ts` 9 例**直接执行生成的守卫脚本**，喂真实 PreToolUse payload，
+  `test/domains/hook-guard-script.test.ts` 11 例**直接执行生成的守卫脚本**，喂真实 PreToolUse payload，
   断言退出码 2 与 stderr 文案（覆盖：越界拦截、模块内放行、项目路径含空格、stdin 不关闭不挂死、
-  payload 不可解析、无文件路径、`toolInput.filePath` / `notebook_path` 字段、CLI 不可用放行）。
-  回归脚本补安装→校验→卸载还原链路。
-- 未完成项：**「真实 Claude Code 会话被拦下」尚未取得端到端证据**。本机 CLI（`%LOCALAPPDATA%\Claude-3p\claude-code\2.1.237\claude.exe`）
-  `claude auth status` 返回 `loggedIn: false`，`claude -p` 直接报 `Not logged in · Please run /login`，
-  所以无法在无人工登录的前提下跑一次真实会话。当前证据层级：**守卫脚本 + 真实 payload + 真实 `cometflow` CLI**
-  （已用含空格路径的项目实测拦截/放行两侧），差的是「平台真的调用这个脚本」这一段。
+  payload 不可解析、无文件路径、`toolInput.filePath` / `notebook_path` 字段、CLI 不可用放行），其中 2 例走真实 `cometflow` CLI。
+  回归脚本补安装→校验→卸载还原链路，以及守卫脚本端到端 3 步。
+- ✅ **真实 Claude Code 会话验证通过（2026-09-15）**：无头会话里越界写入被平台拦下、模块内写入放行，含空格路径的项目同样如此。细节见下一节。
 - 文档：[ADR 0023](../decisions/0023-platform-hook-install.md)、USAGE §13.1。
 
-### 真实会话验证的两点环境结论（2026-09-15）
+### 真实会话验证：结论与证据（2026-09-15）
+
+在一个已 `init` + `spec scaffold` + `change new` + `hook install` 的项目里跑真实无头会话
+（`claude -p "..." --dangerously-skip-permissions`），两个用例都符合预期；并且刻意在**路径含空格**的项目
+（`%TEMP%\cf hook space2`）上复跑了一遍——那正是本轮修掉的「静默放行」缺陷所在的场景：
+
+| 用例 | 真实会话输出（摘录） | 文件系统结果 |
+|---|---|---|
+| `Write rogue/outside.ts`（模块外） | 「写入被项目自己的 CometFlow 守卫拦截了，文件**没有**创建，所以我不能回 DONE」+ `CometFlow 阻止了这次写入：denied: outside-module-scope` | 文件不存在 |
+| `Write src/auth/login.ts`（模块内） | `DONE` | 文件存在，内容为 `export const login = 1;` |
+
+含空格路径的项目里结果完全一致 —— ADR 0023 修订里的引号修复在**真实会话**中生效，而不只是单测里。
+模型还主动说明自己没有绕道（「没有改用 Bash 或写到别处再移动」）：这正是把约束放在平台层而不是提示词层想要的效果。
+
+> 守卫随后又因为「CLI 不在就放行」的判据过宽被收紧过一次（`efc7863`）。上表是在**那之后**重新跑的结果，
+> 也就是当前 HEAD 的守卫，不是修复过程中的中间态。
+
+### 无头会话的环境结论（2026-09-15）
 
 1. PATH 上的 `claude.exe` 是**桌面应用**（`%LOCALAPPDATA%\AnthropicClaude\app-<ver>\claude.exe`，Electron），
    不是 Claude Code CLI：`claude -p "..."` 没有任何 stdout、退出码 0，只会拉起一个应用窗口。
    真正的 CLI 在 `%LOCALAPPDATA%\Claude-3p\claude-code\<ver>\claude.exe`（`claude doctor` 也提示
    `C:\Users\<user>\.local\bin` 未安装、不在 PATH 上）。要跑无头会话，必须用完整路径或先 `claude install`。
-2. 无头会话需要**一次人工登录**（`claude auth login`，浏览器 OAuth）或 `claude setup-token`；
-   桌面应用是把自己的凭据注入子进程，不会落盘给 CLI 用（本机 `cmdkey /list` 无 Claude 条目、`~/.claude` 无凭据文件）。
+2. Anthropic 官方 OAuth 这条路在本机走不通：`claude auth login` 要求 **Max/Pro 订阅**，浏览器里那个 claude.ai 账号是免费号，
+   授权页直接回「Claude Max or Pro is required to connect to Claude Code」；CLI 直连 `api.anthropic.com` 是 **403**（区域限制），
+   走本机 Clash 代理才 401（可达）。桌面应用的凭据也不会落盘给 CLI（`cmdkey /list` 无 Claude 条目、`~/.claude` 无凭据文件）。
+3. **能跑通的方式：复用桌面应用的本地推理网关。** 本机 Claude Desktop 是 3p 部署，
+   `%LOCALAPPDATA%\Claude-3p\configLibrary\<id>.json` 里写着 `inferenceProvider: gateway`、
+   `inferenceGatewayBaseUrl: http://127.0.0.1:15721/claude-desktop` 与 bearer key（`inferenceModels` 的 `labelOverride`
+   显示真实后端是 deepseek-v4-flash 一类）。把这套网关喂给 CLI 的 `ANTHROPIC_BASE_URL` / `ANTHROPIC_AUTH_TOKEN`，
+   headless 会话即可用，**不需要任何 Anthropic 账号**。
 
-真实会话验证的复现步骤（登录后即可跑）：
+真实会话验证的复现步骤：
 
 ```powershell
-# 1. 登录真正的那份 CLI（PATH 上的 claude 是桌面应用，必须是完整路径）
-& "$env:LOCALAPPDATA\Claude-3p\claude-code\2.1.237\claude.exe" auth login
+# 0. 取本机网关配置（3p 部署才有；官方订阅账号改回 `claude auth login`）
+$cfg = Get-Content "$env:LOCALAPPDATA\Claude-3p\configLibrary\*.json" -Raw | ConvertFrom-Json
+$env:ANTHROPIC_BASE_URL   = $cfg.inferenceGatewayBaseUrl
+$env:ANTHROPIC_AUTH_TOKEN = $cfg.inferenceGatewayApiKey
 
-# 2. 在一个已 spec scaffold + change new + hook install 的项目里跑真实会话
+# 1. 指向守卫要调用的 CLI，并 cd 到已安装 hook 的项目
 $env:COMETFLOW_CLI = 'node "D:/zqg/github/cometflow/dist/app/cli/index.js"'
+Set-Location C:\path\to\project
+
+# 2. 越界写入：期望被拦
 & "$env:LOCALAPPDATA\Claude-3p\claude-code\2.1.237\claude.exe" -p "Use the Write tool to create rogue/outside.ts with exactly: export const rogue = 1; Then reply DONE." --dangerously-skip-permissions
 # 期望：写入被拦，输出含「CometFlow 阻止了这次写入：denied: outside-module-scope」
 
+# 3. 模块内写入：期望成功
 & "$env:LOCALAPPDATA\Claude-3p\claude-code\2.1.237\claude.exe" -p "Use the Write tool to create src/auth/login.ts with exactly: export const login = 1; Then reply DONE." --dangerously-skip-permissions
-# 期望：写入成功
+# 期望：写入成功，文件内容为 export const login = 1;
 ```
 
-无头会话不可用时的**干跑替代物**是上表的 `hook-guard-script` 用例——它执行的是**装到项目里的那份脚本**（`.claude/hooks/cometflow-guard.mjs`），
+上面这段依赖本机网关，属于**手工验证**，不进 CI。CI 里的等价物是 `hook-guard-script` 用例——它执行的是**装到项目里的那份脚本**（`.claude/hooks/cometflow-guard.mjs`），
 只把「平台调用脚本」这一步换成测试直接喂 payload。
 
 ---
@@ -245,7 +271,7 @@ H1-1 让**单次写入**原子，但没有任何互斥：CLI 与 `serve` 同时�
 | 里程碑 | 内容 | 完成标志 |
 |---|---|---|
 | N1 | A 落地 ✅ | 未配置项目行为不变（默认 mode 仍是 checks，不产生任何提示）+ 配置后 `verdict_sources.agent > 0` |
-| N2 | B 落地 ◐ | 守卫脚本级契约已达成并自动回归（安装/幂等/逐字还原/drift 检测 + 生成的守卫脚本在真实 payload 下端到端跑通，含 Windows 空格路径）；「真实会话被拦下」待一次**已登录**的 Claude Code CLI 会话验证（本机 CLI 未登录） |
+| N2 | B 落地 ✅ | 守卫脚本级契约已达成并自动回归（安装/幂等/逐字还原/drift 检测 + 生成的守卫脚本在真实 payload 下端到端跑通，含 Windows 空格路径）；**真实 Claude Code 无头会话已实测拦截 + 放行**，含空格路径项目同样成立 |
 | N3 | C 落地 | 并发 transition 只有一个成功；陈旧锁可回收 |
 | N4 | D 落地 ✅ | kill 后重启可恢复；失败有上限；预算累计；超时生效（7 例单测覆盖） |
 

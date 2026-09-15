@@ -70,3 +70,24 @@
 残留风险（已知、暂不处理）：Windows 走 `cmd.exe` 时 `%` 仍会被当作变量引用展开，
 所以路径里含 `%` 的项目理论上仍可能把路径传歪；`&` / `^` 等符号已被引号保护。
 真要为它兜底得把目标路径改成用环境变量传递（需要 CLI 侧配合），收益不抵成本。
+
+## 验证记录（2026-09-15）：真实 Claude Code 会话
+
+上面两条修复不只是在单测里成立 —— 用真实无头会话（`claude -p ... --dangerously-skip-permissions`，
+CLI 2.1.237）跑过一次，两个用例都拿到预期结果，且在**路径含空格**的项目里复跑一致：
+
+| 用例 | 会话输出（摘录） | 文件系统 |
+|---|---|---|
+| `Write rogue/outside.ts` | 「写入被项目自己的 CometFlow 守卫拦截了，文件**没有**创建」+ `CometFlow 阻止了这次写入：denied: outside-module-scope` | 未创建 |
+| `Write src/auth/login.ts` | `DONE` | 已创建，内容精确匹配 |
+
+模型还主动说明自己没有绕道（没改用 `Bash` 重定向、也没写到别处再移动）——这正是「约束放在工具层而不是提示词层」
+想要的效果，也再次说明本节的「守卫不覆盖间接写入」是**必须写明的边界**而非可有可无的备注。
+
+> 守卫在第二轮修订（收紧「CLI 不在」的判据、给带空格的 `COMETFLOW_CLI` 补引号）之后又重跑过同样的四个用例，
+> 结果不变；本节的验证记录对应的是当前 HEAD 的守卫。
+
+环境备注（供后来者复现）：本机 PATH 上的 `claude.exe` 是桌面应用而非 CLI；官方 OAuth 需要 Max/Pro 订阅
+且 CLI 直连 `api.anthropic.com` 受区域限制（403，需代理）。实际跑通用的是桌面应用的**本地推理网关**
+（`ANTHROPIC_BASE_URL` / `ANTHROPIC_AUTH_TOKEN` 指向 `http://127.0.0.1:15721/claude-desktop`）。
+完整步骤见 [platform-next-plan.md](../plan/platform-next-plan.md) 的「无头会话的环境结论」。
