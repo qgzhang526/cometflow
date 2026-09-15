@@ -1134,6 +1134,12 @@ token: <random>
   任务与日志会**落盘**到 `.cometflow/runtime/jobs/`（记录原子写、日志追加写 + 1 MiB 轮转、落盘前脱敏），
   因此 **serve 重启后任务中心与 eval 报告仍在**。保留策略为「最近 200 条已完成 + 30 天」双阈值，
   `doctor` 报告占用与可回收量，`cometflow doctor . --clean-jobs` 执行回收（默认只报告）。
+- **并发写保护（ADR 0021）**：spec 的 Web 写入（新建/保存/恢复）带 `ifHash` 做乐观并发检查。
+  `concurrency.specWrites: fail` 时冲突返回 **409 `concurrent-modification`**（附期望/实际哈希，界面给「重读并重试 / 确认覆盖」）；
+  默认的 `warn` 是**有期限**的过渡态：冲突照旧写入但回带 warning 并记入 `.cometflow/runtime/cas-conflicts.jsonl`，
+  `warnUntil` 到期后 `doctor` 与 `spec verify` 报 error（CI 因此变红），只能「切 fail」或「延长并写 warnReason」。
+  多文件事务（归档应用提案 spec、计划冻结、恢复历史版本）整段持 `.cometflow/runtime/lock`：
+  取不到即 **409 `lock-held`**（说明持有者），`doctor` 报告锁状态，`doctor --force-unlock` 才清理。
 - **Specs 面板 6 个页签**：12-kind 状态、脚手架、Spec 文件、验收覆盖、版本、影响与门禁。
 - **引用图页签**（W1 之后新增，共 7 个）：按 009 的引用方向表聚合 kind 之间的引用，
   点击可下钻 kind → 文件 → anchor 并列出该文件的逐条引用与位置；未解析引用红色标注，

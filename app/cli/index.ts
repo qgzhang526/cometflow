@@ -397,6 +397,7 @@ program
   .option('--json', 'Output as JSON')
   .option('--clean-temp', 'Remove leftover atomic-write temporary files')
   .option('--clean-jobs', 'Reclaim job evidence beyond the retention window')
+  .option('--force-unlock', 'Clear a leftover transaction lock after confirming the holder is gone')
   .action(async (targetPath = '.', options) => {
     await doctorCommand(targetPath, options);
   });

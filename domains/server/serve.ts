@@ -5,6 +5,7 @@ import path from 'node:path';
 import { handleApiRequest } from './api.js';
 import type { ApiContext } from './http.js';
 import { JobManager } from './jobs.js';
+import { createTicketStore } from './tickets.js';
 import { defaultWorkspaceRoot, getProject } from './workspace.js';
 
 export interface ServeOptions {
@@ -137,6 +138,7 @@ export async function startServe(options: ServeOptions = {}): Promise<ServeHandl
   const jobs = new JobManager({
     resolveProjectRoot: async (projectId) => (await getProject(workspaceRoot, projectId))?.path ?? null,
   });
+  const tickets = createTicketStore();
 
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', 'http://localhost');
@@ -144,7 +146,10 @@ export async function startServe(options: ServeOptions = {}): Promise<ServeHandl
     if (url.pathname.startsWith('/api/')) {
       const bearer = req.headers.authorization;
       const supplied = bearer?.startsWith('Bearer ') ? bearer.slice(7) : url.searchParams.get('token');
-      if (supplied !== token) {
+      // SSE 允许用一次性 ticket 换取连接（token 不再出现在查询串里）；常规请求仍只认 token。
+      const ticket = url.searchParams.get('ticket');
+      const ticketOk = url.pathname === '/api/events' && ticket !== null && tickets.consume(ticket);
+      if (supplied !== token && !ticketOk) {
         sendUnauthorized(res);
         return;
       }
@@ -163,7 +168,7 @@ export async function startServe(options: ServeOptions = {}): Promise<ServeHandl
         return;
       }
 
-      const ctx: ApiContext = { req, res, workspaceRoot, jobs, webDir };
+      const ctx: ApiContext = { req, res, workspaceRoot, jobs, webDir, tickets };
       await handleApiRequest(ctx);
       return;
     }

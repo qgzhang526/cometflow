@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startServe } from '../../domains/server/serve.js';
 import type { ServeHandle } from '../../domains/server/serve.js';
 import { hashSpecText } from '../../domains/spec/spec-hash.js';
+import { acquireLock } from '../../platform/fs/file-lock.js';
 
 /**
  * W3：change 的「为什么」在 Web 端可回答——
@@ -198,5 +199,19 @@ describe('change audit API', () => {
     expect(res.status).toBe(400);
     const body = (await res.json()) as ApiEnvelope<unknown>;
     expect(body.error?.code).toBe('invalid-change-name');
+  });
+
+  it('refuses an archive while another process holds the transaction lock', async () => {
+    // 另一个进程正在归档：这里立刻 409 并说明持有者，而不是排队等待（ADR 0021）。
+    const lock = await acquireLock(projectRoot, 'change archive other');
+    try {
+      const blocked = await post('/changes/archive-change/archive');
+      expect(blocked.status).toBe(409);
+      expect(blocked.body.error?.code).toBe('lock-held');
+      const details = blocked.body.error?.details as { lock?: { action: string } } | undefined;
+      expect(details?.lock?.action).toBe('change archive other');
+    } finally {
+      await lock.release();
+    }
   });
 });

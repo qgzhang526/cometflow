@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
-import { eventStreamUrl, hasToken, tokenRejected } from '../api/client';
+import { api, apiUrl, eventStreamUrl, hasToken, tokenRejected } from '../api/client';
 import { signalRefresh } from '../composables/useRefresh';
 import type { JobEvent } from '../api/types';
 import { useJobsStore } from './jobs';
@@ -49,7 +49,7 @@ export const useEventStore = defineStore('events', () => {
     attempts.value += 1;
     retryTimer = window.setTimeout(() => {
       retryTimer = null;
-      connect();
+      void connect();
     }, delay);
   }
 
@@ -68,14 +68,22 @@ export const useEventStore = defineStore('events', () => {
     useJobsStore().applyEvent(payload);
   }
 
-  function connect(): void {
+  async function connect(): Promise<void> {
     if (!hasToken() || tokenRejected.value) {
       connection.value = 'idle';
       return;
     }
     close();
     connection.value = attempts.value === 0 ? 'connecting' : 'reconnecting';
-    const next = new EventSource(eventStreamUrl());
+    // 优先用一次性票据换连接：token 不长住在 URL / 历史 / 代理日志里（N6）。
+    let streamUrl = eventStreamUrl();
+    try {
+      const data = await api<{ ticket: string }>('/session/ticket', { method: 'POST' });
+      streamUrl = apiUrl('/events', { ticket: data.ticket });
+    } catch {
+      // 拿不到票据时退回 token 查询串：实时刷新不能因为票据接口抖动而失效。
+    }
+    const next = new EventSource(streamUrl);
     source = next;
     next.onopen = () => {
       connection.value = 'open';
@@ -101,7 +109,7 @@ export const useEventStore = defineStore('events', () => {
   function start(): void {
     stopped = false;
     attempts.value = 0;
-    connect();
+    void connect();
   }
 
   function stop(): void {
@@ -114,7 +122,7 @@ export const useEventStore = defineStore('events', () => {
     stopped = false;
     close();
     attempts.value = 0;
-    connect();
+    void connect();
   }
 
   return { connection, lastEventAt, attempts, start, stop, reconnectNow };

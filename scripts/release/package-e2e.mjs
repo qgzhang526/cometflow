@@ -8,6 +8,8 @@ const checks = [
   ['tsconfig.json', existsSync(resolve(root, 'tsconfig.json'))],
   ['vitest.config.ts', existsSync(resolve(root, 'vitest.config.ts'))],
   ['dist/app/cli/index.js', existsSync(resolve(root, 'dist/app/cli/index.js'))],
+  // 前端产物也是发布内容：缺了它 `cometflow serve` 打开就是空白页（N6）。
+  ['web/dist/index.html', existsSync(resolve(root, 'web/dist/index.html'))],
 ];
 
 let failed = false;

@@ -13,6 +13,8 @@ import { findOrphanTempFiles, removeOrphanTempFiles } from '../../platform/fs/at
 import { collectEvidenceUsage, formatBytes, planEvidenceGc } from '../workflow/evidence-retention.js';
 import { collectProjectStatus } from './collector.js';
 import { applyJobGc, collectJobUsage, planJobGc } from '../server/job-store.js';
+import { readCasConflicts, resolveConcurrencyPolicy } from '../project/concurrency.js';
+import { forceUnlock, inspectLock } from '../../platform/fs/file-lock.js';
 
 export interface DoctorFinding {
   severity: 'error' | 'warning' | 'info';
@@ -34,6 +36,8 @@ export interface DoctorOptions {
   cleanTemp?: boolean;
   /** 回收超出保留窗口的任务证据（默认只报告）。 */
   cleanJobs?: boolean;
+  /** 清理滞留的事务锁（默认只报告）。 */
+  forceUnlock?: boolean;
 }
 
 export async function runDoctor(projectRoot: string, options: DoctorOptions = {}): Promise<DoctorReport> {
@@ -216,6 +220,68 @@ export async function runDoctor(projectRoot: string, options: DoctorOptions = {}
         formatBytes(jobPlan.reclaimableBytes) +
         '；确认后运行 cometflow doctor . --clean-jobs',
     });
+  }
+
+  // 并发写策略：warn 到期是 error（必须显式决策）；warn 期间的冲突要看得见；完全没配置也要提醒。
+  const policy = await resolveConcurrencyPolicy(projectRoot);
+  const conflicts = await readCasConflicts(projectRoot);
+  if (policy.expired) {
+    findings.push({
+      severity: 'error',
+      code: 'concurrency-warn-expired',
+      message:
+        '并发写策略的 warn 期已到期（' +
+        (policy.warnUntil ?? '?') +
+        '）：请切换 concurrency.specWrites: fail，或延长 warnUntil 并写 warnReason（ADR 0021）',
+    });
+  }
+  if (policy.mode === 'warn' && conflicts.length > 0) {
+    findings.push({
+      severity: 'warning',
+      code: 'concurrent-modification-warned',
+      message:
+        '并发写当前处于 warn 模式，已记录 ' +
+        conflicts.length +
+        ' 次冲突（最近 ' +
+        (conflicts[conflicts.length - 1]?.path ?? '?') +
+        '）：确认误报可接受后切换 concurrency.specWrites: fail',
+    });
+  }
+  if (policy.mode === 'warn' && policy.warnUntil === null) {
+    findings.push({
+      severity: 'info',
+      code: 'concurrency-policy-unset',
+      message: '并发写策略未显式设置（当前按 warn 处理，且没有到期提醒）：建议选择 fail，或 warn + 到期日',
+    });
+  }
+
+  // 滞留的事务锁：持有者在 TTL 内或进程还在 → 只提示；确认已死才由 --force-unlock 清理。
+  const lock = await inspectLock(projectRoot);
+  if (lock.record !== null) {
+    if (options.forceUnlock) {
+      await forceUnlock(projectRoot);
+      findings.push({
+        severity: 'info',
+        code: 'lock-cleared',
+        message: '已清理滞留锁（原持有者 ' + lock.record.pid + '@' + lock.record.host + '，action ' + lock.record.action + '）',
+      });
+    } else {
+      findings.push({
+        severity: lock.stale ? 'error' : 'warning',
+        code: lock.stale ? 'stale-transaction-lock' : 'transaction-lock-held',
+        message:
+          '事务锁被 ' +
+          lock.record.action +
+          ' 持有（pid ' +
+          lock.record.pid +
+          '@' +
+          lock.record.host +
+          '，started ' +
+          lock.record.startedAt +
+          (lock.stale ? '，已判定为陈旧（' + (lock.reason ?? '?') + '）' : '') +
+          '）：确认持有进程已退出后运行 cometflow doctor . --force-unlock',
+      });
+    }
   }
 
   return { healthy: findings.every((finding) => finding.severity !== "error"), findings };

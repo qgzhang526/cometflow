@@ -34,8 +34,12 @@ const RULES: Rule[] = [
     replacement: REDACTED,
   },
   // 连接串口令：scheme://user:password@host
+  //
+  // 各段都设了上界：`[a-zA-Z][a-zA-Z0-9+.-]*` 这种无界量词在「一长串字母但始终没有 ://」时
+  // 会退化成 O(n²)（实测 20KB 同字符行要 0.5s，600KB 直接把调用方钉死）。
+  // 真实的 scheme/user/password 都远短于这些上界，因此收紧不会漏检。
   {
-    pattern: /([a-zA-Z][a-zA-Z0-9+.-]*:\/\/[^/\s:@]+:)([^@\s/]+)(@)/gu,
+    pattern: /([a-zA-Z][a-zA-Z0-9+.-]{0,31}:\/\/[^/\s:@]{1,256}:)([^@\s/]{1,512})(@)/gu,
     replacement: '$1' + REDACTED + '$3',
   },
   // 私钥块

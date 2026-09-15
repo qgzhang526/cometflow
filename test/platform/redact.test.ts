@@ -2,6 +2,15 @@ import { describe, expect, it } from 'vitest';
 import { REDACTED, redactDeep, redactSecrets } from '../../platform/io/redact.js';
 
 describe('redactSecrets', () => {
+  it('stays linear on long homogeneous lines (no catastrophic backtracking)', () => {
+    // 曾经的连接串规则在「一长串字母但没有 ://」时退化成 O(n²)：20KB 要 ~500ms、600KB 会挂死。
+    // 这里用宽上限做回归——正常实现是毫秒级，二次行为会直接爆掉这个断言。
+    const longLine = 'x'.repeat(600 * 1024);
+    const started = Date.now();
+    const output = redactSecrets(longLine, { aggressive: true });
+    expect(output).toBe(longLine);
+    expect(Date.now() - started).toBeLessThan(2000);
+  });
   it('masks high-confidence credential shapes', () => {
     const cases: [string, string][] = [
       ['key=sk-abcdefghijklmnopqrstuvwx', 'sk-'],
