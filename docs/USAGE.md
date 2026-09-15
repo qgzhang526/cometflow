@@ -1394,6 +1394,15 @@ cometflow gate uninstall . --git-hooks                # 卸载（逐字还原原
 安装语义：
 
 - **显式目标**：必须写 `--git-hooks`，不猜用户想装哪儿。
+- **装到工具承认的位置**：自动探测宿主，装错地方会被工具重新生成（等于没装）：
+
+  | 项目形态 | 安装位置 | 说明 |
+  |---|---|---|
+  | 裸仓库 | `.git/hooks/pre-commit`（`git rev-parse --git-path hooks` 解析） | 链式执行原有 hook；若已有 hook，备份为 `pre-commit.cometflow-orig` |
+  | husky | `.husky/pre-commit` | 追加带标记的托管块，用户原有内容一字不动；husky 的 `_` 目录是自动生成的，绝不碰 |
+  | lefthook | `lefthook.yml` 的 `pre-commit.commands` | **文本插入**（重新序列化 YAML 会丢掉用户注释）；结构不受支持（如 `pre-commit: extends:`）时明确拒绝并给手工步骤 |
+
+  `gate status` 会报出当前用的是哪种集成；`gate install` 会提示前提条件（例如 husky 尚未接管 hooks）。
 - **链式**：已有 `pre-commit` 会被备份到 `pre-commit.cometflow-orig`，并**先**执行；它失败就不再往下跑。
   卸载时若你没改过我们的包装脚本，就把它**逐字还原**；改过则拒绝覆盖，只提示你手工处理。
 - **写对地方**：用 `git rev-parse --git-path hooks` 解析，尊重 `core.hooksPath`（husky / lefthook 会改它），
