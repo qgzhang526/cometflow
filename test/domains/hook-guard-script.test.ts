@@ -13,7 +13,9 @@ const temporaryRoots: string[] = [];
 
 afterEach(async () => {
   for (const root of temporaryRoots.splice(0)) {
-    await fs.rm(root, { recursive: true, force: true });
+    // 用例若在看门狗那里超时，守卫拉起的子进程（stub 是 node、真实 CLI 是 tsx）可能还压在目录里，
+    // 立刻删会撞 EBUSY；重试几次即可，别让清理失败盖住真正的失败原因。
+    await fs.rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   }
 });
 
@@ -166,6 +168,16 @@ interface RunOptions {
   keepStdinOpen?: boolean;
   cli?: string;
   projectRoot?: string;
+  /**
+   * 守卫退出的看门狗预算。
+   *
+   * 它要抓的是「守卫永不退出」（比如又阻塞在 stdin 上），不是「进程启动慢」——而守卫每跑一次
+   * 至少要起两个 Node 进程（守卫自己 + CLI），机器一忙这个开销会到秒级：实测把 8 核压满后，
+   * 6s 的窗口既会把真实 CLI（tsx）误判成卡死，也会把 stub 用例误判成卡死。
+   * 因此默认放宽到 15s，真实 CLI 用例再放宽到 25s；用例自身的 20s / 40s 预算继续兜底，
+   * 真挂死时看门狗仍会先于用例超时给出「可能又阻塞在 stdin 上了」这条更准确的提示。
+   */
+  timeoutMs?: number;
 }
 
 /**
@@ -194,10 +206,11 @@ async function runGuard(fixture: Fixture, options: RunOptions): Promise<GuardRun
   if (!options.keepStdinOpen) child.stdin.end();
 
   const code = await new Promise<number | null>((resolve, reject) => {
+    const budget = options.timeoutMs ?? 15000;
     const timer = setTimeout(() => {
       child.kill();
-      reject(new Error('守卫没有在 6s 内退出（可能又阻塞在 stdin 上了）'));
-    }, 6000);
+      reject(new Error('守卫没有在 ' + budget + 'ms 内退出（可能又阻塞在 stdin 上了）'));
+    }, budget);
     child.on('close', (exitCode) => {
       clearTimeout(timer);
       resolve(exitCode);
@@ -352,12 +365,17 @@ describe('生成的守卫脚本（端到端）', () => {
 });
 
 describe('生成的守卫脚本 + 真实 cometflow CLI', () => {
+  // 这两例的守卫要现起 `tsx app/cli/index.ts`：看门狗按「真实 CLI + 可能被负载拖慢」给 25s，
+  // 用例自身的 40s 预算不变。stub CLI 的用例继续用默认 6s，保持「stdin 阻塞」第一时间暴露。
+  const REAL_CLI_BUDGET = 25000;
+
   it(
     'build 阶段写模块外文件：守卫以退出码 2 拦下，并带上真实判定原因',
     async () => {
       const fixture = await makeRealCliFixture();
       const run = await runGuard(fixture, {
         payload: writePayload(fixture.root, path.join(fixture.root, 'rogue', 'outside.ts')),
+        timeoutMs: REAL_CLI_BUDGET,
       });
 
       expect(run.code).toBe(2);
@@ -372,6 +390,7 @@ describe('生成的守卫脚本 + 真实 cometflow CLI', () => {
       const fixture = await makeRealCliFixture();
       const run = await runGuard(fixture, {
         payload: writePayload(fixture.root, path.join(fixture.root, 'src', 'auth', 'login.ts')),
+        timeoutMs: REAL_CLI_BUDGET,
       });
 
       expect(run.code).toBe(0);
