@@ -387,6 +387,27 @@ check(
 );
 rmSync(huskyDir, { recursive: true, force: true });
 
+// P5：findings 统一呈现。默认输出逐字不变，显式要求时才把另一个 scope 的发现列出来。
+const verifyDefault = cli(['spec', 'verify', '.'], { cwd: project });
+const verifyWithDoctor = cli(['spec', 'verify', '.', '--with-doctor'], { cwd: project });
+check(
+  'spec verify 默认输出不带 doctor 段（默认语义不变）',
+  !(verifyDefault.stdout ?? '').includes('以下是 doctor 的发现'),
+  (verifyDefault.stdout ?? '').trim().slice(0, 200),
+);
+check(
+  '--with-doctor 附上 doctor 发现且不改变结论（退出码一致）',
+  verifyWithDoctor.code === verifyDefault.code &&
+    (verifyWithDoctor.stdout ?? '').includes('以下是 doctor 的发现'),
+  'code=' + verifyDefault.code + '/' + verifyWithDoctor.code,
+);
+const gateFindings = cli(['gate', 'check', '.', '--findings'], { cwd: project });
+check(
+  'gate check --findings 列出合并去重后的清单',
+  (gateFindings.stdout ?? '').includes('findings（spec-verify + doctor'),
+  (gateFindings.stdout ?? '').trim().slice(0, 200),
+);
+
 expectOk('classic status', ['classic', 'status', 'classic-open', '.'], project);
 for (const event of ['open-complete', 'design-complete', 'build-complete', 'verify-pass', 'archive-complete']) {
   expectOk('classic ' + event, ['classic', 'transition', 'classic-open', event, '.'], project);

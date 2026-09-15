@@ -22,6 +22,7 @@ import { writeSpecIndex } from '../../domains/spec/spec-project.js';
 import { collectAcceptanceChecks } from '../../domains/spec/spec-checks.js';
 import { collectSpecGraph } from '../../domains/spec/spec-graph.js';
 import { askScaffoldPrompts } from './scaffold-prompts.js';
+import { collectFindings, formatFinding } from '../../domains/gates/findings.js';
 
 export async function specValidateCommand(targetPath: string): Promise<void> {
   const projectRoot = path.resolve(targetPath);
@@ -189,7 +190,7 @@ export async function specRestoreCommand(versionRef: string, targetPath: string)
 
 export async function specVerifyCommand(
   targetPath: string,
-  options: { json?: boolean } = {},
+  options: { json?: boolean; withDoctor?: boolean } = {},
 ): Promise<void> {
   const projectRoot = path.resolve(targetPath);
   const result = await verifySpecIntegrity(projectRoot);
@@ -203,6 +204,18 @@ export async function specVerifyCommand(
   }
   console.log(result.valid ? 'spec verify: OK' : 'spec verify: FAILED');
   process.exitCode = result.valid ? 0 : 1;
+
+  // 显式要求时才附上 doctor 的发现：它是**另一个 scope**（项目运行健康），
+  // 不掺进 spec verify 的结论，也不改这个命令的退出码。
+  if (options.withDoctor === true) {
+    const doctorFindings = (await collectFindings(projectRoot)).filter(
+      (finding) => finding.source === 'doctor',
+    );
+    console.log('');
+    console.log('以下是 doctor 的发现（项目运行健康，与上面的 spec verify 是两个 scope，不影响其结论）：');
+    if (doctorFindings.length === 0) console.log('  （无）');
+    for (const finding of doctorFindings) console.log('  ' + formatFinding(finding));
+  }
 }
 
 export async function specAnchorsCommand(targetPath: string): Promise<void> {

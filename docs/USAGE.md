@@ -1412,6 +1412,27 @@ cometflow gate uninstall . --git-hooks                # 卸载（逐字还原原
 > 本轮顺带修掉两个「只打印不设退出码」的缺陷：`spec validate` 与 `plan validate` 此前**恒返回 0**，
 > 也就是说 CI 门禁里这两步一直是绿的（与 `doctor --json` 恒返回 0 同源）。现在失败即退出码 1。
 
+#### 一次看全：findings 统一呈现
+
+`spec verify` 与 `doctor` 的 scope 不同，硬合并会让 CI 的红灯失去信号价值，所以**只统一呈现、不合并 scope**：
+
+```bash
+cometflow gate check . --findings    # 判定之外，列出合并去重后的逐条 finding（带来源）
+cometflow gate check . --json        # 同上，结构化在 findings[] 里
+cometflow spec verify . --with-doctor  # 显式要求时，把 doctor 的发现附在后面（另一个 scope，不改退出码）
+```
+
+| 来源 | scope | 典型 finding |
+|---|---|---|
+| `spec-verify` | spec 还是不是唯一根源 | lock 新鲜度、版本仓、anchor/验收漂移、plan/state 内容哈希、change 基线冲突 |
+| `doctor` | 项目运行健康 | 写保护状态、git 漂移、残留临时文件、证据占用、滞留锁、并发策略 |
+
+两点约定：
+
+- **去重键是 `(code, subject)`**：两个 change 各自漂移是两个问题，不能被按 code 合并掉。
+- doctor 对 spec verify 的镜像（`spec-verify:<code>`）在合并时丢弃，以 `spec verify` 那份为准——
+  同一个判定不该出现两次。
+
 ---
 
 ## 14. 配置

@@ -415,6 +415,7 @@ gate
   .description('Run the read-only spec gates')
   .option('--json', 'Output as JSON')
   .option('--update-baseline', 'Rewrite the metrics baseline instead of comparing against it')
+  .option('--findings', 'Also list every finding (spec verify + doctor), deduplicated')
   .action(async (targetPath = '.', options) => {
     await gateCheckCommand(targetPath, options);
   });
@@ -673,6 +674,7 @@ spec
   .command('verify [path]')
   .description('Check spec/version/lock/task consistency (exit 1 on failure)')
   .option('--json', 'Output as JSON')
+  .option('--with-doctor', 'Also list doctor findings (another scope; does not change the exit code)')
   .action(async (targetPath = '.', options) => {
     await specVerifyCommand(targetPath, options);
   });
