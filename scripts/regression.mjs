@@ -342,22 +342,20 @@ expectOk(
 // 就永久阻塞」这两个缺陷都曾在这里静默放行（配置看着装好了，实际从不生效），所以这段别删。
 expectOk('hook install（复装，供守卫脚本回归）', ['hook', 'install', '.', '--platform', 'claude-code'], project);
 const guardShim = path.join(project, 'guard-cli-shim.mjs');
-writeFileSync(
-  guardShim,
-  [
-    '#!/usr/bin/env node',
-    "import { spawnSync } from 'node:child_process';",
-    'const result = spawnSync(process.execPath, ' +
-      JSON.stringify([TSX, CLI]) +
-      '.concat(process.argv.slice(2)), { stdio: "inherit" });',
-    'process.exit(result.status ?? 1);',
-    '',
-  ].join('\n'),
-);
+const guardShimSource = [
+  '#!/usr/bin/env node',
+  "import { spawnSync } from 'node:child_process';",
+  'const result = spawnSync(process.execPath, ' +
+    JSON.stringify([TSX, CLI]) +
+    '.concat(process.argv.slice(2)), { stdio: "inherit" });',
+  'process.exit(result.status ?? 1);',
+  '',
+].join('\n');
+writeFileSync(guardShim, guardShimSource);
 if (process.platform !== 'win32') chmodSync(guardShim, 0o755);
 const guardCli = process.platform === 'win32' ? 'node "' + guardShim + '"' : guardShim;
 const guardScript = path.join(project, '.claude', 'hooks', 'cometflow-guard.mjs');
-function runGuardScript(filePath) {
+function runGuardScript(filePath, cli = guardCli) {
   return spawnSync(process.execPath, [guardScript], {
     cwd: project,
     encoding: 'utf8',
@@ -366,7 +364,7 @@ function runGuardScript(filePath) {
       tool_name: 'Write',
       tool_input: { file_path: filePath, content: 'export const x = 1;\n' },
     }),
-    env: { ...process.env, CLAUDE_PROJECT_DIR: project, COMETFLOW_CLI: guardCli },
+    env: { ...process.env, CLAUDE_PROJECT_DIR: project, COMETFLOW_CLI: cli },
     timeout: 60000,
   });
 }
@@ -381,6 +379,25 @@ check(
   '守卫脚本放行模块内写入',
   guardAllowed.status === 0 && (guardAllowed.stderr ?? '') === '',
   'status=' + guardAllowed.status + ' stderr=' + (guardAllowed.stderr ?? '').trim().slice(0, 200),
+);
+
+// CLI 自己也是命令行 token：`COMETFLOW_CLI` 带空格却没加引号时，cmd 会把路径切碎 →
+// 「命令不存在」→ 又一个静默放行。这里把 shim 放进带空格的目录，确认守卫仍拦得住。
+const spacedCliDir = path.join(project, 'cli dir');
+mkdirSync(spacedCliDir, { recursive: true });
+const spacedShim = path.join(spacedCliDir, 'guard-cli-shim.mjs');
+writeFileSync(spacedShim, guardShimSource);
+if (process.platform !== 'win32') chmodSync(spacedShim, 0o755);
+// Windows 不能直接把 .mjs 当命令执行：包一层 .cmd，保持「裸路径 + 含空格」这个形态。
+const spacedCli = process.platform === 'win32' ? path.join(spacedCliDir, 'cometflow-cli.cmd') : spacedShim;
+if (process.platform === 'win32') {
+  writeFileSync(spacedCli, '@echo off\r\nnode "%~dp0guard-cli-shim.mjs" %*\r\n');
+}
+const guardBlockedSpacedCli = runGuardScript(path.join(project, 'rogue', 'outside.ts'), spacedCli);
+check(
+  'CLI 路径含空格时守卫仍以退出码 2 拦下',
+  guardBlockedSpacedCli.status === 2 && (guardBlockedSpacedCli.stderr ?? '').includes('outside-module-scope'),
+  'status=' + guardBlockedSpacedCli.status + ' stderr=' + (guardBlockedSpacedCli.stderr ?? '').trim().slice(0, 200),
 );
 
 expectOk('change select --clear', ['change', 'select', 'stall-demo', '.', '--clear'], project);

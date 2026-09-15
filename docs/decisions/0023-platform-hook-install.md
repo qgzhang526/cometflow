@@ -53,6 +53,20 @@
 因此守卫额外识别 `is not recognized as an internal or external command` / `不是内部或外部命令` / `command not found`，
 让决策 5 的失败方向在 Windows 上真正成立。
 
+## 修订（2026-09-15，第二轮）：把「CLI 不在」的判据收紧
+
+3. **放行分支的判据过宽**。第一轮只匹配 stderr 措辞就放行，等于「stderr 里带这几个词」= 越界写入静默通过。
+   现在要求三条同时成立：进程起来了（无 `result.error`）、`stdout` 为空、stderr 命中措辞。
+   其中第二条是关键——CLI 只要真的判定过就一定在 stdout 留下结论
+   （`hook check` 输出 `allowed` / `denied: <reason>`），真实判定因此永远落不进放行分支。
+4. **`COMETFLOW_CLI` 自己没加引号**。它是命令行的第一个 token，带空格的裸路径同样被 cmd 切碎 →
+   「命令不存在」→ 又是一个静默放行（和缺陷 1 同一类）。现在「含空格且不含引号」的 CLI 值会补引号，
+   已自带引号的值（`node "C:/x/cli.mjs"`）原样使用。
+   实测结论：`shell: true` 时 Node 已经给整行加了一层引号，守卫再套一层外层引号反而会被切成
+   `"\"C:...` 这类碎参数（首次实现踩过，故不再套）。回归覆盖：
+   `test/domains/hook-guard-script.test.ts` 新增「stderr 带 command not found 但 CLI 确实判定过 → 仍拦下」
+   与「`COMETFLOW_CLI` 是带空格的裸路径 → 仍拦得下」两例；`scripts/regression.mjs` 增加一条同场景的端到端断言。
+
 残留风险（已知、暂不处理）：Windows 走 `cmd.exe` 时 `%` 仍会被当作变量引用展开，
 所以路径里含 `%` 的项目理论上仍可能把路径传歪；`&` / `^` 等符号已被引号保护。
 真要为它兜底得把目标路径改成用环境变量传递（需要 CLI 侧配合），收益不抵成本。
