@@ -170,10 +170,11 @@ async function makeHuskyRepo(): Promise<string> {
   const root = await makeRepo();
   const huskyDir = path.join(root, '.husky');
   await fs.mkdir(path.join(huskyDir, '_'), { recursive: true });
-  await fs.writeFile(
-    path.join(huskyDir, '_', 'pre-commit'),
-    '#!/bin/sh\nexec sh "$(dirname "$0")/../pre-commit" "$@"\n',
-  );
+  const shim = path.join(huskyDir, '_', 'pre-commit');
+  await fs.writeFile(shim, '#!/bin/sh\nexec sh "$(dirname "$0")/../pre-commit" "$@"\n');
+  // POSIX 上 git 只执行**有可执行位**的 hook：少了这一步，Linux 上 git 会静默跳过它
+  // （只在 stderr 留一句 hint），于是「应该被拦下」的提交照样成功——CI 上就是这么红的。
+  await fs.chmod(shim, 0o755);
   git(root, ['config', 'core.hooksPath', '.husky/_']);
   return root;
 }
