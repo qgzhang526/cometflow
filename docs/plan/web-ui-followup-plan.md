@@ -75,6 +75,17 @@
 `GET /spec/graph` 与 CLI `cometflow spec graph [--json]`（只做投影、无退出码）；前端 Specs 面板新增「引用图」页签：
 12 个 kind 节点按 009 方向表聚合连线，点击下钻 kind → 文件 → anchor，右侧列出该文件的逐条引用与 `path:line`，
 未解析引用红色标注。**同源断言**已在测试里钉住：图的未解析集合与 `spec validate` 的 findings 逐条相等。
+夹具侧也补齐了：`experiments/regression-fixture/specs/` 新增 models / errors / config / protocol / rules /
+`flows/session-refresh.md` / `session/spec.md` 七份文件（全部是**新文件**，auth/core/report 三份冻结 spec
+正文一字未改，G1/G2 冻结任务因此不受影响），`scripts/regression.mjs` 新增引用图断言——kind 边
+（capability→models/errors/protocol、flow→capability/models/config、rules→models）、目标节点
+（`target:model:Session`、`target:api:GET /session`）与 `summary.unresolved === 0`，
+并与 `spec validate` 的 findings 交叉核对。
+顺带处理了一个容易被忽略的副作用：新增 capability 会多出一个**没人绑定的 anchor**，直接
+`--update-baseline` 等于把 `anchor_coverage_rate` 从 0.6667 悄悄降到 0.5（门禁方向是「只许变好」）。
+因此夹具同时补了 goal G4 与冻结计划 `G4.task-plan.yaml`（由 `plan generate / validate / freeze` 生成，
+不手改哈希），把 `GET /session` 接上任务：覆盖率升到 0.75，`spec-gates` 也多跑一条 `plan validate G4`，
+回归步数 88 → 89。
 - **风险**：节点规模（大项目 flow/capability 很多）→ 只渲染 kind 层，展开才取子层；
   不引入图形库，用固定层级 + 确定性布局（同一份 spec 每次布局一致，便于截图比对）。
 
@@ -164,7 +175,9 @@
 - **配置落点**：`.cometflow/config.yaml` 的 `concurrency.{specWrites, warnUntil, warnReason}`；
   `validateProjectConfig` 校验（`warn` 必须带未来的 `warnUntil`；`fail` 不允许留 `warnUntil`）。
 - **可见性**：`cometflow doctor` 与 `status` 输出「当前并发策略 + 距到期天数 + 累计 warn 命中数」；
-  UI 设置页只读展示同一组值，并提供「切换 / 延长」入口（走配置校验，不绕过校验直接改文件）。
+  UI 设置页展示同一组值（`GET .../config` 的 `concurrencyPolicy` / `concurrencyConflicts`），
+  并提供「切换为 fail」「延长 30 天（需填理由）」两个入口——都走 `PUT /config` 的同一套校验，
+  界面不绕过校验直接改文件，也不成为第二条写入通路。
 - **验收（追加三条）**：
   1. `warn` 阶段：并发冲突下写入仍成功，响应带 `warning`、journal 出现 `cas-conflict-warn`；
   2. 到期：把 `warnUntil` 设为过去时间后，`doctor` 与 `spec verify` 各出现 `concurrency-warn-expired`（error），
@@ -184,6 +197,12 @@ doctor 另外报告 warn 期冲突次数与「未显式配置」提示。多文�
 - **风险**：Windows/NFS 锁语义差异（用「创建即独占」的文件 + TTL，不依赖 OS advisory lock）；
   时钟漂移让 TTL 误判（同时校验 pid 是否存活）；过度加锁拖慢长任务 → agent 运行期间不持锁
   （它本来就只写 `changes/<name>/`），只在多文件提交窗口持锁。
+
+设置页那截「小尾巴」也补上了：`GET .../config` 增加 `concurrencyPolicy`（模式 / 到期日 / 剩余天数 /
+延长理由 / 是否已到期）与 `concurrencyConflicts`（`runtime/cas-conflicts.jsonl` 计数），Settings 面板新增
+「并发写保护（ADR 0021）」卡片展示这四项，并给出「切换为 fail」与「延长 30 天」（理由必填）两个按钮，
+两者都发 `PUT /config { concurrency }`、沿用 `validateProjectConfig`（warn 必须带未来到期日、fail 不许留到期日）。
+回归：`test/domains/serve-api.test.ts` 覆盖「延长后剩余天数可读」「切 fail 后到期日被清掉」「warn 不带到期日 → 400」。
 
 ### N5 UI 编辑 spec 的语义（草稿 vs 立即版本）✅ 已完成
 
@@ -261,6 +280,12 @@ doctor 另外报告 warn 期冲突次数与「未显式配置」提示。多文�
 | M1 可见性 | N1 + N2 | 图上能看见引用关系与未解析边；编辑器里错误引用即时变红并可跳转 |
 | M2 可信度 | N3 + N5 | 重启 serve 后任务与日志仍在；spec 编辑有 diff 预览与撤销，语义写进 ADR 0020 |
 | M3 并发与发布 | N4 + N6 | 并发写冲突返回 409 且有恢复路径；N4 的 `warn` 时间盒到期能自动让 `doctor`/CI 报错（不会静默停在宽模式）；发布链路一次构建同时产出 CLI 与前端并做校验 |
+
+> 收尾（2026-09-15）：M1–M3 合并后补了两处尾巴——① 设置页的并发策略入口（§3 N4「可见性」，
+> 界面不再是「只读看板」，能就地切 `fail` 或延长并写下理由）；② 把 M1 的引用图纳入长期回归：
+> 夹具原本没有跨文件引用，引用图只有单元测试看得见，现在夹具补了七份带引用的 spec，
+> `scripts/regression.mjs` 直接断言边与目标节点。两处都有回归测试兜底（见各自「实施结果」）；
+> 夹具指标基线同步刷新，且 `anchor_coverage_rate` 是**升**到 0.75 而不是被稀释。
 
 ## 5. 完成定义（DoD）
 

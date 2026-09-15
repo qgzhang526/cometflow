@@ -9,5 +9,5 @@ success_criteria:
 non_goals:
   - 不做网络访问
 source: COMETFLOW.md
-source_hash: 29d05ac7d0b0fe9ae4e2d2fb0d3bb7250af6dbf494336751b6c1cd5d13a851a2
+source_hash: 3faaee0df2537dc5714414947eb67317d5595d868f0e2489c88a6b96aca41796
 status: active

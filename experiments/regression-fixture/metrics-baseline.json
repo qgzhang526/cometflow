@@ -2,10 +2,10 @@
   "schema": "cometflow.metrics-baseline.v1",
   "metrics": {
     "acceptance_checkable_rate": 1,
-    "anchor_coverage_rate": 0.6667,
-    "specs": 4,
-    "capabilities": 3,
-    "versions_total": 4,
+    "anchor_coverage_rate": 0.75,
+    "specs": 11,
+    "capabilities": 4,
+    "versions_total": 11,
     "drift_count": 0
   }
 }

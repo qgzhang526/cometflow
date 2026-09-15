@@ -44,7 +44,7 @@ import { buildSpecReferenceIndex, collectSpecGraph, collectSpecReferenceTokens }
 import { atomicWriteText } from '../../platform/fs/atomic-write.js';
 import { CasConflictError, hashContent, readContentHash, writeWithCas } from '../../platform/fs/cas-write.js';
 import { acquireLock, LockHeldError } from '../../platform/fs/file-lock.js';
-import { recordCasConflict, resolveConcurrencyPolicy } from '../project/concurrency.js';
+import { readCasConflicts, recordCasConflict, resolveConcurrencyPolicy } from '../project/concurrency.js';
 import { generateTaskPlan } from '../task-plan/task-plan-generate.js';
 import { validateTaskPlan } from '../task-plan/task-plan-validate.js';
 import { freezeTaskPlan } from '../task-plan/task-plan-freeze.js';
@@ -425,7 +425,15 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
         // 界面据此区分「这个值是项目写的」还是「继承全局默认」。
         const config = await readProjectConfig(root);
         const projectOverride = await readProjectConfigOverride(root);
-        sendOk(res, { config, projectOverride });
+        // 并发策略一并给出：设置页要显示「当前模式 / 距到期天数 / 累计冲突」，而不只是配置原文。
+        const concurrencyPolicy = await resolveConcurrencyPolicy(root);
+        const concurrencyConflicts = await readCasConflicts(root);
+        sendOk(res, {
+          config,
+          projectOverride,
+          concurrencyPolicy,
+          concurrencyConflicts: concurrencyConflicts.length,
+        });
         return true;
       }
       if (method === 'PUT') {

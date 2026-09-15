@@ -4,8 +4,8 @@ kinds:
     status: present
     reason: always
   models:
-    status: absent
-    reason: database == none
+    status: present
+    reason: "regression fixture: cross-file references"
   pages:
     status: absent
     reason: frontend == none
@@ -16,23 +16,23 @@ kinds:
     status: absent
     reason: derived from goals, not init
   protocol:
-    status: deferred
-    reason: use --interactive
+    status: present
+    reason: "regression fixture: cross-file references"
   errors:
-    status: deferred
-    reason: use --interactive
+    status: present
+    reason: "regression fixture: cross-file references"
   config:
-    status: deferred
-    reason: use --interactive
+    status: present
+    reason: "regression fixture: cross-file references"
   flow:
-    status: deferred
-    reason: use --interactive
+    status: present
+    reason: "regression fixture: cross-file references"
   process:
     status: deferred
     reason: use --interactive
   rules:
-    status: deferred
-    reason: use --interactive
+    status: present
+    reason: "regression fixture: cross-file references"
   permissions:
     status: deferred
     reason: use --interactive

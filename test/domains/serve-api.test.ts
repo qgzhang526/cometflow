@@ -183,6 +183,53 @@ describe('serve API', () => {
     expect(invalidPayload.error?.code).toBe('invalid-config');
   });
 
+  it('exposes the concurrency policy and applies the settings-page switches', async () => {
+    const projectPath = path.join(workspace, 'concurrency-policy');
+    const created = await post('/api/projects', { name: 'concurrency-policy', path: projectPath });
+    const base = '/api/projects/' + (created.data.project.id as string);
+
+    // 未配置时是「有期限的 warn」的默认态：界面要能一眼看出还没设到期日。
+    const initial = await json(await fetch(url(base + '/config'), { headers: auth() }));
+    expect(initial.data.concurrencyPolicy.mode).toBe('warn');
+    expect(initial.data.concurrencyPolicy.warnUntil).toBeNull();
+    expect(initial.data.concurrencyPolicy.expired).toBe(false);
+    expect(initial.data.concurrencyConflicts).toBe(0);
+
+    // 延长：写到期日 + 理由，剩余天数由此变成可读的数字。
+    const warnUntil = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+    const extended = await fetch(url(base + '/config'), {
+      method: 'PUT', headers: { ...auth(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ concurrency: { specWrites: 'warn', warnUntil, warnReason: '迁移期' } }),
+    });
+    expect(extended.status).toBe(200);
+    const afterExtend = await json(await fetch(url(base + '/config'), { headers: auth() }));
+    expect(afterExtend.data.concurrencyPolicy.mode).toBe('warn');
+    expect(afterExtend.data.concurrencyPolicy.warnUntil).toBe(warnUntil);
+    expect(afterExtend.data.concurrencyPolicy.warnReason).toBe('迁移期');
+    expect(afterExtend.data.concurrencyPolicy.daysUntilExpiry).toBeGreaterThan(0);
+
+    // 切 fail：只发 specWrites，必须连带把 warnUntil 清掉（warnUntil 与 fail 不能共存）。
+    const switched = await fetch(url(base + '/config'), {
+      method: 'PUT', headers: { ...auth(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ concurrency: { specWrites: 'fail' } }),
+    });
+    expect(switched.status).toBe(200);
+    const afterSwitch = await json(await fetch(url(base + '/config'), { headers: auth() }));
+    expect(afterSwitch.data.concurrencyPolicy.mode).toBe('fail');
+    expect(afterSwitch.data.concurrencyPolicy.warnUntil).toBeNull();
+    expect(afterSwitch.data.concurrencyPolicy.daysUntilExpiry).toBeNull();
+
+    // warn 是过渡态：没有到期日就不许写，否则「先宽后严」会永远停在宽模式。
+    const noExpiry = await fetch(url(base + '/config'), {
+      method: 'PUT', headers: { ...auth(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ concurrency: { specWrites: 'warn' } }),
+    });
+    expect(noExpiry.status).toBe(400);
+    const noExpiryPayload = await json(noExpiry);
+    expect(noExpiryPayload.error?.code).toBe('invalid-config');
+    expect(String(noExpiryPayload.error?.message)).toContain('concurrency.warnUntil is required');
+  });
+
   it('generates and validates a task plan', async () => {
     const projectPath = path.join(workspace, 'third');
     const created = await post('/api/projects', { name: 'third', path: projectPath });

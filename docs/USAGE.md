@@ -1138,6 +1138,10 @@ token: <random>
   `concurrency.specWrites: fail` 时冲突返回 **409 `concurrent-modification`**（附期望/实际哈希，界面给「重读并重试 / 确认覆盖」）；
   默认的 `warn` 是**有期限**的过渡态：冲突照旧写入但回带 warning 并记入 `.cometflow/runtime/cas-conflicts.jsonl`，
   `warnUntil` 到期后 `doctor` 与 `spec verify` 报 error（CI 因此变红），只能「切 fail」或「延长并写 warnReason」。
+  设置页的「并发写保护（ADR 0021）」卡片直接展示这四项：当前模式、warn 到期（含剩余天数）、延长理由、
+  累计 warn 命中数（数据来自 `GET .../config` 的 `concurrencyPolicy` 与 `concurrencyConflicts`），
+  并提供「切换为 fail」与「延长 30 天」（理由必填）两个入口——两者都走 `PUT /config` 的同一套校验
+  （warn 必须带未来到期日、fail 不许留到期日），界面不是第二条写入通路。
   多文件事务（归档应用提案 spec、计划冻结、恢复历史版本）整段持 `.cometflow/runtime/lock`：
   取不到即 **409 `lock-held`**（说明持有者），`doctor` 报告锁状态，`doctor --force-unlock` 才清理。
 - **Specs 面板 6 个页签**：12-kind 状态、脚手架、Spec 文件、验收覆盖、版本、影响与门禁。
@@ -1407,6 +1411,12 @@ pnpm package-e2e
 node scripts/regression.mjs                       # 跨平台（Windows / Linux）
 bash experiments/regression-fixture/run-regression.sh   # 等价的 shim
 ```
+
+夹具的 `specs/**` 含**跨文件引用**（capability → models/errors/protocol、flow → capability/models/config、
+rules → models 等，例见 `specs/session/spec.md` 与 `specs/flows/session-refresh.md`），因此
+`scripts/regression.mjs` 除行为检查外还会断言引用图：`spec graph --json` 的 kind 边、
+`target:model:Session` / `target:api:GET /session` 这类目标节点、`summary.unresolved === 0`，
+并与 `spec validate` 的 findings 交叉核对（同源：图上绿色的边不该被门禁报成未解析）。
 
 只读门禁（spec 是否仍然是唯一根源，退出码即结论）：
 
