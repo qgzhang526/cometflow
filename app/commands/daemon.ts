@@ -16,6 +16,10 @@ export interface DaemonCommandOptions {
   start?: string;
   end?: string;
   safetyBundle?: boolean;
+  /** 同一任务连续失败到该次数后不再自动重试。 */
+  maxAttempts?: number;
+  /** 单任务超时（毫秒）。 */
+  taskTimeout?: number;
 }
 
 /** 查看/清零跨重启累计的预算用量。 */
@@ -57,5 +61,7 @@ export async function daemonStartCommand(targetPath: string, options: DaemonComm
     scheduleStartMinutes,
     scheduleEndMinutes,
     safetyBundle: options.safetyBundle === true,
+    maxAttempts: options.maxAttempts,
+    taskTimeoutMs: options.taskTimeout,
   });
 }

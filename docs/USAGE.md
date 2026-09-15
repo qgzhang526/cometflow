@@ -939,7 +939,7 @@ cometflow daemon start [path] \
   [--agent opencode|claude-code|mock] [--model <model>] \
   [--cpu-threshold <value>] \
   [--start HH:MM] [--end HH:MM] \
-  [--safety-bundle]
+  [--safety-bundle] [--max-attempts <n>] [--task-timeout <ms>]
 
 cometflow daemon budget [path] [--reset]   # 查看/清零跨重启累计的已用预算
 ```
