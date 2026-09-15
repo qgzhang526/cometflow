@@ -17,7 +17,12 @@ export type HookPlatform = (typeof HOOK_PLATFORMS)[number];
 export const SUPPORTED_HOOK_PLATFORMS: readonly HookPlatform[] = ['claude-code'];
 
 export const HOOK_GUARD_FILENAME = 'cometflow-guard.mjs';
-export const HOOK_MATCHER = 'Write|Edit|MultiEdit';
+/**
+ * 覆盖 Claude Code 所有会落盘的内置工具。
+ * `NotebookEdit` 也必须在内：它写的是 notebook，工具输入里叫 `notebook_path`
+ * 而不是 `file_path`（两个字段名都实测存在于 2.1.237 的二进制里）。
+ */
+export const HOOK_MATCHER = 'Write|Edit|MultiEdit|NotebookEdit';
 
 export function claudeSettingsPath(projectRoot: string): string {
   return path.join(projectRoot, '.claude', 'settings.json');
@@ -59,19 +64,32 @@ export function hookGuardSource(): string {
     '}',
     '',
     'const input = payload?.tool_input ?? payload?.toolInput ?? {};',
-    'const target = input.file_path ?? input.filePath ?? input.path ?? null;',
+    'const target = input.file_path ?? input.filePath ?? input.notebook_path ?? input.path ?? null;',
     'if (typeof target !== "string" || target === "") process.exit(0);',
     '',
     'const projectRoot = process.env.CLAUDE_PROJECT_DIR ?? process.cwd();',
     'const cli = process.env.COMETFLOW_CLI ?? "cometflow";',
-    'const result = spawnSync(cli, ["hook", "check", target, projectRoot, "--event", "write"], {',
-    '  cwd: projectRoot,',
-    '  encoding: "utf8",',
-    '  timeout: 20000, // 守卫自身也要有上限，不能把平台挂住',
-    '  shell: process.platform === "win32",',
-    '});',
     '',
-    'if (result.error) process.exit(0); // CLI 不可用时放行，避免把开发环境锁死',
+    '// 不要写 spawnSync(cli, args, { shell: true })：shell 模式下 Node 只把参数用空格拼接，',
+    '// 不做任何转义。项目路径里一旦有空格，参数会被切碎成好几段，守卫于是把一条**截断的**',
+    '// 路径交给 CLI，判定退化成 outside-project 而静默放行——比不装 hook 更危险。',
+    '// 因此 shell 模式下自己拼命令行并逐个加引号，顺带避开 Node 的 DEP0190 警告。',
+    'const spawnOptions = { cwd: projectRoot, encoding: "utf8", timeout: 20000 };',
+    'const cliArgs = ["hook", "check", target, projectRoot, "--event", "write"];',
+    'let result;',
+    'if (process.platform === "win32") {',
+    '  const dq = String.fromCharCode(34); // 双引号：省掉这一层源码里的多重转义',
+    '  const quote = (value) => dq + String(value).split(dq).join(dq + dq) + dq;',
+    '  const commandLine = [cli, "hook", "check", quote(target), quote(projectRoot), "--event", "write"].join(" ");',
+    '  result = spawnSync(commandLine, { ...spawnOptions, shell: true });',
+    '} else {',
+    '  result = spawnSync(cli, cliArgs, spawnOptions);',
+    '}',
+    '',
+    '// CLI 不可用时放行，避免把开发环境锁死。shell 模式下「命令不存在」不会进 result.error，',
+    '// 而是退出码 1 + 一句本地化提示，所以还要认出 en-US / zh-CN 两种措辞。',
+    'const cliMissing = /is not recognized as an internal or external command|不是内部或外部命令|command not found/.test(result.stderr ?? "");',
+    'if (result.error || cliMissing) process.exit(0);',
     'if (result.status === 0) process.exit(0);',
     '',
     'const reason = (result.stdout ?? "").trim() || (result.stderr ?? "").trim();',

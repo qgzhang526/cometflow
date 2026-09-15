@@ -1299,8 +1299,13 @@ cometflow hook status .
 cometflow hook uninstall . --platform claude-code
 ```
 
-- 安装位置：`.claude/hooks/cometflow-guard.mjs` + `.claude/settings.json` 的 `hooks.PreToolUse`（matcher `Write|Edit|MultiEdit`）。
+- 安装位置：`.claude/hooks/cometflow-guard.mjs` + `.claude/settings.json` 的 `hooks.PreToolUse`（matcher `Write|Edit|MultiEdit|NotebookEdit`，
+  即 Claude Code 全部会落盘的内置工具；notebook 的路径字段是 `notebook_path`，守卫同样识别）。
 - 守卫从 stdin 读工具调用 JSON，取出文件路径后调用 `cometflow hook check ... --event write`；被拒时以**退出码 2** 阻止该次写入。
+- Windows 上守卫自己拼命令行并逐个给参数加引号（`shell: true` 下 Node 只按空格拼接、不转义）：
+  **项目路径含空格时也必须拦得住**，否则守卫会把截断的路径交给 CLI、判定成 `outside-project` 后静默放行。
+- 边界说明：守卫只覆盖上面这些**文件类工具**，不覆盖 `Bash` 等间接写入。它是**流程约束**（让 agent 在越界前就被平台挡下），
+  不是安全边界；需要强约束时用 `change verify` / `change archive` 的越界检查兜底。
 - 当前仅支持 `claude-code`。`opencode` / `codex` 会**显式报「不支持」并返回非零退出码**，而不是写入猜测出来的配置（猜错会导致静默失效）。
 - 守卫调用 `cometflow` 需在 PATH 上；也可用 `COMETFLOW_CLI` 指定可执行文件路径。CLI 不可用时守卫放行，避免把开发环境锁死。
 - 卸载是可逆的：安装时备份原始 `settings.json`；未被用户改动过就逐字还原，改过则只摘除 CometFlow 自己的条目。

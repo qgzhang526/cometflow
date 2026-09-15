@@ -12,7 +12,7 @@
  * 用法：node scripts/regression.mjs [fixturePath]
  */
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
@@ -336,6 +336,53 @@ expectOk(
   ['hook', 'check', path.join('src', 'auth', 'index.ts'), '.', '--event', 'write'],
   project,
 );
+
+// 上面几步只跑 `hook check`（判定函数）。这里再跑一遍**装进项目的那份守卫脚本**：
+// stdin → 取路径 → 调 CLI → 退出码 2。Windows 上「参数被空格切碎」和「平台不关 stdin
+// 就永久阻塞」这两个缺陷都曾在这里静默放行（配置看着装好了，实际从不生效），所以这段别删。
+expectOk('hook install（复装，供守卫脚本回归）', ['hook', 'install', '.', '--platform', 'claude-code'], project);
+const guardShim = path.join(project, 'guard-cli-shim.mjs');
+writeFileSync(
+  guardShim,
+  [
+    '#!/usr/bin/env node',
+    "import { spawnSync } from 'node:child_process';",
+    'const result = spawnSync(process.execPath, ' +
+      JSON.stringify([TSX, CLI]) +
+      '.concat(process.argv.slice(2)), { stdio: "inherit" });',
+    'process.exit(result.status ?? 1);',
+    '',
+  ].join('\n'),
+);
+if (process.platform !== 'win32') chmodSync(guardShim, 0o755);
+const guardCli = process.platform === 'win32' ? 'node "' + guardShim + '"' : guardShim;
+const guardScript = path.join(project, '.claude', 'hooks', 'cometflow-guard.mjs');
+function runGuardScript(filePath) {
+  return spawnSync(process.execPath, [guardScript], {
+    cwd: project,
+    encoding: 'utf8',
+    input: JSON.stringify({
+      hook_event_name: 'PreToolUse',
+      tool_name: 'Write',
+      tool_input: { file_path: filePath, content: 'export const x = 1;\n' },
+    }),
+    env: { ...process.env, CLAUDE_PROJECT_DIR: project, COMETFLOW_CLI: guardCli },
+    timeout: 60000,
+  });
+}
+const guardBlocked = runGuardScript(path.join(project, 'rogue', 'outside.ts'));
+check(
+  '守卫脚本以退出码 2 拦下模块外写入',
+  guardBlocked.status === 2 && (guardBlocked.stderr ?? '').includes('outside-module-scope'),
+  'status=' + guardBlocked.status + ' stderr=' + (guardBlocked.stderr ?? '').trim().slice(0, 200),
+);
+const guardAllowed = runGuardScript(path.join(project, 'src', 'auth', 'index.ts'));
+check(
+  '守卫脚本放行模块内写入',
+  guardAllowed.status === 0 && (guardAllowed.stderr ?? '') === '',
+  'status=' + guardAllowed.status + ' stderr=' + (guardAllowed.stderr ?? '').trim().slice(0, 200),
+);
+
 expectOk('change select --clear', ['change', 'select', 'stall-demo', '.', '--clear'], project);
 expectDenied(
   '无指针时拒绝归属不明的写入',

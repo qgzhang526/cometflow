@@ -32,7 +32,7 @@ describe('hook install (claude-code)', () => {
     const settings = await readSettings();
     const entries = settings.hooks.PreToolUse;
     expect(entries).toHaveLength(1);
-    expect(entries[0].matcher).toBe('Write|Edit|MultiEdit');
+    expect(entries[0].matcher).toBe('Write|Edit|MultiEdit|NotebookEdit');
     expect(entries[0].hooks[0].command).toContain('cometflow-guard.mjs');
     expect(entries[0].hooks[0].command).toContain('$CLAUDE_PROJECT_DIR');
 
