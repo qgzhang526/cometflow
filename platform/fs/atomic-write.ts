@@ -42,7 +42,14 @@ async function delay(ms: number): Promise<void> {
 }
 
 export async function renameWithRetry(from: string, to: string): Promise<void> {
-  const attempts = 8;
+  /**
+   * 预算按「Windows 上另一个进程正拿着目标文件」来定：退避 20/40/80/160/200…ms，合计约 1.9s。
+   * 原来是 8 次 × 15ms 递增（约 0.5s）；实测把 8 核压满后跑并发读写用例（40 次读 + 10 次改写
+   * 同一个 200KB 文件），0.5s 仍会打满并把 EPERM 抛给调用方。文件被占用是暂时状态，
+   * 多等一会儿比让调用方失败更划算。
+   */
+  const attempts = 12;
+  const MAX_BACKOFF_MS = 200;
   let lastError: unknown;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     try {
@@ -52,7 +59,7 @@ export async function renameWithRetry(from: string, to: string): Promise<void> {
       lastError = error;
       const code = (error as NodeJS.ErrnoException).code ?? '';
       if (!RETRYABLE_RENAME_ERRORS.has(code)) throw error;
-      await delay(15 * (attempt + 1));
+      await delay(Math.min(20 * 2 ** attempt, MAX_BACKOFF_MS));
     }
   }
   throw lastError;

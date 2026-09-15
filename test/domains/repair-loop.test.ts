@@ -116,7 +116,9 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await fs.rm(tmp, { recursive: true, force: true });
+  // 用例超时会被 vitest 中断，此时验收 check 的 `node` 子进程可能还活着并占着目录（Windows 上报 EBUSY）；
+  // 清理失败会把真正的失败原因埋掉，所以这里重试几次。
+  await fs.rm(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 });
 
 describe('verdict fingerprint', () => {
