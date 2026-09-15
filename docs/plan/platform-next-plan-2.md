@@ -1,6 +1,6 @@
 # 平台侧第二批：把门禁延伸到运行期与本地提交
 
-状态：P1 / P2 / P3 已完成；P4 / P5 规划完成，待执行
+状态：P1 / P2 / P3 / P4 / P5 全部完成
 来源：[platform-next-plan.md](./platform-next-plan.md) 的 A/B/D 完成后的剩余方向
 前置依赖：[ADR 0023](../decisions/0023-platform-hook-install.md)、[ci-plan.md](./ci-plan.md)、[metrics-plan.md](./metrics-plan.md)
 
@@ -316,11 +316,24 @@ P2 的 `gate install --git-hooks` 写的是 `git rev-parse --git-path hooks` 解
 
 ### 验收标准
 
-- [ ] 不传 flag：`spec verify` 的 stdout 与退出码与今天逐字一致（回归断言）
-- [ ] `gate check --findings` 在一个有问题的项目上列出**去重后**的 finding，每条带 `source`
-- [ ] 同一个问题（例如 stale lock）只出现一次，`code` 与 `doctor` / `spec verify` 各自输出的 code 相同
-- [ ] `gate check --json` 的 `findings[]` 可被解析，severity 只有 error/warning/info
-- [ ] 空项目：`findings` 为空数组，不报错
+- [x] 不传 flag：`spec verify` 的 stdout 与退出码与今天逐字一致（回归断言）
+- [x] `gate check --findings` 在一个有问题的项目上列出**去重后**的 finding，每条带 `source`
+- [x] 同一个问题只出现一次（doctor 的 `spec-verify:<code>` 镜像被丢弃，以 spec verify 那份为准）
+- [x] `gate check --json` 的 `findings[]` 可解析，severity 只有 error/warning/info
+- [x] 汇总结果按严重级别排序，`(code, subject)` 唯一
+
+### 实现记录
+
+- 落点：新增 `domains/gates/findings.ts`（`Finding` 统一模型 + `collectFindings` 并发跑两个来源 +
+  `dedupeFindings` + `formatFinding`）；`gate check` 增加 `--findings`（人类可读）并让 `--json` 始终带
+  `findings[]`；`spec verify` 增加 `--with-doctor`。
+- **不合并 scope** 是刻意的：`spec verify` 的默认输出与退出码逐字不变（回归里有断言），
+  doctor 的发现只在显式要求时附上，并写明「另一个 scope，不影响其结论」。
+- 去重键取 `(code, subject)`：同 code 不同 subject（两个 change 各自漂移）必须分别列出。
+  doctor 把 spec verify 的结论镜像成 `spec-verify:<code>`，这一层在合并时直接丢弃——同一个判定出现两次会让人
+  以为有两个问题。
+- 测试：`test/domains/findings.test.ts` 7 例（去重语义、排序、格式化、两个来源的归属）；回归新增 3 步。
+- 文档：USAGE §13.3。
 
 ### 风险与取舍
 
@@ -338,7 +351,7 @@ P2 的 `gate install --git-hooks` 写的是 `git rev-parse --git-path hooks` 解
 | P2 | git 提交门禁 ✅ | 本地 commit 与 CI 同源判定（CI 脚本退化为薄壳）；已有 pre-commit 链式安装与逐字还原；顺带修掉 `spec validate` / `plan validate` 恒返回 0 |
 | P3 | metrics 阈值可配 ✅ | 无配置行为不变；配置非法报错（`PUT /config` 同源）；阈值在 `metrics` 输出里可见 |
 | P4 | 第二安装点（husky / lefthook） ✅ | 装到各自承认的配置位置；可逆、链式、幂等；结构不支持时明确拒绝 |
-| P5 | findings 统一呈现 | `gate check --findings` 一次列全（带 source、去重）；`spec verify` 默认输出不变 |
+| P5 | findings 统一呈现 ✅ | `gate check --findings` 一次列全（带 source、按 `(code, subject)` 去重）；`spec verify --with-doctor` 可选附加，默认输出逐字不变 |
 
 ## 完成定义（DoD）
 

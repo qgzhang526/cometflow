@@ -5,10 +5,13 @@ import {
   installGitHook,
   uninstallGitHook,
 } from '../../domains/gates/git-hook.js';
+import { collectFindings, formatFinding } from '../../domains/gates/findings.js';
 
 export interface GateCheckOptions {
   json?: boolean;
   updateBaseline?: boolean;
+  /** 默认输出之外多打一段按严重级别排好的 finding 清单。 */
+  findings?: boolean;
 }
 
 /**
@@ -23,12 +26,22 @@ export async function gateCheckCommand(
 ): Promise<void> {
   const projectRoot = path.resolve(targetPath);
   const result = await runSpecGates(projectRoot, { updateBaseline: options.updateBaseline === true });
+  // `--json` 一律带上结构化 findings（机器可读模式再加一次调用很浪费）；人类可读模式按需展开。
+  const findings = options.json === true || options.findings === true
+    ? await collectFindings(projectRoot)
+    : null;
 
   if (options.json) {
-    console.log(JSON.stringify(result, null, 2));
+    console.log(JSON.stringify({ ...result, findings }, null, 2));
   } else {
     for (const step of result.steps) {
       console.log((step.ok ? 'PASS ' : 'FAIL ') + step.name + (step.detail ? ' — ' + step.detail : ''));
+    }
+    if (findings !== null) {
+      console.log('');
+      console.log('findings（spec-verify + doctor，已去重；scope 不同，见 USAGE §13.3）：');
+      if (findings.length === 0) console.log('  （无）');
+      for (const finding of findings) console.log('  ' + formatFinding(finding));
     }
     console.log(result.ok ? 'gate check: PASS' : 'gate check: FAILED');
   }
