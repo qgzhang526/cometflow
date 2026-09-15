@@ -79,6 +79,41 @@
 
   <div class="card">
     <div class="row">
+      <h2>并发写保护（ADR 0021）</h2>
+      <span class="grow" />
+      <span class="badge" :class="policy?.expired ? 'err' : policy?.mode === 'fail' ? 'ok' : 'warn'">
+        {{ policy ? (policy.mode === 'fail' ? 'fail（冲突即中止）' : policy.expired ? 'warn 已到期' : 'warn（过渡态）') : '…' }}
+      </span>
+    </div>
+    <p class="muted">
+      spec 的 Web 写入（新建 / 保存 / 恢复）会带上「我基于哪一版改的」做乐观并发检查。
+      <b>warn 是有期限的过渡态</b>：冲突照旧写入但会留痕（doctor 报告 + 冲突流水），
+      到期后 <code>spec verify</code> 与 doctor 会报 error（CI 因此变红）——
+      届时只有两条出路：切换为 fail，或显式延长并写下理由。
+    </p>
+    <table>
+      <tbody>
+        <tr><th>当前模式</th><td>{{ policy?.mode ?? 'warn' }}{{ policy?.warnUntil ? '' : '（未显式配置）' }}</td></tr>
+        <tr>
+          <th>warn 到期</th>
+          <td>
+            {{ policy?.warnUntil ?? '—' }}
+            <template v-if="policy?.daysUntilExpiry !== null && policy?.daysUntilExpiry !== undefined"> · 还剩 {{ policy.daysUntilExpiry }} 天</template>
+          </td>
+        </tr>
+        <tr><th>延长理由</th><td>{{ policy?.warnReason ?? '—' }}</td></tr>
+        <tr><th>累计冲突</th><td>{{ configResponse?.concurrencyConflicts ?? 0 }} 次（.cometflow/runtime/cas-conflicts.jsonl）</td></tr>
+      </tbody>
+    </table>
+    <div class="toolbar" style="margin-top: 10px">
+      <button class="primary" :disabled="policyBusy || policy?.mode === 'fail'" @click="setConcurrencyFail">切换为 fail</button>
+      <input v-model="warnReason" class="grow" placeholder="延长理由（会写进配置，便于回溯）" />
+      <button :disabled="policyBusy || warnReason.trim() === ''" @click="extendWarn">延长 30 天</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="row">
       <button class="primary" :disabled="saving" @click="save">{{ saving ? '保存中…' : '保存配置' }}</button>
       <button :disabled="saving" @click="load">放弃修改</button>
       <span class="grow" />
@@ -90,18 +125,46 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref, watch } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { errorMessage } from '../../api/client';
 import { refreshCounter } from '../../composables/useRefresh';
 import { useProjectStore } from '../../stores/project';
 import { useToastStore } from '../../stores/toasts';
-import type { ProjectConfig } from '../../api/types';
+import type { ProjectConfig, ProjectConfigResponse } from '../../api/types';
 import { clockToMinutes, minutesToClock } from '../../utils/format';
 
 const project = useProjectStore();
 const toasts = useToastStore();
 
 const saving = ref(false);
+const policyBusy = ref(false);
+const warnReason = ref('');
+const configResponse = ref<ProjectConfigResponse | null>(null);
+const policy = computed(() => configResponse.value?.concurrencyPolicy ?? null);
+
+/** 切换/延长都走配置写入（带校验），界面不直接改文件。 */
+async function saveConcurrency(concurrency: Record<string, unknown>): Promise<void> {
+  policyBusy.value = true;
+  try {
+    await project.projectApi('/config', { method: 'PUT', body: { concurrency } });
+    await load();
+    toasts.success('并发写策略已更新', JSON.stringify(concurrency));
+  } catch (error) {
+    toasts.error('更新失败', errorMessage(error));
+  } finally {
+    policyBusy.value = false;
+  }
+}
+
+async function setConcurrencyFail(): Promise<void> {
+  await saveConcurrency({ specWrites: 'fail' });
+}
+
+async function extendWarn(): Promise<void> {
+  const until = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+  await saveConcurrency({ specWrites: 'warn', warnUntil: until, warnReason: warnReason.value.trim() });
+  warnReason.value = '';
+}
 const overrideKeys = ref<string[]>([]);
 const lastWritten = ref<string[]>([]);
 
@@ -125,6 +188,7 @@ async function load(): Promise<void> {
   try {
     await project.loadAgents();
     const data = await project.loadConfig();
+    configResponse.value = data;
     const config = data.config;
     overrideKeys.value = Object.keys(data.projectOverride).sort();
     form.agent = config.agent ?? 'opencode';

@@ -46,3 +46,11 @@
   - report 测试通过
 - 非目标：
   - 不做前端页面
+
+### G4：session 能力
+- 目标：实现 session 能力
+- 范围：session
+- 成功标准：
+  - 未过期会话返回主体，过期会话返回 E_SESSION_EXPIRED
+- 非目标：
+  - 不做会话续期写入

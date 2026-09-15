@@ -40,6 +40,76 @@
         "parent": null,
         "note": "spec lock"
       }
+    ],
+    "specs/config.md": [
+      {
+        "spec_version": 1,
+        "hash": "c4f92e3bb0570bdf34f1139d61aecbfd41afe8b04e7474bea7ebc37ffbb3d88a",
+        "recorded_at": "2026-09-15T02:11:33.677Z",
+        "change": null,
+        "parent": null,
+        "note": "spec lock"
+      }
+    ],
+    "specs/errors.md": [
+      {
+        "spec_version": 1,
+        "hash": "906fb0095a9912d24373b9a450403f1245d354c4dbaa7b4373977bdb5ee69d81",
+        "recorded_at": "2026-09-15T02:11:33.708Z",
+        "change": null,
+        "parent": null,
+        "note": "spec lock"
+      }
+    ],
+    "specs/flows/session-refresh.md": [
+      {
+        "spec_version": 1,
+        "hash": "9b97d53856cdd65b5e42b087da5de3bf25e897888b2a61400b6391bc26a80b79",
+        "recorded_at": "2026-09-15T02:11:33.728Z",
+        "change": null,
+        "parent": null,
+        "note": "spec lock"
+      }
+    ],
+    "specs/models.md": [
+      {
+        "spec_version": 1,
+        "hash": "d48ab3455c3ed3e3f89766872f5c0647f7c712d8c44496f46f62ac5d75ff3baf",
+        "recorded_at": "2026-09-15T02:11:33.746Z",
+        "change": null,
+        "parent": null,
+        "note": "spec lock"
+      }
+    ],
+    "specs/protocol.md": [
+      {
+        "spec_version": 1,
+        "hash": "1b7b17d567d67eaa9b653ee253bb09f2fbdc49cb233baa265ec0f9060c0534ce",
+        "recorded_at": "2026-09-15T02:11:33.764Z",
+        "change": null,
+        "parent": null,
+        "note": "spec lock"
+      }
+    ],
+    "specs/rules.md": [
+      {
+        "spec_version": 1,
+        "hash": "ae5b41026353c1adac672fd789b6df22ef7a6a2ee7da65e25e63c4e4a474fecf",
+        "recorded_at": "2026-09-15T02:11:33.787Z",
+        "change": null,
+        "parent": null,
+        "note": "spec lock"
+      }
+    ],
+    "specs/session/spec.md": [
+      {
+        "spec_version": 1,
+        "hash": "71f2404a5d83ca4190102b921adb77b7280b40d1b84e1aa61f710b252cd5d1d8",
+        "recorded_at": "2026-09-15T02:11:33.803Z",
+        "change": null,
+        "parent": null,
+        "note": "spec lock"
+      }
     ]
   }
 }

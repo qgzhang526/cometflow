@@ -14,11 +14,21 @@ import type { ServeHandle } from '../../domains/server/serve.js';
 
 const FIXTURE = path.join(process.cwd(), 'experiments', 'regression-fixture');
 
+/** fixture 里 specs/** 下的 spec 文件；断言跟着 fixture 增长，不写死份数。 */
+async function listSpecFiles(root: string): Promise<string[]> {
+  const entries = await fs.readdir(path.join(root, 'specs'), { recursive: true, withFileTypes: true });
+  return entries
+    .filter((entry) => entry.isFile() && entry.name.endsWith('.md'))
+    .map((entry) => path.relative(root, path.join(entry.parentPath, entry.name)).split(path.sep).join('/'))
+    .sort();
+}
+
 let server: ServeHandle;
 let workspace: string;
 let projectRoot: string;
 let webDir: string;
 let base: string;
+let specFileCount: number;
 
 interface ApiEnvelope<T> {
   ok: boolean;
@@ -58,6 +68,7 @@ beforeAll(async () => {
   });
   const payload = (await imported.json()) as ApiEnvelope<{ project: { id: string } }>;
   base = '/api/projects/' + payload.data.project.id;
+  specFileCount = (await listSpecFiles(projectRoot)).length;
 });
 
 afterAll(async () => {
@@ -99,7 +110,7 @@ describe('spec kernel API', () => {
       '/spec/diff',
     );
     expect(status).toBe(200);
-    expect(body.data.unchanged.length).toBe(4);
+    expect(body.data.unchanged.length).toBe(specFileCount);
     expect(body.data.modified).toHaveLength(0);
 
     // 改一份 spec：diff 必须能看见，并且影响分析要指出受影响的冻结任务。
@@ -109,7 +120,7 @@ describe('spec kernel API', () => {
 
     const after = await get<{ modified: Array<{ path: string }>; unchanged: unknown[] }>('/spec/diff');
     expect(after.body.data.modified.map((entry) => entry.path)).toEqual(['specs/core/spec.md']);
-    expect(after.body.data.unchanged.length).toBe(3);
+    expect(after.body.data.unchanged.length).toBe(specFileCount - 1);
 
     const drift = await get<{ drift: Array<{ goal: string; task: string; kind: string; severity: string }> }>('/spec/drift');
     expect(drift.status).toBe(200);
@@ -212,7 +223,7 @@ describe('spec kernel API', () => {
   it('records the current spec set as a baseline', async () => {
     const locked = await post<{ recorded: Array<{ path: string; spec_version: number }> }>('/spec/lock', {});
     expect(locked.status).toBe(200);
-    expect(locked.body.data.recorded.length).toBe(4);
+    expect(locked.body.data.recorded.length).toBe(specFileCount);
 
     const diff = await get<{ modified: unknown[]; added: unknown[]; removed: unknown[] }>('/spec/diff');
     expect(diff.body.data.modified).toHaveLength(0);

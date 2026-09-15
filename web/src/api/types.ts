@@ -321,6 +321,15 @@ export interface ProjectConfig {
 export interface ProjectConfigResponse {
   config: ProjectConfig;
   projectOverride: Partial<ProjectConfig>;
+  /** 并发写策略的实时状态（ADR 0021 的两段式上线）。 */
+  concurrencyPolicy?: {
+    mode: 'warn' | 'fail';
+    warnUntil: string | null;
+    warnReason: string | null;
+    expired: boolean;
+    daysUntilExpiry: number | null;
+  };
+  concurrencyConflicts?: number;
 }
 
 export interface ScaffoldAnswers {

@@ -6,6 +6,10 @@
       "hash": "e7e1aa381c1f33a5bde0d7a88d089c426dd3338568967b8ef72e0e989fcf47be"
     },
     {
+      "path": "specs/config.md",
+      "hash": "c4f92e3bb0570bdf34f1139d61aecbfd41afe8b04e7474bea7ebc37ffbb3d88a"
+    },
+    {
       "path": "specs/constraints.md",
       "hash": "bdb67e4f2bf4e2cbdcd334b815cb481c7257d5275e65d628d39ef4a3fad9b43f"
     },
@@ -14,8 +18,32 @@
       "hash": "8d69ac154c5c663d4833db2157f69e43334e87b961f7fb28071b47d07a6a1690"
     },
     {
+      "path": "specs/errors.md",
+      "hash": "906fb0095a9912d24373b9a450403f1245d354c4dbaa7b4373977bdb5ee69d81"
+    },
+    {
+      "path": "specs/flows/session-refresh.md",
+      "hash": "9b97d53856cdd65b5e42b087da5de3bf25e897888b2a61400b6391bc26a80b79"
+    },
+    {
+      "path": "specs/models.md",
+      "hash": "d48ab3455c3ed3e3f89766872f5c0647f7c712d8c44496f46f62ac5d75ff3baf"
+    },
+    {
+      "path": "specs/protocol.md",
+      "hash": "1b7b17d567d67eaa9b653ee253bb09f2fbdc49cb233baa265ec0f9060c0534ce"
+    },
+    {
       "path": "specs/report/spec.md",
       "hash": "2cc23149793040f4f53802a66e7848b348f8c9760bd8fc71a2906c23957fe854"
+    },
+    {
+      "path": "specs/rules.md",
+      "hash": "ae5b41026353c1adac672fd789b6df22ef7a6a2ee7da65e25e63c4e4a474fecf"
+    },
+    {
+      "path": "specs/session/spec.md",
+      "hash": "71f2404a5d83ca4190102b921adb77b7280b40d1b84e1aa61f710b252cd5d1d8"
     }
   ]
 }

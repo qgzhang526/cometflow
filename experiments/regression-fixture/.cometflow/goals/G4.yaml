@@ -1,13 +1,13 @@
 schema: cometflow.goal.v1
-id: G3
-title: report 能力
-summary: 实现 report 能力
+id: G4
+title: session 能力
+summary: 实现 session 能力
 scope:
-  - report
+  - session
 success_criteria:
-  - report 测试通过
+  - 未过期会话返回主体，过期会话返回 E_SESSION_EXPIRED
 non_goals:
-  - 不做前端页面
+  - 不做会话续期写入
 source: COMETFLOW.md
 source_hash: 3faaee0df2537dc5714414947eb67317d5595d868f0e2489c88a6b96aca41796
 status: active

@@ -127,6 +127,52 @@ for (const entry of gates.results) {
   }
 }
 
+// 引用关系图（N1）：fixture 现在带跨文件引用，图上必须能解析出这些边，且没有未解析项。
+// 只做投影、不设退出码——门禁仍归 spec validate（这里同时用它交叉验证「图与门禁同源」）。
+{
+  const graphResult = cli(['spec', 'graph', '.', '--json']);
+  check(
+    'spec graph --json 可解析',
+    graphResult.code === 0,
+    (graphResult.stdout + graphResult.stderr).trim().slice(0, 200),
+  );
+  let graph = null;
+  try {
+    graph = JSON.parse(graphResult.stdout);
+  } catch {
+    graph = null;
+  }
+  check('spec graph 产出规范投影', graph?.schema === 'cometflow.spec-graph.v1');
+  if (graph) {
+    check('graph 无未解析引用', graph.summary.unresolved === 0, JSON.stringify(graph.unresolved.slice(0, 3)));
+    const kindEdges = new Set(
+      graph.edges
+        .filter((edge) => edge.level === 'reference' && edge.from.startsWith('kind:'))
+        .map((edge) => edge.from + '->' + edge.to),
+    );
+    for (const expected of [
+      'kind:capability->kind:models',
+      'kind:capability->kind:errors',
+      'kind:capability->kind:protocol',
+      'kind:flow->kind:capability',
+      'kind:flow->kind:models',
+      'kind:flow->kind:config',
+      'kind:rules->kind:models',
+    ]) {
+      check('graph 含引用边 ' + expected, kindEdges.has(expected));
+    }
+    const targetIds = new Set(graph.nodes.filter((node) => node.level === 'target').map((node) => node.id));
+    check('graph 含实体目标 Session', targetIds.has('target:model:Session'));
+    check('graph 含接口目标 GET /session', targetIds.has('target:api:GET /session'));
+    // 同源断言：图说「没有未解析引用」时，validate 侧也不应有 unresolved-* finding。
+    const validateResult = cli(['spec', 'validate', '.']);
+    check(
+      'graph 与 spec validate 同源（无 unresolved-* finding）',
+      !(validateResult.stdout + validateResult.stderr).includes('unresolved-'),
+    );
+  }
+}
+
 console.log('== mutating checks in a temp copy ==');
 const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'cometflow-regression-'));
 const project = path.join(tempRoot, 'fixture');
@@ -134,10 +180,13 @@ cpSync(FIXTURE, project, { recursive: true });
 process.on('exit', () => removeWithRetry(tempRoot));
 
 // spec kind scaffolding：删掉一个 present 的 kind，再补回来（幂等）
+const modelsPath = path.join(project, 'specs', 'models.md');
+const modelsBefore = readFileSync(modelsPath, 'utf8');
 rmSync(path.join(project, 'specs', 'constraints.md'), { force: true });
 expectOk('spec scaffold', ['spec', 'scaffold', '.'], project);
 check('scaffold 重建 constraints.md', existsSync(path.join(project, 'specs', 'constraints.md')));
-check('scaffold 不应创建 models.md', !existsSync(path.join(project, 'specs', 'models.md')));
+// 脚手架是幂等的：已存在的文件不能被覆盖（fixture 里 models.md 现在是 present kind，带交叉引用内容）
+check('scaffold 不覆盖已存在的 models.md', readFileSync(modelsPath, 'utf8') === modelsBefore);
 
 expectOk('spec index', ['spec', 'index', '.'], project);
 check('spec index 产出 apis.yaml', existsSync(path.join(project, '.cometflow', 'spec-index', 'apis.yaml')));

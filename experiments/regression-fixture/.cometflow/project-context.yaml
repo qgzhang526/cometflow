@@ -10,3 +10,4 @@ runtime:
   os: Linux
   deployment: 本地
   language_version: Node 22+
+shared_paths: []

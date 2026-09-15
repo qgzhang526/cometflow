@@ -1,0 +1,33 @@
+---
+capability: session
+module: src/session
+---
+
+# session capability
+
+会话读取能力：确认当前登录主体与过期状态。
+
+## GET /session
+
+读取当前会话。
+
+- 模型：Session
+- 错误码：E_SESSION_EXPIRED
+- 状态码：401
+- 协议头：Authorization
+
+### 请求
+
+无请求体，凭 Authorization 头识别会话。
+
+### 响应
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| id | string | 是 | 会话主键 |
+| subject | string | 是 | 会话主体 |
+
+## 验收
+
+- A1：携带有效 Authorization 时返回会话主体
+  - check: node -e "process.exit(0)"
