@@ -1260,6 +1260,10 @@ pnpm build                   # tsc（CLI）+ vite build（Web）
 ```bash
 cometflow status [path]              # 目标/计划/变更/进化 的 JSON 摘要
 cometflow doctor [path] [--json] [--clean-temp]
+cometflow gate check [path] [--json] [--update-baseline]   # 只读门禁（与 CI 同源）
+cometflow gate install [path] --git-hooks                  # 装进 .git/hooks/pre-commit（链式、可逆）
+cometflow gate status [path] [--json]                      # 已装 / 未装 / 内容漂移
+cometflow gate uninstall [path] --git-hooks                # 卸载（未改动则逐字还原）
                                      # 健康检查：使命/上下文/spec 错误/无计划/多活跃 change
                                      # + spec 完整性（plan/state 内容哈希）
                                      # + 残留写入临时文件与滞留迁移；--clean-temp 才删除
@@ -1362,6 +1366,38 @@ cometflow metrics . --json     # cometflow.metrics.v1 报告
 
 度量回答的是两个问题：**按 spec 重建出来的代码一次能不能过**（重建质量），**spec 本身够不够格当判据**（spec 健康度）。
 它是后续所有改进的验证手段——例如「acceptance 可判定率」从 0 涨到 100%，就是「spec 能控制实现」的直接证据。
+
+### 13.3 门禁（gate）：本地提交与 CI 用同一套判定
+
+```bash
+cometflow gate check . [--json] [--update-baseline]   # 跑全部只读门禁，退出码即结论
+cometflow gate install . --git-hooks                  # 装进 .git/hooks/pre-commit
+cometflow gate status . [--json]                      # 装没装 / 链没链 / 有没有漂移
+cometflow gate uninstall . --git-hooks                # 卸载（逐字还原原有 hook）
+```
+
+判定项与 CI 完全一致（实现只有一份：`domains/gates/spec-gates.ts`）：
+
+| 判定 | 说明 |
+|---|---|
+| `spec validate` | 结构、acceptance、跨文件引用、init-manifest 声明的 kind 是否齐全 |
+| `spec verify` | 一致性门禁（lock 新鲜度、版本仓、anchor/验收漂移、plan/state 内容哈希、change 基线冲突） |
+| `doctor` | 项目健康（含写保护状态、git 漂移、证据占用、残留临时文件、滞留锁） |
+| `change gc (dry-run)` | 证据回收计划可计算（不修改任何东西） |
+| `plan validate <goal>` | 计划覆盖度、依赖环、模块归属；跳过故意损坏的 `broken.*` |
+| `metrics baseline` | 关键指标只许持平或变好（方向见 §15） |
+
+安装语义：
+
+- **显式目标**：必须写 `--git-hooks`，不猜用户想装哪儿。
+- **链式**：已有 `pre-commit` 会被备份到 `pre-commit.cometflow-orig`，并**先**执行；它失败就不再往下跑。
+  卸载时若你没改过我们的包装脚本，就把它**逐字还原**；改过则拒绝覆盖，只提示你手工处理。
+- **写对地方**：用 `git rev-parse --git-path hooks` 解析，尊重 `core.hooksPath`（husky / lefthook 会改它），
+  并在 `gate status` 里提示。非 git 仓库直接报错，不写别处。
+- **逃生门**：`git commit --no-verify`。这是 git 原生出口，门禁的价值在于默认生效，而不是无法绕过。
+
+> 本轮顺带修掉两个「只打印不设退出码」的缺陷：`spec validate` 与 `plan validate` 此前**恒返回 0**，
+> 也就是说 CI 门禁里这两步一直是绿的（与 `doctor --json` 恒返回 0 同源）。现在失败即退出码 1。
 
 ---
 

@@ -58,6 +58,8 @@ export async function planValidateCommand(goalId: string, targetPath: string): P
     console.log([finding.severity.toUpperCase(), finding.code, finding.taskId ?? '', finding.message].join(' '));
   }
   console.log(result.valid ? 'plan validate: OK' : 'plan validate: FAILED');
+  // 退出码即结论（同 spec validate）：门禁按退出码判定，只打印等于没有判定力。
+  if (!result.valid) process.exitCode = 1;
 }
 
 export async function planFreezeCommand(goalId: string, targetPath: string): Promise<void> {

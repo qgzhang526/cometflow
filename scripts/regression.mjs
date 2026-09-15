@@ -306,6 +306,47 @@ expectDenied(
 );
 expectOk('--allow-drift 放行', ['change', 'run', 'git-demo', '.', '--agent', 'mock', '--allow-drift'], project);
 
+// P2 提交门禁：装进 .git/hooks/pre-commit，commit 时按门禁结论放行/拦截，卸载后逐字还原。
+// 这里用 stub 顶替 cometflow 控制结论——测的是「hook 有没有正确接线」，判定本身由 spec-gates 覆盖。
+expectOk('gate status（安装前）', ['gate', 'status', '.', '--json'], project);
+expectOk('gate install --git-hooks', ['gate', 'install', '.', '--git-hooks'], project);
+const gateStub = path.join(project, 'gate-stub.mjs');
+writeFileSync(gateStub, 'const fail = process.env.STUB_GATE_STATUS === "1";\nprocess.exit(fail ? 1 : 0);\n');
+const gateStubCli = 'node "' + gateStub.replace(/\\/g, '/') + '"';
+const blockedCommit = spawnSync(
+  'git',
+  [...GIT_IDENTITY, 'commit', '-q', '--allow-empty', '-m', 'gate-blocked'],
+  {
+    cwd: project,
+    encoding: 'utf8',
+    env: { ...process.env, COMETFLOW_CLI: gateStubCli, STUB_GATE_STATUS: '1' },
+  },
+);
+check(
+  '门禁不通过时 commit 被拒',
+  blockedCommit.status !== 0,
+  'status=' + blockedCommit.status + ' ' + (blockedCommit.stderr ?? '').trim().slice(0, 200),
+);
+const allowedCommit = spawnSync(
+  'git',
+  [...GIT_IDENTITY, 'commit', '-q', '--allow-empty', '-m', 'gate-allowed'],
+  {
+    cwd: project,
+    encoding: 'utf8',
+    env: { ...process.env, COMETFLOW_CLI: gateStubCli, STUB_GATE_STATUS: '0' },
+  },
+);
+check(
+  '门禁通过时 commit 成功',
+  allowedCommit.status === 0,
+  'status=' + allowedCommit.status + ' ' + (allowedCommit.stderr ?? '').trim().slice(0, 200),
+);
+expectOk('gate uninstall --git-hooks', ['gate', 'uninstall', '.', '--git-hooks'], project);
+check(
+  '卸载后 pre-commit 被还原（安装前不存在）',
+  !existsSync(path.join(project, '.git', 'hooks', 'pre-commit')),
+);
+
 expectOk('classic status', ['classic', 'status', 'classic-open', '.'], project);
 for (const event of ['open-complete', 'design-complete', 'build-complete', 'verify-pass', 'archive-complete']) {
   expectOk('classic ' + event, ['classic', 'transition', 'classic-open', event, '.'], project);

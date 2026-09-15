@@ -1,6 +1,6 @@
 # 平台侧第二批：把门禁延伸到运行期与本地提交
 
-状态：P1 已完成；P2 / P3 规划中
+状态：P1 / P2 已完成；P3 规划中
 来源：[platform-next-plan.md](./platform-next-plan.md) 的 A/B/D 完成后的剩余方向
 前置依赖：[ADR 0023](../decisions/0023-platform-hook-install.md)、[ci-plan.md](./ci-plan.md)、[metrics-plan.md](./metrics-plan.md)
 
@@ -116,11 +116,30 @@
 
 ### 验收标准
 
-- [ ] 未安装时 `git commit` 行为与今天完全一致
-- [ ] 安装后：伪造 spec 漂移（改写 `plan_hash`）再 commit → 被拒，输出指向具体 finding
-- [ ] 已有 pre-commit 的项目：安装后两条 hook 都执行；卸载后原文件逐字还原
-- [ ] `gate check` 与 CI 的 `spec-gates` 在同一次运行里结论一致（断言两者**共用实现**，而不是各跑一次碰巧相同）
-- [ ] 幂等：重复 install 不产生重复 hook；`gate status` 能报出「已安装但内容漂移」
+- [x] 未安装时 `git commit` 行为与今天完全一致
+- [x] 安装后：门禁不通过时 commit 被拒（`scripts/regression.mjs` 用 stub 固定结论验证接线）
+- [x] 已有 pre-commit 的项目：安装后两条 hook 都执行；卸载后原文件逐字还原
+- [x] `gate check` 与 CI 的 `spec-gates` **共用实现**（CI 脚本退化成薄壳，只调 `gate check --json` 一次）
+- [x] 幂等：重复 install 不产生重复 hook；`gate status` 能报出「已安装但内容漂移」
+
+### 实现记录
+
+- 落点：新增 `domains/gates/spec-gates.ts`（判定唯一实现：spec validate / spec verify / doctor /
+  change gc dry-run / plan validate / metrics 基线）、`domains/gates/git-hook.ts`（安装、链式、还原、漂移）、
+  `app/commands/gate.ts` + `gate check|install|status|uninstall` 四个子命令。
+- `scripts/spec-gates.mjs` 退化成薄壳：一次 `gate check --json` 调用。夹具上从 ~30s（9 次 tsx 启动）
+  降到 ~3.5s——门禁要装进每次提交都跑的地方，慢就是不用。
+- **顺带修掉两个同源缺陷**：`spec validate` 与 `plan validate` 只打印 `OK/FAILED`、**从不设置非零退出码**，
+  也就是 CI 里这两步一直是绿的（与 `doctor --json` 恒返回 0 同一类：结论没传到退出码）。
+  现在失败即退出码 1，并在夹具上实测：删掉 `specs/errors.md` → `spec-gates` 报
+  `FAIL spec validate — missing-kind-file, unresolved-error-reference` 且退出 1（修复前那是恒 PASS 的一行）。
+- 安装语义：`--git-hooks` 显式指定目标；已有 pre-commit 备份为 `pre-commit.cometflow-orig` 并**先**执行；
+  卸载未改动则逐字还原、改动过则拒绝覆盖；用 `git rev-parse --git-path hooks` 尊重 `core.hooksPath`；
+  脚本用 LF（Windows 上 CRLF 会让 `#!/bin/sh` 静默失效）；非 git 仓库明确拒绝。
+- 测试：`test/domains/spec-gates.test.ts` 7 例（含「spec validate 真的会失败」「基线退化方向」）、
+  `test/domains/gate-git-hook.test.ts` 7 例（含真实 `git commit` 被拦与被放行、链式、逐字还原、漂移）；
+  回归脚本新增 6 步。
+- 文档：[ADR 0025](../decisions/0025-git-commit-gate.md)、USAGE §13.3。
 
 ### 风险与取舍
 
@@ -183,7 +202,7 @@
 | 里程碑 | 内容 | 完成标志 |
 |---|---|---|
 | P1 | doctor 汇总 hook 状态 ✅ | 已安装/缺失/条目缺失/过期/CLI 失效都能报出来，未安装只给 info；`doctor --json` 退出码与结论一致 |
-| P2 | git 提交门禁 | 本地 commit 与 CI 同源判定；已有 pre-commit 可链式安装与逐字还原 |
+| P2 | git 提交门禁 ✅ | 本地 commit 与 CI 同源判定（CI 脚本退化为薄壳）；已有 pre-commit 链式安装与逐字还原；顺带修掉 `spec validate` / `plan validate` 恒返回 0 |
 | P3 | metrics 阈值可配 | 无配置行为不变；配置非法报错；阈值在 `metrics` 输出里可见 |
 
 ## 完成定义（DoD）

@@ -22,7 +22,7 @@
 | 度量批次 | 把已有证据聚合成重建质量与 spec 健康度指标（`cometflow metrics`） | **已完成** | [metrics-plan.md](./metrics-plan.md) |
 | CI 门禁 | 回归执行器跨平台化 + spec 门禁 + 度量基线 + 三 job CI | **已完成**（run #4 双平台全绿） | [ci-plan.md](./ci-plan.md) |
 | 平台侧后续 | 独立验证默认化 ✅、hook 真正接线 ✅（claude-code）、调度器健壮性 ✅；并发写锁归 web-ui-followup-plan 的 N4 | **A/B/D 已完成** | [platform-next-plan.md](./platform-next-plan.md) |
-| 平台侧第二批 | doctor 汇总 hook 状态 ✅、git 提交门禁、metrics 阈值可配 | **P1 已完成，P2 待开始** | [platform-next-plan-2.md](./platform-next-plan-2.md) |
+| 平台侧第二批 | doctor 汇总 hook 状态 ✅、git 提交门禁 ✅、metrics 阈值可配 | **P1 / P2 已完成，P3 待开始** | [platform-next-plan-2.md](./platform-next-plan-2.md) |
 | Web 前端补齐 | 收敛「后端有能力、前端看不见」的差异：修 P0 正确性缺陷，补齐 spec 内核、change 审计与资产可视化 | **已完成**（W1–W5） | [web-ui-enrichment-plan.md](./web-ui-enrichment-plan.md) |
 | Web 前端后续 | 引用关系图与引用高亮、Job 持久化、并发写保护、spec 编辑语义、发布链路收尾 | **已全部完成**（M1–M3，N1–N6） | [web-ui-followup-plan.md](./web-ui-followup-plan.md) |
 

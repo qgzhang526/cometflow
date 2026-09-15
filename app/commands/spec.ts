@@ -30,6 +30,8 @@ export async function specValidateCommand(targetPath: string): Promise<void> {
     console.log([finding.severity.toUpperCase(), finding.code, finding.path, finding.message].join(' '));
   }
   console.log(result.valid ? 'spec validate: OK' : 'spec validate: FAILED');
+  // 退出码即结论：CI 门禁与 git hook 都按退出码判断，只打印不设码等于门禁没有判定力。
+  if (!result.valid) process.exitCode = 1;
 }
 
 export async function specLockCommand(targetPath: string): Promise<void> {

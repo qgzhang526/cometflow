@@ -43,6 +43,12 @@ import {
   hookUninstallCommand,
 } from '../commands/hook.js';
 import { doctorCommand } from '../commands/doctor.js';
+import {
+  gateCheckCommand,
+  gateInstallCommand,
+  gateStatusCommand,
+  gateUninstallCommand,
+} from '../commands/gate.js';
 import { evalCommand } from '../commands/eval.js';
 import { projectMigrateCommand } from '../commands/migrate.js';
 import { uninstallCommand, updateCommand } from '../commands/ops.js';
@@ -400,6 +406,41 @@ program
   .option('--force-unlock', 'Clear a leftover transaction lock after confirming the holder is gone')
   .action(async (targetPath = '.', options) => {
     await doctorCommand(targetPath, options);
+  });
+
+const gate = program.command('gate').description('Spec gates (same implementation as CI)');
+
+gate
+  .command('check [path]')
+  .description('Run the read-only spec gates')
+  .option('--json', 'Output as JSON')
+  .option('--update-baseline', 'Rewrite the metrics baseline instead of comparing against it')
+  .action(async (targetPath = '.', options) => {
+    await gateCheckCommand(targetPath, options);
+  });
+
+gate
+  .command('install [path]')
+  .description('Install the gates where they run: --git-hooks for .git/hooks/pre-commit')
+  .option('--git-hooks', 'Install a chained pre-commit hook')
+  .action(async (targetPath = '.', options) => {
+    await gateInstallCommand(targetPath, options);
+  });
+
+gate
+  .command('status [path]')
+  .description('Show where the gates are installed and whether they drifted')
+  .option('--json', 'Output as JSON')
+  .action(async (targetPath = '.', options) => {
+    await gateStatusCommand(targetPath, options);
+  });
+
+gate
+  .command('uninstall [path]')
+  .description('Remove the gates from where they were installed')
+  .option('--git-hooks', 'Remove the pre-commit hook (restores the original byte-for-byte)')
+  .action(async (targetPath = '.', options) => {
+    await gateUninstallCommand(targetPath, options);
   });
 
 program
