@@ -55,8 +55,31 @@ async function makeFixture(prefix: string): Promise<Fixture> {
 
   return {
     root,
-    cliCommand: IS_WINDOWS ? 'node "' + stub.replace(/\\/g, '/') + '"' : stub,
+    cliCommand: cliCommandFor(stub),
   };
+}
+
+/**
+ * `COMETFLOW_CLI` 的两种形态：Windows 需要一个能跑 .mjs 的命令前缀，
+ * POSIX 直接给可执行文件路径（stub 自带 shebang 且已 chmod）。
+ */
+function cliCommandFor(stub: string): string {
+  return IS_WINDOWS ? 'node "' + stub.replace(/\\/g, '/') + '"' : stub;
+}
+
+/** 把 stub CLI 写到带空格的目录里，返回它的**裸路径**（Windows 上用 .cmd 包装）。 */
+async function bareCliWithSpaces(fixture: Fixture): Promise<string> {
+  const cliDir = path.join(fixture.root, 'cli dir');
+  await fs.mkdir(cliDir, { recursive: true });
+  const stub = path.join(cliDir, 'stub-cli.mjs');
+  await fs.copyFile(path.join(fixture.root, 'stub-cli.mjs'), stub);
+  if (!IS_WINDOWS) await fs.chmod(stub, 0o755);
+  if (!IS_WINDOWS) return stub;
+
+  // Windows 不能直接把 .mjs 当命令执行，包一层 .cmd；两边都保持「裸路径 + 含空格」。
+  const wrapper = path.join(cliDir, 'cometflow-stub.cmd');
+  await fs.writeFile(wrapper, '@echo off\r\nnode "%~dp0stub-cli.mjs" %*\r\n');
+  return wrapper;
 }
 
 function writePayload(projectRoot: string, filePath: string): string {
@@ -279,6 +302,52 @@ describe('生成的守卫脚本（端到端）', () => {
     });
 
     expect(run.code).toBe(0);
+  });
+
+  it('stderr 里出现 command not found 但 CLI 确实判定过时，仍然按判定结果拦下', async () => {
+    const fixture = await makeFixture('cometflow-guard-e2e-');
+    const noisyStub = path.join(fixture.root, 'noisy-cli.mjs');
+    await fs.writeFile(
+      noisyStub,
+      [
+        '#!/usr/bin/env node',
+        "// CLI 正常判定（结论打在 stdout），但顺手往 stderr 写了一行含 `command not found` 的告警：",
+        "// 只按 stderr 措辞判「CLI 缺失」就会把它当成放行，这里要证明不会。",
+        "process.stdout.write('denied: outside-module-scope\\n');",
+        "process.stderr.write('warn: optional helper command not found\\n');",
+        'process.exit(1);',
+        '',
+      ].join('\n'),
+    );
+    if (!IS_WINDOWS) await fs.chmod(noisyStub, 0o755);
+
+    const run = await runGuard(fixture, {
+      payload: writePayload(fixture.root, 'rogue/outside.ts'),
+      cli: cliCommandFor(noisyStub),
+    });
+
+    expect(run.code).toBe(2);
+    expect(run.stderr).toContain('denied: outside-module-scope');
+  });
+
+  it('COMETFLOW_CLI 是带空格的裸路径时，Windows 下 CLI 自己也要加引号', async () => {
+    const fixture = await makeFixture('cometflow-guard-e2e-');
+    const cli = await bareCliWithSpaces(fixture);
+    expect(cli).toContain(' ');
+
+    const blocked = await runGuard(fixture, {
+      payload: writePayload(fixture.root, 'rogue/outside.ts'),
+      cli,
+    });
+    expect(blocked.code).toBe(2);
+    expect(blocked.stderr).toContain('denied: outside-module-scope');
+
+    const allowed = await runGuard(fixture, {
+      payload: writePayload(fixture.root, 'src/auth/login.ts'),
+      cli,
+    });
+    expect(allowed.code).toBe(0);
+    expect(allowed.stderr).toBe('');
   });
 });
 
