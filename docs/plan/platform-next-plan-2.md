@@ -1,6 +1,6 @@
 # 平台侧第二批：把门禁延伸到运行期与本地提交
 
-状态：P1 / P2 / P3 全部完成
+状态：P1 / P2 / P3 已完成；P4 / P5 规划完成，待执行
 来源：[platform-next-plan.md](./platform-next-plan.md) 的 A/B/D 完成后的剩余方向
 前置依赖：[ADR 0023](../decisions/0023-platform-hook-install.md)、[ci-plan.md](./ci-plan.md)、[metrics-plan.md](./metrics-plan.md)
 
@@ -14,8 +14,11 @@
 | P1 | `doctor` 汇总 hook 安装状态 | 装了写保护，却没人告诉你它是否还在生效 | platform-next-plan B 节只有一条验收项，未实现 |
 | P2 | git 提交门禁 | 门禁只在 CI，本地提交照样能把坏 spec 写进历史 | 全仓库无方案（仅 USAGE 一处顺带提及 pre-commit） |
 | P3 | metrics 阈值可配 | 「只许持平或变好」写死在脚本里，别的项目用不了 | 只有 fixture 一份基线，方向与键名硬编码 |
+| P4 | 第二安装点（husky / lefthook） | 在主流 JS 项目里，P2 的安装点会被工具重新生成 → 装了等于没装 | 只在 ADR 0025 的风险段提过一句 |
+| P5 | findings 统一呈现 | 「项目现在有哪些问题」要看两个命令，gate 里只有一行摘要 | 全仓库无提及；doctor 对 spec verify 是单向依赖 |
 
-执行顺序：**P1 → P2 → P3**（P1 最小且补的是已承诺的欠账；P2 价值最高但面大；P3 是收尾）。
+执行顺序：**P1 → P2 → P3**（已完成），其后 **P4 → P5**。
+P4 在前是因为它决定提交门禁在真实项目里到底生不生效；P5 是呈现层的收口。
 
 ---
 
@@ -211,6 +214,122 @@
 
 ---
 
+## P4. 第二安装点：husky / lefthook 原生集成
+
+### 现状与证据
+
+P2 的 `gate install --git-hooks` 写的是 `git rev-parse --git-path hooks` 解析出来的目录。
+对**裸仓库**这是对的，但在这两类项目里等于**无效操作**——工具会重新生成那个文件：
+
+| 工具 | 真实生效位置 | 写 `.git/hooks/pre-commit` 的后果 |
+|---|---|---|
+| husky v9 | `core.hooksPath=.husky/_`（自动生成的 shim 目录），用户自己的 hook 是 `.husky/pre-commit` | 下一次 `husky` 跑起来就把我们的文件覆盖掉，**静默失效** |
+| lefthook | `lefthook.yml` 的 `pre-commit.commands`；`.git/hooks/pre-commit` 是 `lefthook install` 生成的转发脚本 | 同上，`lefthook install` 一跑就还原 |
+
+这正是这一批反复在防的那类问题：配置写进去了、看起来装好了，实际从不触发。
+[ADR 0025](../decisions/0025-git-commit-gate.md) 只在「风险」里记了一句「会被工具重写」，
+没有任何落点与验收。
+
+### 目标
+
+在 husky / lefthook 项目里，安装到**它们各自承认的配置位置**，语义与裸仓库保持一致：
+可逆、链式（不吞掉用户已有的检查）、幂等、不确定时明确拒绝而不是猜。
+
+### 落点
+
+1. `domains/gates/git-hook-host.ts`：**探测宿主**，返回 `plain | husky | lefthook`：
+   - husky：`.husky/` 目录存在，或 `core.hooksPath` 的 basename 是 `_` 且父目录是 `.husky`，
+     或 `package.json` 的依赖里有 `husky`；
+   - lefthook：根目录存在 `lefthook.yml` / `lefthook.yaml` / `.lefthook.yml`；
+   - 都没命中 → `plain`（当前行为）。
+2. husky：在 **`.husky/pre-commit`** 末尾追加一个带标记的托管块
+   （`# cometflow-git-gate` + 调用行），保留用户原有内容；文件不存在时创建（`#!/bin/sh`）。
+3. lefthook：在 **`lefthook.yml`** 的 `pre-commit.commands` 下插入一条 `cometflow-gate`；
+   没有 `pre-commit` 就在文件末尾追加一个块。**用文本插入而不是 YAML 重新序列化**——
+   后者会把用户注释全部丢掉。结构超出支持范围（`pre-commit:` 用了 `extends`/流式写法等）→ 明确拒绝并给手工步骤。
+4. `gate status` 报出「集成方式 + 位置」；`gate uninstall` 三者都逐字还原
+   （husky 文件、lefthook.yml 走同一套「备份 + 安装后哈希」判据）。
+
+### 验收标准
+
+- [x] husky 项目里 install → `git commit` 被门禁拦下；`.husky/pre-commit` 里用户原有内容一字不动
+- [x] husky 项目里 uninstall → `.husky/pre-commit` **逐字还原**（安装前不存在则删除）
+- [x] lefthook 项目里 install → yml 多出一条 `cometflow-gate`，**用户注释与其它 task 保留**
+- [x] lefthook yml 结构不受支持（如 `pre-commit: extends:`）→ 明确拒绝并给手工步骤，不写坏文件
+- [x] 重复 install 幂等（不重复插入）；`gate status` 能说出用的是哪种集成
+- [x] 三种宿主下都能识别「被改过」：裸仓库拒绝整体还原，husky / lefthook 只摘托管块、保留用户改动
+
+### 实现记录
+
+- 落点：新增 `domains/gates/hook-host.ts`（宿主探测 + husky 块 / lefthook 命令的插入与摘除），
+  `domains/gates/git-hook.ts` 改成按宿主分派，`gate install` / `gate status` 输出集成方式与前提提示。
+- husky：托管块带 `|| exit $?`，保证我们后面还有别的行时退出码也不被掩盖；只动 `.husky/pre-commit`，永不碰生成的 `_`。
+- lefthook：**文本插入**（重新序列化 YAML 会丢掉用户注释），支持「没有 pre-commit 键 → 追加块」
+  与「有 commands → 插一条」两种结构，`extends` 等结构明确拒绝并给出手工步骤。
+- 备份与还原统一走 `.cometflow/runtime/git-hook/pre-commit.json`（存原始内容 + 安装后哈希）：
+  未被改动逐字还原，改过则只摘托管块。
+- **测试先抓到一个真 bug**：重复安装把记录里的「原始内容」覆盖成含托管块的版本，卸载时连块一起还原回去。
+  幂等不只是「不重复插入」，还包括**不破坏第一次安装留下的还原依据**（记录字段名 `hookPath` 也曾写错成 `filePath`，
+  导致复用失败——两处都由单测逼出来）。
+- 测试：`gate-git-hook.test.ts` 扩到 15 例（husky 4 + lefthook 4，含真实 `git commit` 走 husky shim 被拦）；
+  回归脚本新增 2 步。文档：USAGE §13.3 集成表、ADR 0025 补充节。
+
+### 风险与取舍
+
+- husky 的 `_` 目录是自动生成的：我们只动 `.husky/pre-commit`，绝不动 `_`。
+- lefthook 的 YAML 有无数种写法，文本插入只覆盖常见结构；覆盖不到时**宁可不装**也不写坏用户的配置文件。
+- 探测优先级：lefthook（有 yml）> husky（有 .husky）> plain；两者同时存在时以显式 yml 为准并提示。
+
+---
+
+## P5. findings 统一呈现：一次运行看全，但不合并 scope
+
+### 现状与证据
+
+`doctor` 与 `spec verify` 的**分工是清晰的**，但呈现是分散的：
+
+| 来源 | scope | finding |
+|---|---|---|
+| `spec verify`（`domains/spec/spec-verify.ts`） | spec 还是不是唯一根源 | lock 新鲜度、版本仓、anchor/验收漂移、plan/state 内容哈希、change 基线冲突 |
+| `doctor`（`domains/dashboard/doctor.ts`） | 项目运行健康 | 写保护状态、git 漂移、残留临时文件、证据占用、滞留锁、并发策略 |
+
+两者目前只有**单向**关系：doctor 复用 spec verify 并把结果记成 `spec-verify:<code>`；
+反方向不存在。于是「这个项目现在到底有哪些问题」要看两个命令，`gate check` 里也只是一个 step 一行摘要
+（`FAIL doctor — invalid-specs, spec-verify:stale-spec-lock` 这种），看不到逐条 finding。
+
+### 目标
+
+**一次运行列出全部 finding**，每条带来源与严重级别；同时**不把运行期噪音塞进 `spec verify` 的默认输出**
+（它是 CI 门禁的信号，混入临时文件占用这类信息会让红灯失去意义）。
+
+### 落点
+
+1. `domains/gates/findings.ts`：统一模型
+   `Finding { code, severity, source: 'spec-verify' | 'doctor', subject, message }`，
+   `collectFindings(projectRoot)` 并发跑两个来源、归一化、**按 `(code, subject)` 去重**。
+   doctor 里的 `spec-verify:<code>` 前缀在归一化时剥掉并标回 `source: 'spec-verify'`——
+   同一个问题不能在两处用两个 code。
+2. `gate check --findings`：默认输出之外多打一段按严重级别分组的清单；
+   `gate check --json` 增加 `findings[]`（结构化，带 source）。
+3. `spec verify --with-doctor`：显式要求时把 doctor 的逐条 finding 追加在 `spec verify` 输出后面，
+   并**明确标出这是另一个 scope**；不传这个 flag 时输出与今天逐字一致。
+
+### 验收标准
+
+- [ ] 不传 flag：`spec verify` 的 stdout 与退出码与今天逐字一致（回归断言）
+- [ ] `gate check --findings` 在一个有问题的项目上列出**去重后**的 finding，每条带 `source`
+- [ ] 同一个问题（例如 stale lock）只出现一次，`code` 与 `doctor` / `spec verify` 各自输出的 code 相同
+- [ ] `gate check --json` 的 `findings[]` 可被解析，severity 只有 error/warning/info
+- [ ] 空项目：`findings` 为空数组，不报错
+
+### 风险与取舍
+
+- **不合并 scope**是刻意的：`spec verify` 是「spec 还是不是唯一根源」的判据，
+  把「临时文件没清」这类运行期信息混进去，会让它在 CI 里失去信号价值。
+- 去重键取 `(code, subject)`：同 code 不同 subject（两个 change 各自漂移）必须分别列出，不能粗暴按 code 去重。
+
+---
+
 ## 里程碑
 
 | 里程碑 | 内容 | 完成标志 |
@@ -218,6 +337,8 @@
 | P1 | doctor 汇总 hook 状态 ✅ | 已安装/缺失/条目缺失/过期/CLI 失效都能报出来，未安装只给 info；`doctor --json` 退出码与结论一致 |
 | P2 | git 提交门禁 ✅ | 本地 commit 与 CI 同源判定（CI 脚本退化为薄壳）；已有 pre-commit 链式安装与逐字还原；顺带修掉 `spec validate` / `plan validate` 恒返回 0 |
 | P3 | metrics 阈值可配 ✅ | 无配置行为不变；配置非法报错（`PUT /config` 同源）；阈值在 `metrics` 输出里可见 |
+| P4 | 第二安装点（husky / lefthook） ✅ | 装到各自承认的配置位置；可逆、链式、幂等；结构不支持时明确拒绝 |
+| P5 | findings 统一呈现 | `gate check --findings` 一次列全（带 source、去重）；`spec verify` 默认输出不变 |
 
 ## 完成定义（DoD）
 

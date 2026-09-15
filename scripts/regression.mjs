@@ -365,6 +365,28 @@ check(
 );
 writeFileSync(gateConfigPath, gateConfigBefore);
 
+// P4：宿主自适应——同一个命令，在 husky 项目里必须落到 .husky/pre-commit（写 .git/hooks 会被 husky 覆盖）。
+const huskyDir = path.join(project, '.husky');
+mkdirSync(huskyDir, { recursive: true });
+const huskyHook = path.join(huskyDir, 'pre-commit');
+const huskyOriginal = '#!/bin/sh\necho husky-user-hook\n';
+writeFileSync(huskyHook, huskyOriginal);
+const huskyInstall = cli(['gate', 'install', '.', '--git-hooks'], { cwd: project });
+check(
+  'husky 项目里安装到 .husky/pre-commit 且保留用户内容',
+  huskyInstall.code === 0 &&
+    readFileSync(huskyHook, 'utf8').includes('cometflow-git-gate:start') &&
+    readFileSync(huskyHook, 'utf8').includes('echo husky-user-hook'),
+  (huskyInstall.stdout + huskyInstall.stderr).trim().slice(0, 200),
+);
+const huskyUninstall = cli(['gate', 'uninstall', '.', '--git-hooks'], { cwd: project });
+check(
+  'husky 卸载逐字还原用户 hook',
+  huskyUninstall.code === 0 && readFileSync(huskyHook, 'utf8') === huskyOriginal,
+  (huskyUninstall.stdout + huskyUninstall.stderr).trim().slice(0, 200),
+);
+rmSync(huskyDir, { recursive: true, force: true });
+
 expectOk('classic status', ['classic', 'status', 'classic-open', '.'], project);
 for (const event of ['open-complete', 'design-complete', 'build-complete', 'verify-pass', 'archive-complete']) {
   expectOk('classic ' + event, ['classic', 'transition', 'classic-open', event, '.'], project);

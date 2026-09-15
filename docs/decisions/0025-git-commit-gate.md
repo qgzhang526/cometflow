@@ -52,3 +52,26 @@ CI 门禁（[ADR 0012](0012-spec-version-as-artifact.md) 之后建立的 `spec-g
 - husky / lefthook 会在自己的目录里生成 hook；我们的包装脚本写进解析出来的 hooks 目录并链式调用，
   但仍可能出现「工具重写了自己的 hook、把我们的包装覆盖掉」的情况——`gate status` 能看出来。
 - 门禁在提交时跑 `doctor` 与 `spec verify`，涉及 git 状态读取；在超大仓库上需要实测耗时。
+
+## 补充（platform-next-plan-2 的 P4）：装到工具承认的位置
+
+上面「风险」第一条不是风险，是**必然发生**：husky v9 用 `core.hooksPath=.husky/_`（自动生成），
+lefthook 的 `.git/hooks/pre-commit` 由它自己生成——写这两个位置等于装了个会被覆盖的东西，而且**不报错**。
+
+于是安装点按宿主分派（`domains/gates/hook-host.ts`）：
+
+| 宿主 | 位置 | 可逆性 |
+|---|---|---|
+| 裸仓库 | `hooks/pre-commit`（链式包装） | 原有 hook 备份为 `pre-commit.cometflow-orig` |
+| husky | `.husky/pre-commit` 里追加带标记的托管块 | 未被改动则逐字还原；改过则只摘托管块 |
+| lefthook | `lefthook.yml` 的 `pre-commit.commands` 插一条 | 同上 |
+
+两个刻意的取舍：
+
+- **lefthook 用文本插入而不是 YAML 重新序列化**：后者会把用户注释全部丢掉，而 lefthook.yml 通常写满注释。
+  结构超出支持范围（`extends`、流式写法）时**明确拒绝并给手工步骤**，宁可不装也不写坏用户的配置文件。
+- **husky 只动 `.husky/pre-commit`**：`_` 目录是 husky 生成的，碰它等于给自己挖坑。
+
+教训记一笔：实现时「重复安装会覆盖第一次的备份」这个 bug 是**测试先抓到的**——
+第二次 install 把 record 的 `content` 覆盖成含托管块的版本，卸载就把块也还原回去了。
+幂等不只是「不重复插入」，还包括**不破坏第一次安装时留下的还原依据**。

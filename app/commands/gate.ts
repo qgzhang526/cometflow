@@ -64,8 +64,14 @@ export async function gateInstallCommand(
   console.log(result.reason);
   console.log('  hook: ' + result.hookPath);
   if (result.chained) {
-    console.log('  原有 pre-commit 已备份为 pre-commit.cometflow-orig，卸载时逐字还原');
+    console.log(
+      result.host === 'plain'
+        ? '  原有 pre-commit 已备份为 pre-commit.cometflow-orig，卸载时逐字还原'
+        : '  原有内容保留，卸载时逐字还原',
+    );
   }
+  const status = await gitHookStatus(projectRoot);
+  if (status.note !== null) console.log('  注意：' + status.note);
   console.log('  每次提交会跑 `cometflow gate check .`；临时跳过用 git 原生的 --no-verify');
 }
 
@@ -85,11 +91,14 @@ export async function gateStatusCommand(
   }
   console.log('hooks 目录：' + status.hooksDir);
   console.log(
-    'git 提交门禁：' +
+    'git 提交门禁（' +
+      status.host +
+      '）：' +
       (status.installed ? '已安装' : '未安装') +
       (status.chained ? '（链式：原有 pre-commit 会先执行）' : '') +
       (status.drifted ? '（内容与当前版本不一致，建议重装）' : ''),
   );
+  if (status.hookPath !== null) console.log('  管理文件：' + status.hookPath);
   if (status.note !== null) console.log('提示：' + status.note);
 }
 
