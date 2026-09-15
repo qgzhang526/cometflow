@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { JobManager } from './jobs.js';
+import type { TicketStore } from './tickets.js';
 
 export interface ApiContext {
   req: IncomingMessage;
@@ -8,6 +9,7 @@ export interface ApiContext {
   workspaceRoot: string;
   jobs: JobManager;
   webDir: string;
+  tickets: TicketStore;
 }
 
 export function sendJson(res: ServerResponse, status: number, body: unknown): void {

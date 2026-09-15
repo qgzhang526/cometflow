@@ -4,6 +4,7 @@ import { hashSpecText } from '../spec/spec-hash.js';
 import { normalizeModulePath, parseSpecMeta } from '../spec/spec-meta.js';
 import { recordSpecVersion, refreshSpecBaseline } from '../spec/spec-version.js';
 import { readTextFile } from '../../platform/fs/read-file.js';
+import { acquireLock } from '../../platform/fs/file-lock.js';
 import type { TaskPlan, TaskRecord } from './types.js';
 
 /**
@@ -14,6 +15,16 @@ import type { TaskPlan, TaskRecord } from './types.js';
  * 2. 记录整份文件的 hash 与该 anchor 的段落 hash，分别用于文件级与锚点级漂移检测。
  */
 export async function freezeTaskPlan(projectRoot: string, plan: TaskPlan): Promise<TaskPlan> {
+  // 冻结会写计划 + 登记 spec 版本 + 刷新 lock（多个文件）：整段持锁。
+  const lock = await acquireLock(projectRoot, 'plan freeze ' + plan.goal);
+  try {
+    return await freezeTaskPlanLocked(projectRoot, plan);
+  } finally {
+    await lock.release();
+  }
+}
+
+async function freezeTaskPlanLocked(projectRoot: string, plan: TaskPlan): Promise<TaskPlan> {
   const frozenTasks: TaskRecord[] = [];
 
   for (const task of plan.tasks) {

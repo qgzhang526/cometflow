@@ -42,8 +42,22 @@ export interface ProjectConfig {
   agents?: Record<string, AgentModelConfig>;
   scheduler?: SchedulerConfig;
   scope?: ScopeConfig;
+  concurrency?: ConcurrencyConfig;
   verification?: VerificationConfig;
   git?: GitConfig;
+}
+
+/**
+ * 并发写策略（ADR 0021）。
+ *
+ * `warn` 是**有期限**的过渡态：必须带一个未来的 `warnUntil`，到期由 `doctor` 与 `spec verify` 报
+ * error（CI 因此变红），只能「切 fail」或「显式延长并写下理由」。
+ * `fail` 时不允许保留 `warnUntil`，避免「已经严了却还挂着到期日」的歧义状态。
+ */
+export interface ConcurrencyConfig {
+  specWrites?: 'warn' | 'fail';
+  warnUntil?: string;
+  warnReason?: string;
 }
 
 export interface GitConfig {
@@ -258,6 +272,23 @@ export function validateProjectConfig(config: ProjectConfig): string[] {
   if (config.scope?.omission_policy !== undefined) {
     if (config.scope.omission_policy !== 'warn' && config.scope.omission_policy !== 'fail') {
       errors.push('scope.omission_policy must be one of: warn, fail');
+    }
+  }
+
+  if (config.concurrency !== undefined) {
+    const specWrites = config.concurrency.specWrites;
+    const warnUntil = config.concurrency.warnUntil;
+    if (specWrites !== undefined && specWrites !== 'warn' && specWrites !== 'fail') {
+      errors.push('concurrency.specWrites must be one of: warn, fail');
+    }
+    if (warnUntil !== undefined && Number.isNaN(new Date(warnUntil).getTime())) {
+      errors.push('concurrency.warnUntil must be an ISO date');
+    }
+    if (specWrites === 'warn' && warnUntil === undefined) {
+      errors.push('concurrency.warnUntil is required while concurrency.specWrites is warn（warn 是有期限的过渡态）');
+    }
+    if (specWrites === 'fail' && warnUntil !== undefined) {
+      errors.push('concurrency.warnUntil must be removed when concurrency.specWrites is fail');
     }
   }
 

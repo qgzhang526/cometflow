@@ -54,6 +54,22 @@ describe('serve API', () => {
     expect(res.status).toBe(401);
   });
 
+  it('exchanges an authorized request for a single-use SSE ticket', async () => {
+    const issued = await fetch(url('/api/session/ticket'), { method: 'POST', headers: auth() });
+    const payload = (await issued.json()) as ApiResponse & { data: { ticket: string } };
+    expect(issued.status).toBe(200);
+    const ticket = payload.data.ticket;
+    expect(ticket.length).toBeGreaterThan(10);
+
+    // 票据能换到事件流；同一张票据不能再换第二次（也不接受普通请求使用票据）。
+    const first = await fetch(url('/api/events?ticket=' + ticket), { headers: { Accept: 'text/event-stream' } });
+    expect(first.status).toBe(200);
+    await first.body?.cancel();
+    const second = await fetch(url('/api/events?ticket=' + ticket), { headers: { Accept: 'text/event-stream' } });
+    expect(second.status).toBe(401);
+    await second.body?.cancel();
+  });
+
   it('creates a project with init + 12-kind scaffold', async () => {
     const projectPath = path.join(workspace, 'demo-project');
     const payload = await post('/api/projects', {

@@ -12,6 +12,7 @@ import { readSpecBlob, recordSpecVersion, refreshSpecBaseline } from '../spec/sp
 import { readTextFile } from '../../platform/fs/read-file.js';
 import { readProjectConfig, type VerificationMode, type VerifierPolicy } from '../project/config.js';
 import { redactSecrets } from '../../platform/io/redact.js';
+import { acquireLock } from '../../platform/fs/file-lock.js';
 import { canonicalHash } from '../state/canonical-hash.js';
 import { describeDriftFailure, enforceGitProvenance } from './git-provenance.js';
 import { clearCurrentChange } from './current-change.js';
@@ -848,7 +849,14 @@ export async function archiveChange(
     );
   }
 
-  const appliedSpecs = await applyProposedSpecs(projectRoot, name);
+  // 归档会同时改多个 spec 文件 + 状态 + 版本仓：整段持锁，避免与另一个进程的事务交错。
+  const lock = await acquireLock(projectRoot, 'change archive ' + name);
+  let appliedSpecs: string[] = [];
+  try {
+    appliedSpecs = await applyProposedSpecs(projectRoot, name);
+  } finally {
+    await lock.release();
+  }
   for (const applied of appliedSpecs) {
     await appendChangeEvent(projectRoot, name, 'spec-applied', { path: applied }, { phase: state.phase });
   }

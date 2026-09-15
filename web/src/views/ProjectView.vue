@@ -31,7 +31,9 @@
     </nav>
     <main class="content">
       <div v-if="project.error" class="card finding">[error] {{ project.error }}</div>
-      <component :is="activeComponent" :key="activePanel" />
+      <PanelBoundary @retry="panelEpoch += 1">
+        <component :is="activeComponent" :key="activePanel + ':' + panelEpoch" />
+      </PanelBoundary>
     </main>
   </div>
 
@@ -39,10 +41,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { RouterLink, useRoute } from 'vue-router';
 import JobCenter from '../components/JobCenter.vue';
 import StatusBadge from '../components/StatusBadge.vue';
+import PanelBoundary from '../components/PanelBoundary.vue';
 import { PANELS, type PanelId } from '../router';
 import { useJobsStore } from '../stores/jobs';
 import { useProjectStore } from '../stores/project';
@@ -81,6 +84,7 @@ const COMPONENTS: Record<PanelId, Component> = {
 };
 
 const projectId = computed(() => props.id);
+const panelEpoch = ref(0);
 const activePanel = computed<PanelId>(() => {
   const candidate = (props.panel ?? route.params.panel ?? 'overview') as PanelId;
   return PANELS.some((entry) => entry.id === candidate) ? candidate : 'overview';

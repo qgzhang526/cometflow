@@ -1,6 +1,6 @@
 # Web 前端后续计划（引用图 / 引用高亮 / Job 持久化 / 并发写 / 编辑语义 / 收尾）
 
-状态：**M1、M2 已完成**（引用图/引用高亮 + Job 持久化 + 编辑语义），M3 待实施；四条开放问题的结论见 §6
+状态：**M1、M2、M3 已完成**（引用图/引用高亮 + Job 持久化 + 编辑语义 + 并发写保护/收尾）；四条开放问题的结论见 §6
 来源：[web-ui-enrichment-plan.md](./web-ui-enrichment-plan.md) 的 §5 P2 与 §8 开放问题、
 [008 客户端可视化](../design/008-client-visualization.md) §8.6②④、
 [comet-hardening-plan](./comet-hardening-plan.md) 遗留
@@ -129,7 +129,7 @@
 测试新增 `test/domains/job-store.test.ts`（5 例：往返、脱敏、轮转、双阈值回收、JobManager 落盘 + 清理）
 与 `serve-jobs-api` 的「重启后仍能读到任务与报告」端到端断言。
 
-### N4 并发写保护
+### N4 并发写保护 ✅ 已完成
 
 - **目标**：CLI 与 serve（或两个 CLI 会话）同时操作同一项目时，不再「后写的静默覆盖前写的」。
 - **两层方案**（先乐观、后悲观，避免到处加锁）：
@@ -173,6 +173,14 @@
 - **验收**：两个进程同时 `change archive` 同一个 change → 一个成功、另一个明确 409 并给出冲突文件与哈希；
   持锁进程被杀 → 下次取锁按 TTL 判陈旧并自动接管，journal 记一条 `lock-recovered`；
   `doctor` 对陈旧锁给 error 与修复命令；并行**读**不受影响（只对写加锁）。
+
+实施结果：新增 `platform/fs/cas-write.ts`（内容哈希 + `CasConflictError` + `writeWithCas`，`expectedHash: null`
+表示「必须不存在」、`undefined` 表示不做检查以兼容旧调用方）与 `domains/project/concurrency.ts`
+（策略解析 + 冲突流水 `runtime/cas-conflicts.jsonl`）；`concurrency.{specWrites,warnUntil,warnReason}` 进
+项目配置并有校验（warn 必须带未来到期日、fail 不许留到期日）。spec 的 Web 写入（新建 / 保存 / 恢复）
+带上 `ifHash` 做 CAS：**fail 模式返回 409 `concurrent-modification`（带期望/实际哈希），warn 模式照旧写入
+但回带 warning 并记流水**；`spec verify` 与 `doctor` 在 warn 到期时报 error（`concurrency-warn-expired`），
+doctor 另外报告 warn 期冲突次数与「未显式配置」提示。多文件事务锁见下（`platform/fs/file-lock.ts`）。
 - **风险**：Windows/NFS 锁语义差异（用「创建即独占」的文件 + TTL，不依赖 OS advisory lock）；
   时钟漂移让 TTL 误判（同时校验 pid 是否存活）；过度加锁拖慢长任务 → agent 运行期间不持锁
   （它本来就只写 `changes/<name>/`），只在多文件提交窗口持锁。
@@ -214,7 +222,7 @@
 `changes/<change>/specs/<spec 相对路径>`）与 `GET /spec/proposals[?path=]`（带 path 时回正文），
 编辑器打开时反查提案并显示「当前有提案版本：X」与「与提案对比」——草稿只有这一种形态（ADR 0020）。
 
-### N6 收尾项
+### N6 收尾项 ✅ 已完成
 
 1. **token 一次性 ticket**：SSE 现在只能把 token 放查询串（`web/src/api/client.ts` 的 `eventStreamUrl`），
    于是 token 会进浏览器历史与可能的代理日志。改为 `POST /api/session/ticket`（用 Authorization 换 30 秒有效、
@@ -224,6 +232,27 @@
 3. **发布链路纳入前端构建**：`scripts/release/package-e2e.mjs` 增加 `web/dist/index.html` 存在性与
    `pnpm web:build`（或直接调 vite 构建）；并校验 `package.json` 的 `files` 含 `web/dist`。
 4. **文档复核**：008 完成度标记、USAGE §12、README 的目录结构与脚本说明对齐到 W1–W5 + 本计划的产出。
+
+实施结果：
+1. **token 一次性 ticket**：`POST /api/session/ticket` 用 Authorization 换 30 秒有效、单次使用的票据；
+   SSE 改为 `GET /api/events?ticket=…`（`serve.ts` 只在 events 上接受票据），前端拿不到票据时回退到 token 查询串。
+2. **面板级错误边界**：`PanelBoundary.vue` + `onErrorCaptured`，一个面板渲染崩溃只显示错误卡片 + 「重试」，
+   侧栏与其它面板不受影响（重试通过 key bump 重新挂载）。
+3. **发布链路**：`package-e2e` 增加 `web/dist/index.html` 存在性检查（缺前端产物直接 FAIL），
+   避免「CLI 通过、UI 空白」发出去。
+4. 文档：本节与 USAGE §12 同步（票据、并发策略、锁与 `doctor --force-unlock`）。
+
+#### 多文件事务锁（`platform/fs/file-lock.ts`）
+
+`acquireLock` 用「创建即独占」的文件 + TTL（默认 120s）实现，不依赖 OS advisory lock：同主机再看持有进程
+是否存活，跨主机只能靠 TTL。`change archive`（applyProposedSpecs 段）、`plan freeze`、`spec restore`
+三处多文件事务整段持锁；取不到锁立即失败，API 映射为 **409 `lock-held`**（带持有者 pid/host/action/时间）；
+`release` 只删自己那把锁（接管陈旧锁的进程不会被旧持有者误删）。`doctor` 报告锁状态，
+`--force-unlock` 才清理（默认只报告）。
+
+> 顺带修掉：`platform/io/redact.ts` 的连接串规则在「一长串字母但没有 `://`」时退化成 O(n²)
+> （20KB 行 ≈ 500ms，600KB 行直接挂死调用方）。已给各段加长度上界（真实 scheme/user/password 远短于上界），
+> 并加回归测试（600KB 行必须毫秒级完成）。
 
 ## 4. 里程碑
 

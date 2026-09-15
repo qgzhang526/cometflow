@@ -42,6 +42,9 @@ import { verifySpecIntegrity } from '../spec/spec-verify.js';
 import { collectAcceptanceChecks } from '../spec/spec-checks.js';
 import { buildSpecReferenceIndex, collectSpecGraph, collectSpecReferenceTokens } from '../spec/spec-graph.js';
 import { atomicWriteText } from '../../platform/fs/atomic-write.js';
+import { CasConflictError, hashContent, readContentHash, writeWithCas } from '../../platform/fs/cas-write.js';
+import { acquireLock, LockHeldError } from '../../platform/fs/file-lock.js';
+import { recordCasConflict, resolveConcurrencyPolicy } from '../project/concurrency.js';
 import { generateTaskPlan } from '../task-plan/task-plan-generate.js';
 import { validateTaskPlan } from '../task-plan/task-plan-validate.js';
 import { freezeTaskPlan } from '../task-plan/task-plan-freeze.js';
@@ -90,6 +93,44 @@ import { getProject, listProjects, registerProject, removeProject, touchProject 
 
 function stringField(value: unknown, fallback = ''): string {
   return typeof value === 'string' ? value : fallback;
+}
+
+/**
+ * 解析客户端带来的「我基于哪一版改的」。
+ *
+ * - 字符串：必须与磁盘一致，否则冲突；
+ * - null：期望目标不存在（新建）；
+ * - undefined：不做并发检查（旧调用方 / 内部写入）。
+ */
+function parseIfHash(value: unknown): string | null | undefined {
+  if (value === null) return null;
+  return typeof value === 'string' && value !== '' ? value : undefined;
+}
+
+/**
+ * 处理一次 CAS 冲突。
+ *
+ * 返回 true 表示「已经给出响应」（fail 模式下 409 中止）；返回 false 表示 warn 模式，
+ * 调用方应继续写入（冲突已记录到 .cometflow/runtime/cas-conflicts.jsonl，doctor 会报出来）。
+ */
+async function handleCasConflict(
+  res: import('node:http').ServerResponse,
+  root: string,
+  error: CasConflictError,
+): Promise<boolean> {
+  const policy = await resolveConcurrencyPolicy(root);
+  await recordCasConflict(root, {
+    path: error.conflict.path,
+    expected: error.conflict.expected,
+    actual: error.conflict.actual,
+    mode: policy.mode,
+  });
+  if (policy.mode === 'fail') {
+    // fail：中止，把冲突的期望/实际哈希交给界面，由人决定重读还是显式覆盖。
+    sendError(res, 409, 'concurrent-modification', error.message, { conflict: error.conflict, policy });
+    return true;
+  }
+  return false;
 }
 
 interface FsEntry {
@@ -204,7 +245,7 @@ async function describeProject(projectPath: string): Promise<Record<string, unkn
 }
 
 export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
-  const { req, res, workspaceRoot, jobs } = ctx;
+  const { req, res, workspaceRoot, jobs, tickets } = ctx;
   const url = requestUrl(req);
   const method = req.method ?? 'GET';
   const pathname = url.pathname;
@@ -266,6 +307,11 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
       // 首次访问时把各项目落盘的任务读回内存：进程重启后任务中心仍能看到历史。
       for (const project of await listProjects(workspaceRoot)) await jobs.hydrate(project.id, project.path);
       sendOk(res, { jobs: jobs.list() });
+      return true;
+    }
+    if (pathname === '/api/session/ticket' && method === 'POST') {
+      // 已经通过 Authorization 校验：这里签发一次性的 SSE 票据。
+      sendOk(res, { ticket: tickets.issue(), expiresInMs: 30_000 });
       return true;
     }
     if (pathname === '/api/jobs' && method === 'DELETE') {
@@ -583,8 +629,22 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
         return true;
       }
       // 覆盖 specs/ 之前先给当前内容记账：未登记的手工改动不能因为一次 restore 就消失。
-      await refreshSpecBaseline(root, { note: 'pre-restore snapshot' });
-      await atomicWriteText(path.join(root, resolved.path), content);
+      // 恢复是多文件事务（正文 + 版本仓 + lock）：整段持锁，避免与归档/freeze 交错。
+      const restoreLock = await acquireLock(root, 'spec restore ' + resolved.path);
+      try {
+        await refreshSpecBaseline(root, { note: 'pre-restore snapshot' });
+      // 恢复也做并发检查：读到写之间若 canonical spec 又变了，fail 模式下必须先让人决定。
+      const restoreTarget = path.join(root, resolved.path);
+      try {
+        await writeWithCas(restoreTarget, content, { expectedHash: await readContentHash(restoreTarget) });
+      } catch (error) {
+        if (!(error instanceof CasConflictError)) throw error;
+        if (await handleCasConflict(res, root, error)) return true;
+        await atomicWriteText(restoreTarget, content);
+      }
+      } finally {
+        await restoreLock.release();
+      }
       const after = await refreshSpecBaseline(root, { note: 'restore v' + resolved.record.spec_version });
       const restored = after.recorded.find((entry) => entry.path === resolved.path) ?? null;
       jobs.stateChanged(projectId, '/api/specs');
@@ -626,29 +686,60 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
         sendError(res, 400, 'invalid-spec-path', 'spec path must stay under specs/');
         return true;
       }
-      // spec 是唯一事实源，半写的文件会让「按冻结版本重建」失效：走原子写。
-      await atomicWriteText(absolute, content);
+      // 新建也支持并发检查：客户端带 ifHash=null 表示「这个文件应当还不存在」。
+      try {
+        await writeWithCas(absolute, content, { expectedHash: parseIfHash(body.ifHash) });
+      } catch (error) {
+        if (!(error instanceof CasConflictError)) throw error;
+        if (await handleCasConflict(res, root, error)) return true;
+        await atomicWriteText(absolute, content);
+      }
       // 通过 Web 编辑 spec 同样是一次 canonical spec 变更：立即登记版本并刷新 lock，
       // 否则 spec verify 会立刻报 stale-spec-lock，活跃 change 的 CAS 基线也会失真。
       await refreshSpecBaseline(root, { note: 'web edit' });
       jobs.stateChanged(projectId, '/api/specs');
-      sendOk(res, { path: relativePath, created: absolute });
+      sendOk(res, { path: relativePath, created: absolute, hash: hashContent(content) });
       return true;
     }
     if (segments[0] === 'specs' && segments[1] === 'content') {
       const relativePath = stringField(url.searchParams.get('path'));
       const absolute = resolveSpecPath(root, relativePath);
       if (method === 'GET') {
-        sendOk(res, { path: relativePath, content: await readTextFile(absolute) });
+        const content = await readTextFile(absolute);
+        // 连哈希一起回：客户端保存时把它作为 ifHash，服务端据此判断「我改的这版还是不是最新」。
+        sendOk(res, { path: relativePath, content, hash: hashContent(content) });
         return true;
       }
       if (method === 'PUT') {
         const body = await readJsonBody(req);
-        await atomicWriteText(absolute, stringField(body.content));
-        await refreshSpecBaseline(root, { note: 'web edit' });
-        jobs.stateChanged(projectId, '/api/specs');
-        sendOk(res, { written: absolute });
-        return true;
+        const content = stringField(body.content);
+        const ifHash = parseIfHash(body.ifHash);
+        try {
+          await writeWithCas(absolute, content, { expectedHash: ifHash });
+          await refreshSpecBaseline(root, { note: 'web edit' });
+          jobs.stateChanged(projectId, '/api/specs');
+          sendOk(res, { written: absolute, hash: hashContent(content) });
+          return true;
+        } catch (error) {
+          if (error instanceof CasConflictError) {
+            // fail：409 中止（冲突细节交给界面）；warn：记录后照旧写入。
+            if (await handleCasConflict(res, root, error)) return true;
+            await atomicWriteText(absolute, content);
+            await refreshSpecBaseline(root, { note: 'web edit (concurrent-warn)' });
+            jobs.stateChanged(projectId, '/api/specs');
+            sendOk(res, {
+              written: absolute,
+              hash: hashContent(content),
+              warning: {
+                code: 'concurrent-modification',
+                conflict: error.conflict,
+                policy: await resolveConcurrencyPolicy(root),
+              },
+            });
+            return true;
+          }
+          throw error;
+        }
       }
     }
 
@@ -709,11 +800,19 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
         return true;
       }
       if (action === 'freeze') {
-        const frozen = await freezeTaskPlan(root, plan);
-        const filePath = await writeTaskPlan(root, frozen);
-        jobs.stateChanged(projectId, '/api/plans/' + goal);
-        sendOk(res, { plan: frozen, written: filePath });
-        return true;
+        try {
+          const frozen = await freezeTaskPlan(root, plan);
+          const filePath = await writeTaskPlan(root, frozen);
+          jobs.stateChanged(projectId, '/api/plans/' + goal);
+          sendOk(res, { plan: frozen, written: filePath });
+          return true;
+        } catch (error) {
+          if (error instanceof LockHeldError) {
+            sendError(res, 409, 'lock-held', error.message, { lock: error.record });
+            return true;
+          }
+          throw error;
+        }
       }
       sendError(res, 404, 'unknown-plan-action', action);
       return true;
@@ -801,6 +900,11 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
         // 让用户明确选择 rebase（接受新基线）还是建 reconciliation change（ADR 0004）。
         if (error instanceof SpecConflictError) {
           sendError(res, 409, 'spec-base-conflict', error.message, { conflicts: error.conflicts });
+          return true;
+        }
+        // 另一个进程正在做多文件事务：立即失败并说明持有者，而不是排队等（ADR 0021）。
+        if (error instanceof LockHeldError) {
+          sendError(res, 409, 'lock-held', error.message, { lock: error.record });
           return true;
         }
         throw error;

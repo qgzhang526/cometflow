@@ -10,6 +10,7 @@ import { hasSpecBlob, latestSpecVersion, readSpecBlob } from './spec-version.js'
 import { listChangeStates } from '../workflow/change-list.js';
 import { diffChangeSpecBaseline, readChangeSpecBaseline } from '../workflow/change-spec-baseline.js';
 import { verifyChangeStateHash, verifyPlanHash } from '../state/canonical-hash.js';
+import { resolveConcurrencyPolicy } from '../project/concurrency.js';
 import type { TaskPlan } from '../task-plan/types.js';
 
 export const SPEC_VERIFY_SCHEMA = 'cometflow.spec-verify.v1';
@@ -25,7 +26,8 @@ export type SpecVerifyCode =
   | 'frozen-anchor-missing'
   | 'change-base-conflict'
   | 'plan-integrity'
-  | 'change-state-integrity';
+  | 'change-state-integrity'
+  | 'concurrency-warn-expired';
 
 export interface SpecVerifyFinding {
   severity: 'error' | 'warning';
@@ -77,6 +79,21 @@ function sameAcceptance(
 export async function verifySpecIntegrity(projectRoot: string): Promise<SpecVerifyResult> {
   const findings: SpecVerifyFinding[] = [];
   const files = await listSpecFiles(projectRoot);
+
+  // 并发写策略的到期检查放在门禁里：`warn` 是有期限的过渡态，到期后必须显式决策
+  // （切 fail 或延长并写理由），否则这里会一直红着——这正是「不会忘」的实现方式（ADR 0021）。
+  const policy = await resolveConcurrencyPolicy(projectRoot);
+  if (policy.expired) {
+    findings.push({
+      severity: 'error',
+      code: 'concurrency-warn-expired',
+      subject: '.cometflow/config.yaml',
+      message:
+        'concurrency.warnUntil 已过期（' +
+        (policy.warnUntil ?? '?') +
+        '）：warn 只是过渡态，请切换 concurrency.specWrites: fail，或显式延长 warnUntil 并写下 warnReason',
+    });
+  }
 
   const lock = await readSpecLock(projectRoot);
   if (!lock) {
