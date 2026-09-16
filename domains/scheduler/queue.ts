@@ -19,6 +19,10 @@ export interface QueueTask {
    */
   lease_until?: string | null;
   owner?: string | null;
+  /** 驱动这条任务的 change 名（P4：change 名由 `goal-task` 派生，确定性可对账）。 */
+  change?: string | null;
+  /** 最近一次驱动结论（delivered / agent-failed / verify-failed / spec-conflict / error）。 */
+  verdict?: string | null;
 }
 
 export interface SchedulerQueue {
@@ -91,7 +95,7 @@ export function markQueueTask(
   queue: SchedulerQueue,
   taskId: string,
   status: QueueTaskStatus,
-  options: { leaseMs?: number; now?: Date } = {},
+  options: { leaseMs?: number; now?: Date; change?: string | null; verdict?: string | null } = {},
 ): SchedulerQueue {
   const now = options.now ?? new Date();
   return {
@@ -108,6 +112,10 @@ export function markQueueTask(
                 ? new Date(now.getTime() + (options.leaseMs ?? DEFAULT_LEASE_MS)).toISOString()
                 : null,
             owner: status === 'running' ? ownerTag() : null,
+            // change / verdict 是「调度视角 → 交付视角」的关联（P4 S4）：
+            // 面板靠它把队列行与 change 账本对上，不用另开一次推导。
+            ...(options.change === undefined ? {} : { change: options.change }),
+            ...(options.verdict === undefined ? {} : { verdict: options.verdict }),
           }
         : task,
     ),

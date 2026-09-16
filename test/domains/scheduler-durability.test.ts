@@ -7,6 +7,9 @@ import { addBudgetUsage, readBudgetUsage } from '../../domains/scheduler/budget.
 import { markQueueTask, readQueue, reclaimExpiredLeases, writeQueue } from '../../domains/scheduler/queue.js';
 import { runDaemonLoop } from '../../domains/scheduler/daemon.js';
 import type { SchedulerQueue } from '../../domains/scheduler/queue.js';
+import { generateTaskPlan } from '../../domains/task-plan/task-plan-generate.js';
+import { freezeTaskPlan } from '../../domains/task-plan/task-plan-freeze.js';
+import { writeTaskPlan } from '../../domains/task-plan/task-plan-store.js';
 
 vi.setConfig({ testTimeout: 30_000 });
 
@@ -54,6 +57,41 @@ function runner(onRun: (timeoutMs: number | undefined) => number, id = 'fake'): 
 
 beforeEach(async () => {
   tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'cometflow-scheduler-'));
+  // P4 之后 daemon 走 change 交付通道：要它真的跑任务，项目里必须有**冻结任务**
+  // （change 只能从 frozen task 派生）。这三个用例测的是租约/重试/超时的持久性，
+  // 因此这里给一份最小可交付项目：goal G1 → spec/acceptance（check 恒过）→ 冻结计划。
+  await fs.mkdir(path.join(tmp, '.cometflow', 'plans'), { recursive: true });
+  await fs.writeFile(
+    path.join(tmp, '.cometflow', 'config.yaml'),
+    'schema: cometflow.project.v1\nplan_review: auto\nagent: fake\nverification:\n  mode: checks\n',
+  );
+  await fs.writeFile(
+    path.join(tmp, 'COMETFLOW.md'),
+    ['# 项目使命', '', '## 任务目标', '', '### G1：核心能力', '- 目标：实现 core', '- 范围：core', ''].join('\n'),
+  );
+  await fs.mkdir(path.join(tmp, 'specs', 'core'), { recursive: true });
+  await fs.writeFile(
+    path.join(tmp, 'specs', 'core', 'spec.md'),
+    [
+      '---',
+      'capability: core',
+      'module: src/core',
+      '---',
+      '',
+      '# core capability',
+      '',
+      '## CORE-001 add',
+      '',
+      '核心加法能力。',
+      '',
+      '## Acceptance',
+      '',
+      '- A1：add 可用',
+      '  - check: node -e "process.exit(0)"',
+      '',
+    ].join('\n'),
+  );
+  await writeTaskPlan(tmp, await freezeTaskPlan(tmp, await generateTaskPlan(tmp, 'G1')));
 });
 
 afterEach(async () => {

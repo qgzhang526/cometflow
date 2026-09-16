@@ -37,6 +37,10 @@ export interface DaemonLastTask {
   result: 'done' | 'failed';
   elapsedMs: number;
   timedOut: boolean;
+  /** 驱动这条任务的 change 名与结论（P4：调度视角要对得上交付账本）。 */
+  change?: string | null;
+  verdict?: string | null;
+  detail?: string | null;
 }
 
 export interface DaemonStateRecord {

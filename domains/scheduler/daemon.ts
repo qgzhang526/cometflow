@@ -3,6 +3,9 @@ import { getBuiltInAgentRunner } from '../../platform/agents/registry.js';
 import type { AgentRunner } from '../../platform/agents/types.js';
 import { addBudgetUsage, Budget, readBudgetUsage } from './budget.js';
 import { runFlowRun } from './flow-run.js';
+import { changeNameForTask, runTaskThroughChange } from './daemon-run-change.js';
+import { mergeTodoView } from './daemon-todo.js';
+import { clearDaemonControl, readDaemonControl } from './daemon-control.js';
 import { idleGovernorAllows, type SchedulerMode } from './idle-governor.js';
 import { buildRollbackGuidance, captureGitSafetySnapshot } from './git-safety.js';
 import {
@@ -153,7 +156,12 @@ export async function runDaemonLoop(options: DaemonLoopOptions): Promise<void> {
   }
   const budget = new Budget({ budgetMs: remainingMs });
   const intervalMs = options.intervalMs ?? 60_000;
-  let queue = (await readQueue(options.projectRoot)) ?? (await buildQueueFromPlans(options.projectRoot));
+  // S3：待办由事实推导（plans 的 frozen/approved 减去已归档 change），再叠加运行时覆盖。
+  // `queue.json` 从此只是「覆盖 + 上次快照」，不再决定「该不该跑」。
+  let queue: SchedulerQueue = {
+    schema: 'cometflow.queue.v1',
+    tasks: (await mergeTodoView(options.projectRoot)).tasks,
+  };
 
   // 启动时先回收：上一次进程可能崩在 running 上。
   const startup = reclaimExpiredLeases(queue, { maxAttempts });
@@ -174,6 +182,24 @@ export async function runDaemonLoop(options: DaemonLoopOptions): Promise<void> {
 
   let index = 0;
   while (!budget.isExhausted()) {
+    // 控制语义（S4）：每轮先看有没有人按下暂停 / 停止。进程仍归 CLI 持有，这里只读一个文件。
+    const control = await readDaemonControl(options.projectRoot);
+    if (control?.action === 'stop') {
+      console.log(['daemon', String(index), 'stopped-by-control', control.requested_by].join(' '));
+      // 一次性动作消费掉：否则下次 start 会立刻又停。
+      await clearDaemonControl(options.projectRoot);
+      await reportState(queue, index, 'stopped', { ran: false, reason: 'stopped-by-control', task: null }, 'stopped-by-control');
+      break;
+    }
+    if (control?.action === 'pause') {
+      console.log(['daemon', String(index), 'paused-by-control', control.requested_by].join(' '));
+      await reportState(queue, index, 'skipping', { ran: false, reason: 'paused-by-control', task: null }, 'paused-by-control');
+      index += 1;
+      // 暂停也要能退出：否则预算耗尽的进程会一直停在暂停里出不来。
+      if (budget.isExhausted()) break;
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+      continue;
+    }
     // 每轮再回收一次：同一轮里也可能有别的进程留下的过期租约。
     const swept = reclaimExpiredLeases(queue, { maxAttempts });
     if (swept.reclaimed.length > 0 || swept.exhausted.length > 0) {
@@ -206,36 +232,50 @@ export async function runDaemonLoop(options: DaemonLoopOptions): Promise<void> {
     }
 
     // 租约要长于单任务超时，否则正常执行中的任务会被误判为过期。
+    const change = changeNameForTask(task.goal, task.task);
     queue = markQueueTask(queue, task.id, 'running', {
       leaseMs: Math.max(DEFAULT_LEASE_MS, taskTimeoutMs + 60_000),
+      change,
     });
     await writeQueue(options.projectRoot, queue);
     const taskStartedAt = Date.now();
-    const outcome = await runFlowRun(runner, {
+    // P4：交付通道——不再把任务丢给无绑定的 flow-run，而是推进一次完整的 change 生命周期。
+    const outcome = await runTaskThroughChange({
       projectRoot: options.projectRoot,
-      agentId: options.agentId,
+      goal: task.goal,
+      task: task.task,
+      runner,
       model: options.model,
       timeoutMs: taskTimeoutMs,
     });
     const elapsedMs = Date.now() - taskStartedAt;
-    const succeeded = outcome.result.exitCode === 0;
-    const gaveUp = !succeeded && task.attempts + 1 >= maxAttempts;
-    queue = markQueueTask(queue, task.id, succeeded ? 'done' : gaveUp ? 'failed' : 'queued');
+    const succeeded = outcome.verdict === 'delivered';
+    // 需要人工介入的（spec 冲突 / blocked / 未知阶段）直接标 failed 并停下：
+    // 让 daemon 继续跑下一个任务，只会把问题掩盖在一串"看起来在推进"的日志后面。
+    const gaveUp = outcome.needsHuman || (!succeeded && task.attempts + 1 >= maxAttempts);
+    queue = markQueueTask(queue, task.id, succeeded ? 'done' : gaveUp ? 'failed' : 'queued', {
+      change: outcome.change,
+      verdict: outcome.verdict,
+    });
     await writeQueue(options.projectRoot, queue);
     await addBudgetUsage(options.projectRoot, elapsedMs);
     lastTask = {
       id: task.id,
       result: succeeded ? 'done' : 'failed',
       elapsedMs,
-      timedOut: outcome.result.timedOut === true,
+      timedOut: false,
+      change: outcome.change,
+      verdict: outcome.verdict,
+      detail: outcome.detail,
     };
     console.log(
       [
         'daemon',
         String(index),
         task.id,
-        succeeded ? 'done' : 'failed',
-        outcome.result.timedOut ? 'timed-out' : '',
+        outcome.verdict,
+        'change=' + outcome.change,
+        outcome.detail,
         gaveUp ? '（已达重试上限，需人工介入）' : '',
       ]
         .filter(Boolean)
@@ -243,10 +283,21 @@ export async function runDaemonLoop(options: DaemonLoopOptions): Promise<void> {
     );
     await reportState(queue, index, 'ran', {
       ran: true,
-      reason: succeeded ? 'task-done' : gaveUp ? 'task-failed-final' : 'task-failed-retry',
+      reason: succeeded ? 'task-delivered' : gaveUp ? 'task-needs-human' : 'task-retry',
       task: task.id,
     });
     index += 1;
+    if (outcome.needsHuman) {
+      // 停机交人工：状态投影里写明原因，界面与 CLI 都能看到「为什么停了」。
+      await reportState(
+        queue,
+        index,
+        'stopped',
+        { ran: false, reason: 'needs-human:' + outcome.verdict, task: task.id },
+        'needs-human:' + outcome.verdict,
+      );
+      break;
+    }
     if (budget.isExhausted()) {
       await reportState(queue, index, 'stopped', { ran: false, reason: 'budget-exhausted', task: null }, 'budget-exhausted');
       break;

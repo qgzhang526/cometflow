@@ -259,7 +259,7 @@ export async function runChange(
   projectRoot: string,
   name: string,
   runner: AgentRunner,
-  options: DriftGuardOptions = {},
+  options: DriftGuardOptions & { model?: string; timeoutMs?: number } = {},
 ): Promise<ChangeRunOutcome> {
   const state = await readChangeState(projectRoot, name);
   if (state.phase !== 'build') throw new Error('change run requires build phase');
@@ -279,7 +279,9 @@ export async function runChange(
   await assertGitProvenance(projectRoot, name, state, options);
   const prompt = await buildChangePrompt(projectRoot, name);
   await appendChangeEvent(projectRoot, name, 'run-started', { agent: runner.id }, { phase: state.phase });
-  const result = await runner.run({ prompt, cwd: projectRoot });
+  // model 一路传下去：调度器带 `--model` 驱动 change 时，builder 必须真的用上它
+  // （verify 那条链早就在传 model，build 这条以前没有，属于静默忽略配置）。
+  const result = await runner.run({ prompt, cwd: projectRoot, model: options.model, timeoutMs: options.timeoutMs });
   if (result.exitCode !== 0) {
     await appendChangeEvent(projectRoot, name, 'run-completed', {
       agent: runner.id,

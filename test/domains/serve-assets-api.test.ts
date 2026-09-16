@@ -74,6 +74,7 @@ describe('scheduler / assets / guard API', () => {
     const { status, body } = await get<{
       queue: unknown | null;
       derived: { tasks: Array<{ goal: string; task: string; status: string }> };
+      tasks: Array<{ goal: string; task: string; status: string; delivered: boolean }>;
       next: { goal: string; task: string } | null;
       scheduler: { mode?: string } | null;
     }>('/scheduler/queue');
@@ -82,8 +83,54 @@ describe('scheduler / assets / guard API', () => {
     // fixture 没跑过 daemon：队列文件不存在，但推导视图必须给出待办（G1/G2 各一个冻结任务）。
     expect(body.data.queue).toBeNull();
     expect(body.data.derived.tasks.length).toBeGreaterThanOrEqual(2);
-    expect(body.data.next?.goal).toBe('G1');
+    // S3 之后 `next` 取自**合并视图**：交付过（已有归档 change）的任务会被跳过，
+    // 所以它不再必然是第一条计划任务——只断言它等于第一条未交付的待办。
+    const firstPending = body.data.tasks.find((task) => task.status === 'queued');
+    expect(body.data.next?.goal).toBe(firstPending?.goal);
     expect(body.data.derived.tasks.every((task) => task.status === 'queued')).toBe(true);
+  });
+
+  // S3：界面上要看的是「合并视图」——推导出来的待办 + 运行时覆盖 + 交付事实。
+  it('exposes the merged todo view and can rebuild / reset the runtime overlay', async () => {
+    const merged = await get<{
+      tasks: Array<{ goal: string; task: string; status: string; source: string; delivered: boolean }>;
+    }>('/scheduler/queue');
+    expect(merged.status).toBe(200);
+    expect(merged.body.data.tasks.length).toBeGreaterThanOrEqual(2);
+    // 每行都要能回答「这条从哪来」：推导 / 运行时覆盖 / 交付账本。
+    expect(merged.body.data.tasks.every((task) => ['derived', 'overlay', 'delivered'].includes(task.source))).toBe(true);
+    expect(merged.body.data.tasks.some((task) => task.source === 'delivered')).toBe(true);
+
+    const rebuilt = await post<{ queued: number }>('/scheduler/queue/rebuild', {});
+    expect(rebuilt.status).toBe(200);
+    expect(rebuilt.body.data.queued).toBeGreaterThanOrEqual(1);
+
+    const reset = await post<{ queued: number; tasks: Array<{ delivered: boolean }> }>('/scheduler/queue/reset', {});
+    expect(reset.status).toBe(200);
+    // reset 之后：未交付的重新排队，交付过的仍算已交付（它们由 change 账本定义）。
+    expect(reset.body.data.queued).toBeGreaterThanOrEqual(1);
+    expect(reset.body.data.tasks.some((task) => task.delivered)).toBe(true);
+  });
+
+  // S4：界面能暂停/停止，但只写控制文件——进程归启动它的终端（ADR 0026）。
+  it('writes daemon control requests instead of touching the process', async () => {
+    const paused = await post<{ control: { action: string; requested_by: string } }>('/scheduler/daemon/control', {
+      action: 'pause',
+    });
+    expect(paused.status).toBe(200);
+    expect(paused.body.data.control.action).toBe('pause');
+    expect(paused.body.data.control.requested_by).toBe('web');
+
+    // GET 里能看到未消费的指令：界面据此显示「已请求 pause」。
+    const view = await get<{ control: { action: string } | null }>('/scheduler/queue');
+    expect(view.body.data.control?.action).toBe('pause');
+
+    const resumed = await post<{ control: { action: string } }>('/scheduler/daemon/control', { action: 'resume' });
+    expect(resumed.body.data.control.action).toBe('resume');
+
+    const bad = await post<unknown>('/scheduler/daemon/control', { action: 'explode' });
+    expect(bad.status).toBe(400);
+    expect(bad.body.error?.code).toBe('invalid-control-action');
   });
 
   it('lists installed skills and reads one skill definition', async () => {

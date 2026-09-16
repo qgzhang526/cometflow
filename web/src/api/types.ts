@@ -553,6 +553,9 @@ export interface QueueTask {
   status: QueueTaskStatus;
   attempts: number;
   updated_at: string;
+  /** 驱动这条任务的 change 名与最近结论（P4：调度视角与交付账本的关联）。 */
+  change?: string | null;
+  verdict?: string | null;
 }
 
 export interface SchedulerQueue {
@@ -565,6 +568,19 @@ export interface SchedulerResponse {
   queue: SchedulerQueue | null;
   /** 按已冻结计划推导的待办，用于「还没建过队列」时的可用视图。 */
   derived: SchedulerQueue;
+  /**
+   * 合并视图（P4/S3）：推导待办 + 运行时覆盖 + 交付账本，每行带 `source` 与 `delivered`。
+   * 面板用它回答「从哪来、跑没跑、交付没交付」三件事。
+   */
+  tasks: Array<
+    QueueTask & {
+      source: 'derived' | 'overlay' | 'delivered';
+      delivered: boolean;
+      workflow?: { name: string; phase: string; status: string; archived: boolean } | null;
+    }
+  >;
+  /** 未消费的控制指令（pause / resume / stop），idle 表示没有。 */
+  control?: { action: 'pause' | 'resume' | 'stop' | 'idle'; requested_at: string; requested_by: string } | null;
   next: QueueTask | null;
   scheduler: ProjectConfig['scheduler'] | null;
   /** 已用预算（跨重启累计，`.cometflow/runtime/budget.json`）：只读，重置走 CLI `daemon budget --reset`。 */
@@ -582,7 +598,15 @@ export interface SchedulerResponse {
     stopped_reason: string | null;
     updated_at: string;
     last_decision: { ran: boolean; reason: string; task: string | null } | null;
-    last_task: { id: string; result: 'done' | 'failed'; elapsedMs: number; timedOut: boolean } | null;
+    last_task: {
+      id: string;
+      result: 'done' | 'failed';
+      elapsedMs: number;
+      timedOut: boolean;
+      change?: string | null;
+      verdict?: string | null;
+      detail?: string | null;
+    } | null;
     queue: { queued: number; running: number; done: number; failed: number };
     budget: { used_ms: number; total_ms: number; remaining_ms: number | null };
   } | null;

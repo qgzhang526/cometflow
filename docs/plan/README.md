@@ -31,6 +31,7 @@
 | 一次性 agent 试跑（C13） | 把 `cometflow run` 接进界面：`POST /run` + `flow-run` job（日志走任务中心），设置页试跑卡片带 agent 选择与二次确认；明确「试跑 ≠ 交付」 | **已实施**（2026-09-16） | [agent-trial-run-plan.md](./agent-trial-run-plan.md) |
 | 可见性收口（C5 / C12） | C5：daemon 状态投影（`.cometflow/runtime/daemon-state.json`）+ 调度面板「最近一次决策」卡；C12：`POST /bundles/distribute` + Bundle 页签一键分发（预告 → 确认 → 执行） | **已实施**（2026-09-16，C 类缺口全部关闭） | [visibility-closeout-plan.md](./visibility-closeout-plan.md) |
 | 能力地图 | CLI 能力 / HTTP 端点 / 面板的对应关系，以及每条主链路的「你怎么自己验证它对不对」 | **已产出**（2026-09-16） | [capability-map.md](./capability-map.md) |
+| P4 Workflow 深度融合 | 让 daemon 驱动 change 生命周期（取任务 → 建 change → 执行 → 独立验收 → 归档 → 回写交付事实），队列降级为派生视图 + 运行时覆盖，控制语义走控制文件（ADR 0026） | **S1–S4 已实施**（2026-09-17，回归 145 步） | [daemon-drives-change-plan.md](./daemon-drives-change-plan.md) |
 
 ## 阶段顺序原则
 

@@ -3,8 +3,9 @@
 状态：**已产出**（2026-09-16，随可见性收口批次一起）
 用途：打结阶段的对照表。回答两个问题——**这个功能在哪儿**（CLI / 端点 / 面板），
 以及**我怎么确认它对**（每一步都有可执行的自验入口）。
-口径基线：`app/cli/index.ts` 92 处 `.command(` − 13 个命令组 = **79 条叶子命令**；
-`domains/server/api.ts` **88 处方法判定** + `serve.ts` 的 `/api/events`；
+口径基线：`app/cli/index.ts` **83 条叶子命令**（92+4 处 `.command(` 注册 − 13 个命令组；其中
+`daemon pause|resume|stop` 由循环注册）；
+`domains/server/api.ts` **91 处方法判定** + `serve.ts` 的 `/api/events`；
 界面 **10 个面板 + 任务中心**（Specs 8 页签、Changes 4 页签、Assets 3 页签）。
 
 ## 1. 主链路：每一步在哪儿，怎么验
@@ -19,7 +20,7 @@
 | 拆解与冻结 | `plan generate｜validate｜review｜approve｜freeze｜regenerate｜trace` | `POST /plans/generate`、`POST /plans/regenerate`、`POST /plans/<goal>/{validate,review,approve,freeze}`、`GET /plans/<goal>/trace` | 计划 | `plan generate G1 .` → `plan validate G1 .`（OK）；`plan_review: auto` 时 generate 后计划应直达 approved |
 | 执行一个任务 | `change new｜transition｜run｜verify｜archive｜resume｜list｜status｜select｜gc｜rebase｜unblock｜scope｜journal` | `POST /changes/...`（new/transition/run/verify/archive/rebase/select）、`GET /changes/.../{scope,journal,rollback}` | 变更（概览 / 范围 / 流水 / 证据） | `change run <name> . --agent mock` → 任务中心看到 `change-run` job；`change verify <name> .`（未通过时列出 acceptance 结论） |
 | 起草 spec（无 spec 时的分支） | 同 `change` 全链路 | 同 `change` | 变更 + 规格（Spec 文件页签批准定稿） | `plan generate G9 .` 产出 `kind: spec-authoring` 任务 → `change verify` 在产物缺失/不合格时报错指路；产物带 `status: draft`，`spec approve` 后才能被冻结绑定 |
-| 无人值守 | `daemon start｜budget` | `GET /scheduler/queue`（含 `queue`/`derived`/`budget`/`daemon`） | 调度 | `daemon start . --mode manual --budget 1` → 面板「调度器最近一次决策」出现 phase/mode/最近决策；`.cometflow/runtime/daemon-state.json` 存在 |
+| 无人值守（P4 交付通道） | `daemon start｜budget｜pause｜resume｜stop｜queue rebuild｜reset` | `GET /scheduler/queue`（`tasks`/`derived`/`queue`/`budget`/`daemon`/`control`）、`POST /scheduler/queue/rebuild\|reset`、`POST /scheduler/daemon/control` | 调度 | `daemon start . --mode always --agent mock` → 队列任务被推进成 change 并归档（`changes/G1-T1/comet-state.yaml` 里 `archived: true`）；面板同时显示调度状态与交付状态（change/phase）；`daemon stop` 写控制文件，下一轮退出并记 `stopped-by-control` |
 | 评估 | `eval` | `POST /eval/run` | 评估（含历史对比轮） | `cometflow eval .`（PASS/FAIL + Pass@k）；面板「运行评估」后日志进任务中心 |
 | 进化 | `evolve propose｜verify｜submit｜approve｜reject｜status｜review-list｜rollback` | `POST /evolutions/...`、`GET /evolutions`、`GET /evolutions/<name>/rollback` | 进化 | `evolve propose x` → `evolve verify x --eval` → `submit`；面板「回滚指引」给出 `git revert` 路径 |
 | 门禁与问题清单 | `gate check｜install｜status｜uninstall`、`hook check｜install｜status｜uninstall`、`doctor`、`metrics` | `GET /findings`、`GET /metrics`、`GET /gates`、`POST /gate/install`、`GET/POST /hook/...`、`GET /project/doctor` | 总览（问题清单 / 门禁 / 质量与健康度 / 维护动作）、资产（Hook 预览） | `cometflow gate check . --findings` 与总览「问题清单」逐条同源；`doctor .` 的三个维护动作在总览「维护动作」卡里是同一套护栏 |
@@ -57,8 +58,8 @@
 
 | 命令 | 覆盖 | 本次结果 |
 |---|---|---|
-| `npx vitest run` | 领域 / 平台 / serve 端点（含起真服务器） | **81 文件 / 487 例全绿** |
-| `node scripts/regression.mjs` | 端到端 CLI + 真实夹具（含 git hook、写保护、门禁） | **135 步 PASS** |
+| `npx vitest run` | 领域 / 平台 / serve 端点（含起真服务器） | **84 文件 / 501 例全绿** |
+| `node scripts/regression.mjs` | 端到端 CLI + 真实夹具（含 git hook、写保护、门禁、daemon 交付） | **145 步 PASS** |
 | `pnpm typecheck` | 平台侧 `tsc --noEmit` | 通过 |
 | `pnpm web:typecheck` | 前端 `vue-tsc --noEmit` | 通过 |
 | `pnpm build` | `tsc` + `vite build`（产出 `dist/` 与 `web/dist/`） | 通过 |
