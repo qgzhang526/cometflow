@@ -44,9 +44,15 @@ daemon 从「把 agent 叫起来的批处理泵」升级为**交付流水线**�
 ### S1｜让 daemon 走 change 流水线（最小可用）
 
 - 取到队列任务后：`createChangeFromTask`（自动设 current-change 指针）→ `confirm-acceptance` →
-  `runChange` → `verifyChange` → `archiveChange`；
+  `runChange` → `verifyChange` →（verify 通过）`archiveChange`；
+- **change 名由任务派生**：`<goal>-<task>`（如 `G1-T1`），确定性命名让失败重试与断点续作落在同一个
+  change 上，而不是每次重开一个。已存在的 change 按它的 `phase` 续作（shape → build → verify → archive）；
+  已 `archived` 的直接视为已交付，不再重跑；
 - 「完成」由 acceptance 结论决定，不再由退出码决定；队列状态仍写，但含义变成「调度视角的执行结果」；
-- spec-authoring 任务沿用 G4 的护栏（产物存在 + `spec validate` 无 error）。
+- spec-authoring 任务沿用 G4 的护栏（产物存在 + `spec validate` 无 error）；
+- **过渡止血（原 B 方案的最小版）**：`daemon queue rebuild|reset`（CLI + 端点），把今天「手工删
+  `.cometflow/runtime/queue.json`」升级成有语义的命令——`rebuild` 按事实重算待办并保留运行时覆盖，
+  `reset` 清掉覆盖（显式要求全部重跑）。
 
 验收：夹具上 daemon 跑完一个任务后 —— 存在对应 change 且 `archived=true`；`verification.yaml`
 里有 acceptance 结论；`queue.json` 该任务为 `done`；调度卡（C5）能看到该任务的 change 与 phase。
@@ -62,11 +68,21 @@ daemon 从「把 agent 叫起来的批处理泵」升级为**交付流水线**�
 
 ### S3｜三份记录对齐 + 队列可重置
 
-- **交付事实**：任务交付后要有可查的去处。两个候选——(a) 计划侧引入 `done`；
-  (b) 队列降级为**派生视图**（每次从 plans + changes 重建），用 change 账本作为唯一事实。
-  倾向 (b)：避免第四份状态，但需要先确认「重建队列」不会把已交付任务重新排上。
-- **队列重建/重置**：`daemon queue rebuild|reset`（CLI）与对应端点，替代今天手工删文件；
-- 明确「同一任务被两条通道跑」的语义：要么互斥（daemon 跳过已有 archived change 的任务），要么显式允许并在界面标注。
+- **已定：队列降级为「派生待办 + 运行时覆盖」的混合体**（§4 第 1 条的结论）。三份记录各归其位：
+
+  | 问题 | 唯一出处 |
+  |---|---|
+  | 这个任务该不该跑 | **派生**：plans 里 `frozen`/`approved` 的任务，减去已有 `archived` change 的 `(goal, task)` |
+  | 这个任务交付了吗 | **change 账本**（`archived: true` + `verification.yaml` 的 acceptance 结论） |
+  | 谁在跑、租约、试了几次、上次为什么失败 | **运行时覆盖**（`.cometflow/runtime/queue.json` 瘦身为此） |
+
+- **队列重建/重置**：`daemon queue rebuild|reset`（CLI）与对应端点。`rebuild` = 重新派生 + 保留覆盖；
+  `reset` = 清掉覆盖（全部重新排队）。
+- **迁移（必须显式，不能默认）**：老路径交付过的任务（如 2048 的 G1~G3：agent 直接跑出来、
+  没有 change 目录）在派生视图里会显示"未交付"。`rebuild` **默认保留**运行时覆盖里的 `done`
+  当作 legacy 交付记录（不重跑），需要重跑时用 `reset` 显式清掉；本文件记录这个取舍。
+- 「同一任务被两条通道跑」在 A 之下变成互斥：daemon 跳过已有 `archived` change 的任务；
+  想重跑必须显式动作（`reset` 或新开 change 承载）。
 
 验收：`daemon queue rebuild` 之后，已交付任务不会被重新入队；调度卡能区分「交付过」与「跑过」。
 
@@ -74,21 +90,24 @@ daemon 从「把 agent 叫起来的批处理泵」升级为**交付流水线**�
 
 - 调度面板按任务并列显示：调度状态（queued/running/done/failed + 尝试次数）与工作流状态
   （change 名、phase、verify 结论、是否有 blocked 原因）；
-- **先决问题**：daemon 是 CLI 长驻进程，要「页面可控」就得先决定谁持有它的生命周期
-  （serve 内嵌调度器 / 受管子进程 / 维持 CLI + 只读投影）。这一条不决策，界面上的启停按钮就是在
-  spawn 游离进程，日志与退出都无处安放。
+- **进程生命周期归属（已定，见 §4 第 2 条）**：**进程仍由 CLI 持有**（`daemon start` 是唯一 spawn 点），
+  但控制语义通过**控制文件** `.cometflow/runtime/daemon.control.json` 受管：`daemon pause|resume|stop`
+  写它，daemon 循环每轮读它（`stop` → 退出并写 `stopped_reason`；`pause` → 只跳过不退出）。
+  这样「界面可控」不必让 serve/浏览器成为进程主人，也避免 spawn 游离进程。
+- 界面上提供：暂停 / 继续 / 停止（写控制文件，不是启停进程）+ 每行任务的 change 名、phase、
+  verify 结论与 blocked 原因。
 
 验收：P4 原文的「status 同时显示调度与工作流状态」在界面上可见；进程生命周期的归属在一份 ADR 里写死。
 
-## 4. 待决问题（实施前需要拍板）
+## 4. 决策记录（2026-09-17 拍板，施工按此执行）
 
-| # | 问题 | 影响 |
-|---|---|---|
-| 1 | 队列是事实源还是派生视图？（S3 的 a/b） | 决定「重复执行」能不能被机制消掉 |
-| 2 | daemon 进程由谁持有？（S4） | 决定「前端可控」能不能做、怎么做 |
-| 3 | 并发上限与排序：同一项目允许多少 change 并行、goal 之间的优先级怎么定 | 决定写保护指针与预算策略 |
-| 4 | 计划侧要不要 `done`，还是用 change 账本回答「做完没有」 | 影响 capability-map 里「主链路自验」的写法 |
-| 5 | 冻结是否仍允许跳过 review/approve（CLI/HTTP 今天不拦，只有界面拦） | 与 P4 同批定，避免又一条「界面约定 ≠ 机制约束」 |
+| # | 问题 | 决定 | 理由 |
+|---|---|---|---|
+| 1 | 队列是事实源还是派生视图 | **目标 A：派生待办 + 运行时覆盖**；过渡期先给 `queue rebuild|reset`（B 的最小版）止血 | 「做完没有」只能有一个出处；派生视图可做同源断言，事实源不能。过渡命令是纯增量，不锁死方向 |
+| 2 | daemon 进程由谁持有 | **进程归 CLI，控制语义走控制文件**（pause/resume/stop），界面只写控制文件不 spawn | 「谁持有进程生命周期」必须有明确答案；控制文件让界面可控而不引入游离进程 |
+| 3 | 并发上限与排序 | **单任务串行**：一次只推进一个 change，按队列顺序；并发与优先级留给后续批次（需先有指针路由与预算策略） | 先让交付链正确，再谈吞吐；并发在写保护 + current-change 指针未成体系前会互相踩 |
+| 4 | 计划侧要不要 `done` | **不要**：交付事实由 change 账本回答 | 避免第四份状态；任务「有没有被交付」是 `changes/*` 的函数，不是 plan 的函数 |
+| 5 | 冻结是否允许跳过 review/approve | **保持现状（允许）**，但把它写进 USAGE 而不是让界面单独拦 | 冻结在语义上是「绑定契约」，review/approve 是审核策略；两者独立，改语义要单独立项，不在本批扩大范围 |
 
 ## 5. 完成定义（DoD）
 
