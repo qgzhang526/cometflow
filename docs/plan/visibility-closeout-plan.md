@@ -42,5 +42,14 @@ C 类只剩两条真开口，都是「信息或动作已经在，但人够不着
 
 ## 4. 验证
 
-回归 **135 步 PASS**；全量 `vitest` / `tsc` / `vue-tsc` / `pnpm build` / `pnpm package-e2e`
-的结果见 [capability-map.md](./capability-map.md) 的「验证链」一节。
+回归 **135 步 PASS**；全量 `vitest` **81 文件 / 487 例全绿**；`tsc`、`vue-tsc`、`pnpm build`、
+`pnpm package-e2e` 全部通过（结果明细见 [capability-map.md](./capability-map.md) §4「验证链」）。
+
+浏览器走查（另起一个 serve 实例跑新构建，避免影响运行中的 4321）：
+
+- 调度面板「调度器最近一次决策」卡在**两种状态**下都验过——没有投影时显式说明
+  「这台机器上没写过状态投影」，有投影时显示 phase / mode / agent / 轮次 / pid / 最近活动 /
+  最近决策 / 上一次任务结论与耗时 / 队列计数 / 预算快照；
+- Bundle 页签出现 8 个「分发到 &lt;平台&gt;」按钮，预告接口返回逐项目标路径与覆盖标记，
+  未知平台 400 并列出可选值；
+- 控制台无 error/warning。走查用的 `daemon-state.json` 与临时 serve 实例都已清理。
