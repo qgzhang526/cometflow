@@ -118,6 +118,7 @@ cometflow eval / evolve / daemon   # 评估、进化、无人值守持续推进
 | `.cometflow/init-manifest.yaml` | 每个 spec kind 的 present/deferred/absent | `init` / `spec scaffold` |
 | `.cometflow/spec-index/*.yaml` | models/apis/flows/errors/config 投影 | `spec index` |
 | `.cometflow/runtime/queue.json` | 调度队列 | `daemon` |
+| `.cometflow/runtime/daemon-state.json` | 调度器最近一次决策的**投影**（只读展示在调度面板） | `daemon` |
 | `.cometflow/runtime/safety.bundle` | git 快照（可选） | `daemon --safety-bundle` |
 | `.cometflow/eval-report.json` | 评估报告 | `eval` |
 | `.cometflow/skills/<name>/` | 已安装 Skill | `skill add/import` |
@@ -1217,6 +1218,11 @@ token: <random>
   （删除前弹窗显示将被删除的原文），保存后自动 `goal sync`；其它目标与段落不动。
 - **调度预算**：调度面板显示跨重启累计的「已用预算」（`runtime/budget.json`）；重置走
   `cometflow daemon budget . --reset`（界面只读）。
+- **调度器最近一次决策**（C5）：调度面板顶部读 `.cometflow/runtime/daemon-state.json`
+  （daemon 在每个决策点写下的投影），显示 mode / agent / 轮次 / pid / 最近活动时间、
+  「最近决策跑没跑 + 原因 + 针对哪个任务」、上一次任务的结论与耗时、队列计数与预算快照。
+  从未跑过 daemon 时显式说明「这台机器上没写过状态投影」，而不是拿空队列糊弄；
+  面板也明说「是不是还在跑」不由界面猜——时间戳是最后一次写状态的时间，pid 只是线索。
 - **Specs 面板 6 个页签**：12-kind 状态、脚手架、Spec 文件、验收覆盖、版本、影响与门禁。
 - **脚手架页签的 capability 入口**：root kind 由项目类型推导，capability 不由 init 生成、也无法推断，
   所以在同一页签里可以点名生成 `specs/<capability>/spec.md` 骨架（逗号分隔，可多个）。
@@ -1224,6 +1230,11 @@ token: <random>
 - **Spec 文件页签的定稿状态**：每个 spec 显示「草案 / 已定稿」；草案带「批准定稿」按钮
   （等价 `cometflow spec approve <spec-file>`，带二次确认）。草案在 `plan freeze` 时会被拒，
   报错信息直接给出该命令。
+- **资产页签的 bundle 分发**（C12）：Bundle 页签按平台列出「分发到 &lt;平台&gt;」按钮
+  （平台列表来自 `GET /bundles`，界面不另存一份）。点击是**预告 → 确认 → 执行**：
+  先用 `dryRun` 拿到每个 skill 的目标路径与「是否会被替换」，确认框里逐行列出并在有覆盖时
+  点明「会被整个替换」，确认后才落盘。分发前会先 `compile` 一遍——清单读不出来时宁可在这里
+  失败，也不要在「一半拷进去了」的状态下退出。
 - **设置页的「一次性试跑」**：等价 `cometflow run [path] --agent <id>`——把 `COMETFLOW.md` 与 `specs/`
   交给一个 agent 跑一轮，用来确认「agent + 这个项目的上下文」能跑通。它**不绑 change / task / acceptance**，
   产物不进验收账本；日志走任务中心（`job.kind = flow-run`，刷新不丢）。界面会在执行前二次确认并写明
@@ -1309,13 +1320,14 @@ pnpm build                   # tsc（CLI）+ vite build（Web）
 | POST | `/api/projects/<id>/spec/proposal` | 存为提案（只允许 shape 阶段的 change；不改 canonical spec） |
 | POST | `/api/projects/<id>/spec/lock` | 建立基线：登记版本 + 刷新 spec-lock |
 | POST | `/api/projects/<id>/spec/approve` | 草案 → 定稿（`{path}`；等价 `spec approve`，改完刷新版本与 lock） |
+| POST | `/api/projects/<id>/bundles/distribute` | bundle 分发：`{platform, dryRun?}`；默认只回预告（目标路径 + 是否覆盖），`dryRun: false` 才落盘（等价 `bundle distribute`） |
 | POST | `/api/projects/<id>/spec/restore` | 恢复历史版本（覆盖前先给当前内容记一版） |
 | GET | `/api/projects/<id>/changes/<name>/scope` | 实现范围报告（归属解释 + 越界 + omission） |
 | GET | `/api/projects/<id>/changes/<name>/journal[?limit=]` | 审计流水（含崩溃收敛与轮转后的历史） |
 | GET | `/api/projects/<id>/changes/<name>/evidence` | 证据文件与提案 spec、未完成归档事务 |
 | POST | `/api/projects/<id>/changes/<name>/rebase` | 重新冻结到当前 spec 版本（409 = 不可 rebase） |
 | POST | `/api/projects/<id>/changes/<name>/unblock` | 解除停机（409 = 该 change 未停机） |
-| GET | `/api/projects/<id>/scheduler/queue` | 调度队列 + 推导视图 + 下一个待办 + 调度器参数 |
+| GET | `/api/projects/<id>/scheduler/queue` | 调度队列 + 推导视图 + 下一个待办 + 调度器参数 + `budget` + `daemon`（状态投影，从未跑过为 `null`） |
 | GET | `/api/projects/<id>/skills`、`/skills/<name>` | 已安装 skill 列表 / 单个 skill 详情（含 SKILL.md） |
 | GET | `/api/projects/<id>/bundles` | bundle manifest + 编译产物预览 + 支持平台 |
 | POST | `/api/projects/<id>/hook/check` | 写入门禁预览（与 `hook check` 同源） |

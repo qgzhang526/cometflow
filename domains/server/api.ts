@@ -27,7 +27,7 @@ import {
 import type { ProjectConfig } from '../project/config.js';
 import { builtInAgentRunners, getBuiltInAgentRunner } from '../../platform/agents/registry.js';
 import { resolveAgentId, runFlowRun } from '../scheduler/flow-run.js';
-import { readTextFile } from '../../platform/fs/read-file.js';
+import { pathExists, readTextFile } from '../../platform/fs/read-file.js';
 import { listSpecEntries } from '../spec/spec-index.js';
 import { validateSpecs } from '../spec/spec-validate.js';
 import {
@@ -86,10 +86,17 @@ import {
 } from '../evolution/evolution-service.js';
 import { listClassicStates } from '../classic/classic-store.js';
 import { listInstalledSkills } from '../skill/skill-list.js';
-import { compileBundle, readBundleManifest, supportedBundlePlatforms } from '../bundle/bundle-service.js';
+import {
+  compileBundle,
+  distributeBundle,
+  platformSkillsRoot,
+  readBundleManifest,
+  supportedBundlePlatforms,
+} from '../bundle/bundle-service.js';
 import { evaluateHook, type HookEvent } from '../guard/hook-guard.js';
 import { buildQueueFromPlans, nextQueuedTask, readQueue } from '../scheduler/queue.js';
 import { readBudgetUsage } from '../scheduler/budget.js';
+import { readDaemonState } from '../scheduler/daemon-state.js';
 import { runLocalEval } from '../eval/eval-service.js';
 import { collectFindings } from '../gates/findings.js';
 import { readMetricsGate } from '../gates/metrics-gate.js';
@@ -1461,12 +1468,16 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
       const config = await readProjectConfig(root);
       // 预算用量是跨重启累计的：只读展示它，「改/重置」仍走 CLI `daemon budget --reset`。
       const budget = await readBudgetUsage(root);
+      // 调度器的状态投影（C5）：没有它，界面答不出「无人值守到底有没有在工作」。
+      // 读不到就是从未跑过 daemon，界面据此显式说明，而不是拿空队列糊弄。
+      const daemon = await readDaemonState(root);
       sendOk(res, {
         queue,
         derived,
         next: nextQueuedTask(queue ?? derived),
         scheduler: config.scheduler ?? null,
         budget,
+        daemon,
       });
       return true;
     }
@@ -1522,6 +1533,51 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
         }
       }
       sendOk(res, { manifest, compiled, platforms, error });
+      return true;
+    }
+    // bundle 分发（C12）：先预告（会写哪些路径、哪些会被覆盖），确认后再执行。
+    // 覆盖语义是 `rm -rf 目标目录 + cp`，所以预告不是装饰——它是这个动作的安全带。
+    if (segments[0] === 'bundles' && segments[1] === 'distribute' && method === 'POST') {
+      const body = await readJsonBody(req);
+      const platform = stringField(body.platform);
+      let skillsRoot: string;
+      try {
+        skillsRoot = platformSkillsRoot(platform);
+      } catch {
+        sendError(res, 400, 'unknown-platform', 'platform must be one of: ' + supportedBundlePlatforms().join(', '));
+        return true;
+      }
+      // 分发前先编译一遍：清单里引用的 skill 读不出来时，宁可在这里失败，
+      // 也不要在「一半 skill 拷进去了」的状态下退出。
+      try {
+        await compileBundle(root);
+      } catch (caught) {
+        sendError(res, 400, 'bundle-not-compilable', caught instanceof Error ? caught.message : String(caught));
+        return true;
+      }
+      const manifest = await readBundleManifest(root);
+      // `platformSkillsRoot` 返回的是**项目相对**路径（如 `.opencode/skills`），
+      // 落盘判断必须拼上项目根，否则 pathExists 会去 cwd 上找（那是另一个目录）。
+      const absoluteSkillsRoot = path.join(root, skillsRoot);
+      const items = await Promise.all(
+        manifest.skills.map(async (skill) => {
+          const target = path.join(absoluteSkillsRoot, skill.name);
+          return {
+            name: skill.name,
+            source: skill.path,
+            target,
+            // 覆盖是常态（重复分发是幂等的），但执行前必须让人看见哪几个会被替换。
+            overwritten: await pathExists(target),
+          };
+        }),
+      );
+      if (body.dryRun !== false) {
+        sendOk(res, { platform, skillsRoot, items, written: [] });
+        return true;
+      }
+      const written = await distributeBundle(root, platform);
+      jobs.stateChanged(projectId, '/api/bundles');
+      sendOk(res, { platform, skillsRoot, items, written });
       return true;
     }
     if (segments[0] === 'hook' && segments[1] === 'check' && method === 'POST') {

@@ -40,6 +40,64 @@
 
   <div class="card">
     <div class="row">
+      <h2>调度器最近一次决策</h2>
+      <span class="grow" />
+      <StatusBadge
+        v-if="data?.daemon"
+        :tone="data.daemon.phase === 'stopped' ? 'warn' : 'ok'"
+        :text="'phase ' + data.daemon.phase"
+      />
+      <StatusBadge v-else tone="gray" text="从未跑过" />
+    </div>
+    <!--
+      这一段是 C5 的落点：在它之前，界面只能显示队列与预算，
+      答不出「无人值守到底有没有在工作」。只读投影，不给任何控制按钮。
+    -->
+    <p v-if="!data?.daemon" class="muted">
+      这台机器上还没有 daemon 写过状态投影（<code>.cometflow/runtime/daemon-state.json</code>）：
+      下面的队列要么是按冻结计划推导的，要么是别的机器写下的。
+      启动无人值守：<code>cometflow daemon start . --mode always</code>。
+    </p>
+    <template v-else>
+      <div class="row" style="margin-bottom: 6px">
+        <StatusBadge tone="brand" :text="'mode ' + data.daemon.mode" />
+        <StatusBadge tone="gray" :text="'agent ' + data.daemon.agent" />
+        <span class="muted">
+          轮次 {{ data.daemon.iteration }} · pid {{ data.daemon.pid }} · 最近活动
+          {{ relativeTime(data.daemon.updated_at) }}
+        </span>
+      </div>
+      <p class="muted">
+        <template v-if="data.daemon.last_decision">
+          最近决策：{{ data.daemon.last_decision.ran ? '跑了 agent' : '没跑' }} ·
+          {{ data.daemon.last_decision.reason }}
+          <template v-if="data.daemon.last_decision.task"> · 任务 {{ data.daemon.last_decision.task }}</template>
+        </template>
+        <template v-else>最近决策：还没有记录。</template>
+        <template v-if="data.daemon.stopped_reason"> · 停止原因 {{ data.daemon.stopped_reason }}</template>
+      </p>
+      <p v-if="data.daemon.last_task" class="muted">
+        上一次任务：<b>{{ data.daemon.last_task.id }}</b> ·
+        {{ data.daemon.last_task.result }} · {{ data.daemon.last_task.elapsedMs }} ms
+        <template v-if="data.daemon.last_task.timedOut"> · 已超时</template>
+      </p>
+      <p class="muted">
+        队列计数：queued {{ data.daemon.queue.queued }} · running {{ data.daemon.queue.running }} ·
+        done {{ data.daemon.queue.done }} · failed {{ data.daemon.queue.failed }}
+        <template v-if="data.daemon.budget.total_ms > 0">
+          · 预算 {{ data.daemon.budget.used_ms }} / {{ data.daemon.budget.total_ms }} ms
+          （本次进程剩余 {{ data.daemon.budget.remaining_ms ?? '—' }} ms）
+        </template>
+      </p>
+      <p class="muted">
+        「是不是还在跑」不靠界面猜：上面的时间戳是它最后一次写状态的时间，
+        pid 只是线索——进程可能已经退出或换台机器在跑。
+      </p>
+    </template>
+  </div>
+
+  <div class="card">
+    <div class="row">
       <h2>下一个待办</h2>
       <span class="grow" />
       <StatusBadge :tone="data?.queue ? 'ok' : 'warn'" :text="data?.queue ? 'daemon 队列' : '推导视图'" />

@@ -569,6 +569,23 @@ export interface SchedulerResponse {
   scheduler: ProjectConfig['scheduler'] | null;
   /** 已用预算（跨重启累计，`.cometflow/runtime/budget.json`）：只读，重置走 CLI `daemon budget --reset`。 */
   budget: { schema: string; used_ms: number; updated_at: string };
+  /**
+   * 调度器状态投影（`.cometflow/runtime/daemon-state.json`，C5）：
+   * 最近一次决策、上一次任务结果、队列计数与预算快照。从未跑过 daemon 时为 null。
+   */
+  daemon: {
+    pid: number;
+    mode: string;
+    agent: string;
+    iteration: number;
+    phase: 'started' | 'skipping' | 'ran' | 'stopped';
+    stopped_reason: string | null;
+    updated_at: string;
+    last_decision: { ran: boolean; reason: string; task: string | null } | null;
+    last_task: { id: string; result: 'done' | 'failed'; elapsedMs: number; timedOut: boolean } | null;
+    queue: { queued: number; running: number; done: number; failed: number };
+    budget: { used_ms: number; total_ms: number; remaining_ms: number | null };
+  } | null;
 }
 
 export interface SkillSummary {

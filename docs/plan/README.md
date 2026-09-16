@@ -29,6 +29,8 @@
 | Web 前端可见性 | 把「后端算出来了、但只能敲命令」清零：findings / metrics / current-change / doctor 维护动作（V1），证据回收 / 回滚指引 / 写保护状态（V2），门禁 / 追溯 / 导入 / 锚点（V3），Eval 历史对比 / 顶栏徽章 / 目标编辑 / 预算可见（V4） | **V1–V4 全部完成**（审计的产品缺口清零） | [web-ui-visibility-plan.md](./web-ui-visibility-plan.md) |
 | spec 作者与把关 | 统一「capability spec 谁写、谁把关」：草案标记 `status`、`plan_review` 策略消费、Web capability 骨架入口（审计 C18）、`spec-authoring` 任务的验收护栏 | **G1–G4 已实施**（2026-09-16，回归 132 步） | [spec-authoring-plan.md](./spec-authoring-plan.md) |
 | 一次性 agent 试跑（C13） | 把 `cometflow run` 接进界面：`POST /run` + `flow-run` job（日志走任务中心），设置页试跑卡片带 agent 选择与二次确认；明确「试跑 ≠ 交付」 | **已实施**（2026-09-16） | [agent-trial-run-plan.md](./agent-trial-run-plan.md) |
+| 可见性收口（C5 / C12） | C5：daemon 状态投影（`.cometflow/runtime/daemon-state.json`）+ 调度面板「最近一次决策」卡；C12：`POST /bundles/distribute` + Bundle 页签一键分发（预告 → 确认 → 执行） | **已实施**（2026-09-16，C 类缺口全部关闭） | [visibility-closeout-plan.md](./visibility-closeout-plan.md) |
+| 能力地图 | CLI 能力 / HTTP 端点 / 面板的对应关系，以及每条主链路的「你怎么自己验证它对不对」 | **已产出**（2026-09-16） | [capability-map.md](./capability-map.md) |
 
 ## 阶段顺序原则
 

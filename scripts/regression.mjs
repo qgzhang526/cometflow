@@ -238,6 +238,12 @@ expectOk('bundle compile', ['bundle', 'compile', '.'], project);
 for (const platform of ['opencode', 'claude-code', 'codex']) {
   expectOk('bundle distribute ' + platform, ['bundle', 'distribute', '.', '--platform', platform], project);
 }
+// 分发必须真的落到平台的 skill 目录（界面上的「一键分发」走的就是这个函数）。
+check(
+  'bundle distribute 把 skill 拷进平台目录',
+  existsSync(path.join(project, '.opencode', 'skills', 'safe-skill')) &&
+    existsSync(path.join(project, '.claude', 'skills', 'safe-skill')),
+);
 
 expectOk('change run build-change', ['change', 'run', 'build-change', '.', '--agent', 'mock'], project);
 expectOk('change verify verify-change', ['change', 'verify', 'verify-change', '.'], project);
@@ -448,6 +454,11 @@ for (const event of ['open-complete', 'design-complete', 'build-complete', 'veri
 }
 
 expectOk('daemon manual run', ['daemon', 'start', '.', '--mode', 'manual', '--budget', '1', '--safety-bundle'], project);
+// 调度器状态投影（C5）：面板上的「最近一次决策」读的就是它，必须由 daemon 自己写下来。
+check(
+  'daemon 写下状态投影 daemon-state.json',
+  fileContains(path.join(project, '.cometflow', 'runtime', 'daemon-state.json'), 'cometflow.daemon-state.v1'),
+);
 
 // hook guard：有指针时按指针路由，没有指针时必须 fail closed
 // B hook 接线：安装后写入平台配置，卸载后逐字还原

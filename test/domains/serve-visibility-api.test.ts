@@ -385,12 +385,16 @@ describe('V4：调度预算可见 + 冗余端点清理', () => {
     const { status, body } = await get<{
       budget: { schema: string; used_ms: number; updated_at: string };
       scheduler: unknown;
+      daemon: unknown;
     }>('/scheduler/queue');
     expect(status).toBe(200);
     expect(body.data.budget.schema).toBe('cometflow.budget.v1');
     // 没跑过 daemon 的项目是 0，但字段必须在——否则界面分不清「没有预算」和「还没读」。
     expect(body.data.budget.used_ms).toBeGreaterThanOrEqual(0);
     expect(typeof body.data.budget.updated_at).toBe('string');
+    // 调度器状态投影（C5）：字段存在但可以是 null——null 的语义是「这台机器上没跑过 daemon」，
+    // 界面据此显式说明，而不是拿空队列糊弄。
+    expect(body.data.daemon).toBeNull();
   });
 
   it('/spec-index 与 /config/project 保留（CLI/脚本投影，界面不消费）', async () => {

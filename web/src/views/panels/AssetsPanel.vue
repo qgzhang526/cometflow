@@ -64,7 +64,27 @@
             </tbody>
           </table>
         </template>
-        <p class="muted">支持的平台：{{ bundle.platforms.join(', ') }}（分发由 CLI 执行，界面只做预览）。</p>
+        <!--
+          C12：分发从「回 CLI」变成一次点击。仍然保留预告环节——分发是
+          `rm -rf 目标目录 + cp` 的覆盖式写入，先看清会替换什么再执行。
+        -->
+        <p class="muted">
+          分发到平台（把清单里的 skill 拷进该平台的 skill 目录，覆盖同名目录）：
+        </p>
+        <div class="toolbar">
+          <button
+            v-for="platform in bundle.platforms"
+            :key="platform"
+            :disabled="distributing !== '' || bundle.error !== null"
+            @click="distribute(platform)"
+          >
+            {{ distributing === platform ? '分发中…' : '分发到 ' + platform }}
+          </button>
+        </div>
+        <div v-if="lastDistributed !== null" class="muted">
+          已分发到 {{ lastDistributed.platform }}：写入 {{ lastDistributed.written.length }} 个目录
+          <template v-if="lastDistributed.written.length > 0">（{{ lastDistributed.written.join(', ') }}）</template>
+        </div>
       </template>
     </div>
 
@@ -184,6 +204,9 @@ const activeTab = ref<(typeof TABS)[number]['id']>('skills');
 const skills = ref<SkillSummary[]>([]);
 const skillDetail = ref<SkillDetail | null>(null);
 const bundle = ref<BundleResponse | null>(null);
+/** 正在分发的平台（空串表示空闲）；同一时刻只允许一个分发，避免并发覆盖同一目录。 */
+const distributing = ref('');
+const lastDistributed = ref<{ platform: string; written: string[] } | null>(null);
 const hookTarget = ref('src/core/index.ts');
 const hookEvent = ref<'write' | 'edit'>('write');
 const hookResult = ref<HookCheckResponse | null>(null);
@@ -247,6 +270,46 @@ async function loadBundle(): Promise<void> {
     bundle.value = await project.projectApi<BundleResponse>('/bundles');
   } catch (error) {
     toasts.error('读取 bundle 失败', errorMessage(error));
+  }
+}
+
+interface DistributePreview {
+  platform: string;
+  skillsRoot: string;
+  items: Array<{ name: string; source: string; target: string; overwritten: boolean }>;
+}
+
+/**
+ * bundle 分发（C12）：预告 → 确认 → 执行。
+ *
+ * 两步都打同一个端点，靠 `dryRun` 区分——预告必须与执行同源，否则「给你看的」
+ * 和「实际做的」会分叉。覆盖语义（`rm -rf 目标 + cp`）在确认框里说清。
+ */
+async function distribute(platform: string): Promise<void> {
+  distributing.value = platform;
+  try {
+    const preview = await project.projectApi<DistributePreview>('/bundles/distribute', {
+      method: 'POST',
+      body: { platform, dryRun: true },
+    });
+    const overwrites = preview.items.filter((item) => item.overwritten);
+    const lines = preview.items.map((item) => '  ' + item.name + ' → ' + item.target).join('\n');
+    const ok = window.confirm(
+      '分发到 ' + platform + '？\n\n' + preview.skillsRoot + '\n' + lines +
+        (overwrites.length > 0 ? '\n\n其中 ' + overwrites.length + ' 个已存在，会被整个替换。' : ''),
+    );
+    if (!ok) return;
+
+    const done = await project.projectApi<{ written: string[] }>('/bundles/distribute', {
+      method: 'POST',
+      body: { platform, dryRun: false },
+    });
+    lastDistributed.value = { platform, written: done.written };
+    toasts.success('已分发到 ' + platform, '写入 ' + done.written.length + ' 个目录');
+  } catch (error) {
+    toasts.error('分发失败', errorMessage(error));
+  } finally {
+    distributing.value = '';
   }
 }
 
