@@ -59,6 +59,7 @@
   </div>
 
   <FindingsCard :findings="findings" @refresh="reload" @jump="jump" />
+  <GateCard :gate="gate" @refresh="reload" />
   <MetricsCard :report="metrics?.report ?? null" :gates="metrics?.gates ?? null" />
   <MaintenanceCard :plan="maintenance" @refresh="reload" @changed="onMaintenanceChanged" />
 </template>
@@ -67,6 +68,7 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import FindingsCard from '../../components/FindingsCard.vue';
+import GateCard from '../../components/GateCard.vue';
 import MaintenanceCard from '../../components/MaintenanceCard.vue';
 import MetricsCard from '../../components/MetricsCard.vue';
 import StatusBadge from '../../components/StatusBadge.vue';
@@ -75,7 +77,7 @@ import { refreshCounter } from '../../composables/useRefresh';
 import type { PanelId } from '../../router';
 import { useProjectStore } from '../../stores/project';
 import { useToastStore } from '../../stores/toasts';
-import type { Finding, FindingsResponse, MaintenancePlan, MetricsResponse } from '../../api/types';
+import type { Finding, FindingsResponse, GateResponse, MaintenancePlan, MetricsResponse } from '../../api/types';
 
 const project = useProjectStore();
 const toasts = useToastStore();
@@ -87,6 +89,7 @@ const activeChanges = computed(() => (status.value?.changes ?? []).filter((chang
 const findings = ref<Finding[]>([]);
 const metrics = ref<MetricsResponse | null>(null);
 const maintenance = ref<MaintenancePlan | null>(null);
+const gate = ref<GateResponse | null>(null);
 const loading = ref(false);
 
 const errorCount = computed(() => findings.value.filter((finding) => finding.severity === 'error').length);
@@ -95,14 +98,16 @@ const warningCount = computed(() => findings.value.filter((finding) => finding.s
 // 三个只读投影一次取齐：放在一起取而不是各卡片自己取，是为了让「问题数」「指标」「待清理量」
 // 来自同一次快照——否则会出现「问题清单说没有残留文件、维护卡说还有 3 个」这种自相矛盾的画面。
 async function loadVisibility(): Promise<void> {
-  const [findingsData, metricsData, maintenanceData] = await Promise.all([
+  const [findingsData, metricsData, maintenanceData, gateData] = await Promise.all([
     project.projectApi<FindingsResponse>('/findings'),
     project.projectApi<MetricsResponse>('/metrics'),
     project.projectApi<MaintenancePlan>('/maintenance'),
+    project.projectApi<GateResponse>('/gate'),
   ]);
   findings.value = findingsData.findings;
   metrics.value = metricsData;
   maintenance.value = maintenanceData;
+  gate.value = gateData;
 }
 
 async function reload(): Promise<void> {

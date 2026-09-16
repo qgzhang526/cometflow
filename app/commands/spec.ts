@@ -1,8 +1,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { validateSpecs } from '../../domains/spec/spec-validate.js';
-import { parseSpecFile } from '../../domains/spec/spec-parse.js';
-import { listSpecFiles } from '../../domains/spec/spec-index.js';
+import { collectSpecAnchors } from '../../domains/spec/spec-anchors.js';
 import { diffSpecs } from '../../domains/spec/spec-lock.js';
 import { collectSpecDrift } from '../../domains/spec/spec-drift.js';
 import { analyzeSpecImpact, formatSpecImpact } from '../../domains/spec/spec-impact.js';
@@ -220,12 +219,10 @@ export async function specVerifyCommand(
 
 export async function specAnchorsCommand(targetPath: string): Promise<void> {
   const projectRoot = path.resolve(targetPath);
-  const files = await listSpecFiles(projectRoot);
-  for (const file of files) {
-    const parsed = await parseSpecFile(projectRoot, file);
-    for (const anchor of parsed.anchors) {
-      console.log(file + '#' + anchor.heading + ' acceptance=' + (anchor.acceptance.length > 0 ? anchor.acceptance.length : parsed.acceptance.length));
-    }
+  // 与 Web 的 `GET /spec/anchors` 共用同一份投影，避免「命令行说 12 个锚点、界面说 13 个」。
+  const projection = await collectSpecAnchors(projectRoot);
+  for (const entry of projection.entries) {
+    console.log(entry.path + '#' + entry.anchor + ' acceptance=' + entry.acceptance);
   }
 }
 

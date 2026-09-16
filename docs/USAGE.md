@@ -1168,6 +1168,18 @@ token: <random>
 - **写保护状态（ADR 0023）**：资产面板的 Hook 页签顶部列出各平台的支持性、条目数、守卫脚本是否存在/漂移、
   以及守卫实际会调用的 CLI 能否解析。`claude-code` 是唯一支持安装的平台，另外两个显示「暂不支持安装」
   而不是「未安装」；安装与卸载仍走 CLI（会改机器配置，界面只做状态与判定预览）。
+- **门禁可见性（ADR 0025）**：总览「门禁」卡给出 `gate check` 的逐项结论（spec validate / spec verify /
+  doctor / change gc dry-run / plan validate / metrics 阈值与基线），以及本地提交门禁的安装状态
+  （是否 git 仓库、宿主 plain/husky/lefthook、是否链式、内容是否漂移、`core.hooksPath` 指向）。
+  「现在能不能提交」和「这个结论会不会被自动执行」是同一个问题的两半，所以放在同一张卡里。
+- **任务追溯**：Plans 面板的「追溯」按钮展开「任务 → spec 绑定 → 验收项 → 状态」表
+  （未绑定 spec、无验收项的任务显式标注），并附一份与 `cometflow plan trace <goal>` 逐字相同的文本清单。
+- **锚点平铺**：Specs 面板「验收覆盖」页签下半部分列出**全部锚点**（不只是有验收项的）：
+  kind、有效验收项与其中可执行的数量、绑定它的 frozen/approved 任务；未绑定与无验收项分别标注。
+  口径与 `cometflow spec anchors`、指标里的 `anchor_coverage_rate` 同源。
+- **表格导入**：Specs 面板「导入」页签支持粘贴 CSV / TSV / Markdown 表格（Excel 导出直接可用），
+  先「预览」再「导入」：预览只解析、不落盘，并列出会新写的能力、因已存在而跳过的能力、能力名非法的项与解析问题；
+  勾选「覆盖」才会重写已有 capability spec。解析与分组规则与 `cometflow spec import <file>` 是同一份实现。
 - **Specs 面板 6 个页签**：12-kind 状态、脚手架、Spec 文件、验收覆盖、版本、影响与门禁。
 - **引用图页签**（W1 之后新增，共 7 个）：按 009 的引用方向表聚合 kind 之间的引用，
   点击可下钻 kind → 文件 → anchor 并列出该文件的逐条引用与位置；未解析引用红色标注，
@@ -1267,6 +1279,10 @@ pnpm build                   # tsc（CLI）+ vite build（Web）
 | GET/POST | `/api/projects/<id>/current-change` | 读写 current-change 指针（POST `{name}` 设定、`{name:null}` 清除；改指针 route 到 changes 面板刷新） |
 | GET | `/api/projects/<id>/evolutions/<name>/rollback` | 回滚指引（等价 `evolve rollback`，纯投影） |
 | GET | `/api/projects/<id>/hook/status` | 写保护安装状态（等价 `hook status`：条目、脚本漂移、守卫调用的 CLI 解析） |
+| GET | `/api/projects/<id>/gate` | 门禁判定（等价 `gate check`）+ 本地提交门禁安装状态（等价 `gate status`） |
+| GET | `/api/projects/<id>/spec/anchors` | 锚点平铺（等价 `spec anchors`：kind / 验收项 / 可执行数 / 绑定任务） |
+| POST | `/api/projects/<id>/spec/import` | 表格导入：`dryRun !== false` 只回预览（不落盘），否则写入（`{content, source?, module?, force?}`） |
+| GET | `/api/projects/<id>/plans/<goal>/trace` | 任务追溯（等价 `plan trace`：文本清单 + 结构化任务行） |
 | GET | `/api/projects/<id>/classic` | Classic change 只读列表 |
 | GET/POST | `/api/projects/<id>/plans`、`/plans/generate`、`/plans/regenerate` | 计划列表 / 生成 / 重生成 |
 | GET/POST | `/api/projects/<id>/plans/<goal>`、`/plans/<goal>/{validate,review,approve,freeze}` | 计划读写与状态推进 |

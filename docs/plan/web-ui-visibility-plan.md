@@ -1,6 +1,6 @@
 # Web 前端可见性计划（把「后端算出来了但只能敲命令」清零）
 
-状态：**V1 / V2 已完成**（见 §3.1、§3.2，均含测试与浏览器走查）；V3–V4 只排序、未细化
+状态：**V1 / V2 / V3 已完成**（见 §3.1–§3.3，均含测试与浏览器走查）；V4 只排序、未细化
 分支：`codex/enrich-ui`（本计划的所有改动与提交都在该分支，完成后再合并回 `main`）
 基线：`main @ 2a4d54f`（含平台侧 P1–P5）+ 本分支的审计文档 `94795ca` 起
 来源：[web-ui-coverage-audit.md](./web-ui-coverage-audit.md) 的 §9 候选清单（本计划把 §9 变成可开工的批次）
@@ -28,10 +28,10 @@ metrics 阈值可配、findings 有统一投影。本计划做的是**可见性�
 | ✅ V2-1 | `change gc` 端点 + 证据占用 | 审计 C4 | `planEvidenceGc` / `applyEvidenceGc` | S | 无 |
 | ✅ V2-2 | `evolve rollback` 投影 + Evolve 面板回滚指引 | 审计 C6 | `evolution-service.ts` | S | 无 |
 | ✅ V2-3 | 写保护状态表（hook 安装/版本/CLI 解析） | 审计 C11 | `hookStatus`（P1 已补齐 `guardOutdated` / `cli`） | M | V1-4（同一套「维护/守卫」面板语言） |
-| V3-1 | `gate check` / `gate status` 可见性 | 审计 §5.1 新增 | `domains/gates/spec-gates.ts`、`git-hook.ts` | M | V1-1（findings 已统一） |
-| V3-2 | `plan trace` 端点 + Plans 面板追溯视图 | 审计 C7 | `task-plan-trace.ts` | S | 无 |
-| V3-3 | `spec import` 端点 + Specs 面板导入页签 | 审计 C8 | `spec-import.ts` | M | 无 |
-| V3-4 | `spec anchors` 平铺视图 | 审计 C9 | `buildSpecIndex` | S | 无 |
+| ✅ V3-1 | `gate check` / `gate status` 可见性 | 审计 §5.1 新增 | `domains/gates/spec-gates.ts`、`git-hook.ts` | M | V1-1（findings 已统一） |
+| ✅ V3-2 | `plan trace` 端点 + Plans 面板追溯视图 | 审计 C7 | `task-plan-trace.ts` | S | 无 |
+| ✅ V3-3 | `spec import` 端点 + Specs 面板导入页签 | 审计 C8 | `spec-import.ts` | M | 无 |
+| ✅ V3-4 | `spec anchors` 平铺视图 | 审计 C9 | 新增 `domains/spec/spec-anchors.ts` | S | 无 |
 | V4-1 | Eval 历史对比 | 审计 C15 | 任务已持久化（`job-store`） | M | 无 |
 | V4-2 | TopBar 健康徽章 | 审计 C14 | V1-1 的 findings | S | V1-1 |
 | V4-3 | 目标单条编辑/删除 | 审计 C16 | `goal-sync` + COMETFLOW.md 分段写 | M | 无 |
@@ -187,13 +187,36 @@ metrics 阈值可配、findings 有统一投影。本计划做的是**可见性�
 测试与验证：新增 6 例（证据回收 3、回滚投影 2、写保护状态 1），`serve-visibility-api` 合计 **16 例**；
 全量 `npx vitest run` → **76 文件 / 454 例全绿**；两个 typecheck 通过；浏览器走查覆盖证据回收的真实删除与另两个只读投影。
 
+## 3.3 实施结果（V3 已完成，2026-09-16）
+
+| 项 | 后端落点 | 前端落点 | 验证 |
+|---|---|---|---|
+| V3-1 | `GET /gate`（`runSpecGates` + `gitHookStatus`） | 总览「门禁」卡：判定项逐条 PASS/FAIL + 本地提交门禁的安装状态 | 判定 `steps` 与 `runSpecGates` 深比相等（测试）；浏览器实测 9 项判定 + 「不是 git 仓库，提交门禁无处可装」的提示 |
+| V3-2 | `GET /plans/{goal}/trace`（`traceTaskPlan` 的文本投影 + 同一份数据的结构化行） | Plans 面板「追溯」：任务 → spec 绑定 → 验收项 → 状态表，附可折叠的文本清单 | `lines` 与 `traceTaskPlan` 逐条相等、`tasks` 与 `plan.tasks` 对齐；未知 goal 404（测试） |
+| V3-3 | `POST /spec/import`（新增 `previewSpecImport` / `importSpecsFromContent`，预览与写入共用解析与分组规则） | Specs 面板新增「导入」页签：粘贴 → 预览（会新写 / 已存在会跳过 / 能力名非法 / 解析问题）→ 确认写入 | 预览不落盘；写入的 `written`/`skipped` 与预览的 `writable`/`existing` 一致（测试）；浏览器实测粘贴 2 行 → 写出 `specs/webpaste/spec.md`、跳过已存在的 `core` |
+| V3-4 | `GET /spec/anchors`（新增 `domains/spec/spec-anchors.ts`；CLI `spec anchors` 改为调它） | 「验收覆盖」页签新增「全部锚点」段：kind / 验收项 / 绑定任务，未绑定与无验收项显式标注 | `entries` / `totals` 与 `collectSpecAnchors` 相等；浏览器实测 21 个锚点中 18 个未绑定 |
+
+顺带做的去重（避免出现第二实现）：
+
+1. 「锚点是否被冻结任务绑定」的判定从 `domains/metrics/spec-health.ts` 抽到 `spec-anchors.ts` 的
+   `collectBoundAnchorBindings`，指标侧的 `anchor_coverage_rate` 与界面锚点表共用同一份——
+   否则「覆盖率 0.75」和界面上标红的行数可能对不上。
+2. `spec anchors` CLI 改为调 `collectSpecAnchors`（输出逐字不变）；`spec import` 的文件路径与 Web 粘贴
+   共用 `importSpecsFromContent`，解析规则只有 `parseInterfaceTable` 一份。
+
+界面取舍：锚点没有单开第 8 个页签，而是并入「验收覆盖」——它回答的正是同一组问题（哪些锚点没有
+可执行验收、哪些没人实现），分成两页反而要来回切。新开的页签只有「导入」（8 个页签）。
+
+测试与验证：新增 `test/domains/serve-gates-api.test.ts` 7 例（门禁同源、锚点同源、追溯 2、导入 3）；
+全量 `npx vitest run` → **77 文件 / 461 例全绿**；回归 **110 步 PASS**；两个 typecheck 通过；浏览器走查覆盖四块界面。
+
 ## 4. 里程碑
 
 | 里程碑 | 内容 | 完成标志 |
 |---|---|---|
 | V1 可见性清零 ✅ | V1-1 ~ V1-4 | 总览一屏能回答「现在有哪些问题、质量指标如何、谁在阻塞写入、要不要清理」；审计里 C1/C2/C3/C17 全部转 ✓（见 §3.1） |
 | V2 收尾动作 ✅ | V2-1 ~ V2-3 | 证据占用、回滚指引、写保护状态都有界面出口；C4/C6/C11 全部转 ✓（见 §3.2） |
-| V3 投影补齐 | V3-1 ~ V3-4 | 门禁状态、任务追溯、表格导入、锚点平铺可见；核心可见率回到 85%+ |
+| V3 投影补齐 ✅ | V3-1 ~ V3-4 | 门禁状态、任务追溯、表格导入、锚点平铺可见；核心可见率 **58/64 ≈ 91%**（见 §3.3） |
 | V4 余项 | V4-1 ~ V4-5 | 审计 §1 的「无 UI 入口」只剩安装/运维类命令 |
 
 ## 5. 完成定义（DoD）

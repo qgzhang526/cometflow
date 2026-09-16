@@ -372,13 +372,7 @@ async function writeImportedSpecs(
   options: { force?: boolean; module?: string },
 ): Promise<SpecImportResult> {
   const { rows, issues } = parsed;
-  const grouped = new Map<string, InterfaceRow[]>();
-  for (const row of rows) {
-    const capability = row.capability === '' ? DEFAULT_CAPABILITY : row.capability;
-    const entries = grouped.get(capability);
-    if (entries) entries.push(row);
-    else grouped.set(capability, [row]);
-  }
+  const grouped = groupRowsByCapability(rows);
 
   const written: string[] = [];
   const skipped: string[] = [];
@@ -411,13 +405,82 @@ async function writeImportedSpecs(
   };
 }
 
+/** 按 capability 分组（空能力名回退到 `DEFAULT_CAPABILITY`）——预览与写入必须是同一份规则。 */
+function groupRowsByCapability(rows: InterfaceRow[]): Map<string, InterfaceRow[]> {
+  const grouped = new Map<string, InterfaceRow[]>();
+  for (const row of rows) {
+    const capability = row.capability === '' ? DEFAULT_CAPABILITY : row.capability;
+    const entries = grouped.get(capability);
+    if (entries) entries.push(row);
+    else grouped.set(capability, [row]);
+  }
+  return grouped;
+}
+
+export interface SpecImportPreview {
+  source: string;
+  /** 解析出的接口行数。 */
+  rows: number;
+  issues: ImportIssue[];
+  /** 能力名非法、写入时会被跳过的项。 */
+  invalid: string[];
+  /** 已存在对应 capability spec 的能力（不带 force 时会被跳过，避免覆盖人工修改）。 */
+  existing: string[];
+  /** 本次会新写入的能力。 */
+  writable: string[];
+}
+
+/**
+ * 导入预览（Web 的「粘贴 → 预览」用它）。
+ *
+ * 复用的正是写入路径的解析与分组规则：如果预览说「会写 3 个能力」，实际导入就必须是这 3 个。
+ */
+export async function previewSpecImport(
+  projectRoot: string,
+  source: string,
+  content: string,
+): Promise<SpecImportPreview> {
+  const { rows, issues } = parseInterfaceTable(content);
+  const grouped = groupRowsByCapability(rows);
+  const invalid: string[] = [];
+  const existing: string[] = [];
+  const writable: string[] = [];
+
+  for (const capability of grouped.keys()) {
+    const relativePath = capabilitySpecPath(capability);
+    if (relativePath === null) {
+      invalid.push(capability);
+      continue;
+    }
+    if (await pathExists(path.join(projectRoot, relativePath))) existing.push(capability);
+    else writable.push(capability);
+  }
+
+  return { source, rows: rows.length, issues, invalid, existing, writable };
+}
+
+/**
+ * 从**内容**导入（Web 的「粘贴表格 → 预览 → 导入」用它）。
+ *
+ * `source` 只参与来源标注与 issue 归因，不参与解析——解析规则只有 `parseInterfaceTable` 一份，
+ * 所以浏览器里粘贴的内容与 `spec import <file>` 走的是同一条路径。
+ */
+export async function importSpecsFromContent(
+  projectRoot: string,
+  source: string,
+  content: string,
+  options: { force?: boolean; module?: string } = {},
+): Promise<SpecImportResult> {
+  return writeImportedSpecs(projectRoot, source, parseInterfaceTable(content), options);
+}
+
 export async function importSpecsFromTable(
   projectRoot: string,
   sourcePath: string,
   options: { force?: boolean; module?: string } = {},
 ): Promise<SpecImportResult> {
   const content = await fs.readFile(sourcePath, 'utf8');
-  return writeImportedSpecs(projectRoot, path.basename(sourcePath), parseInterfaceTable(content), options);
+  return importSpecsFromContent(projectRoot, path.basename(sourcePath), content, options);
 }
 
 /** Dispatches on file type: `.docx` goes through the Word extractor, everything else is read as a table. */

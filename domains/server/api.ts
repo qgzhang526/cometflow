@@ -89,8 +89,13 @@ import { buildQueueFromPlans, nextQueuedTask, readQueue } from '../scheduler/que
 import { runLocalEval } from '../eval/eval-service.js';
 import { collectFindings } from '../gates/findings.js';
 import { readMetricsGate } from '../gates/metrics-gate.js';
+import { gitHookStatus } from '../gates/git-hook.js';
+import { runSpecGates } from '../gates/spec-gates.js';
 import { describeMetricsGate } from '../metrics/metric-gates.js';
 import { collectMetrics } from '../metrics/metrics-service.js';
+import { collectSpecAnchors } from '../spec/spec-anchors.js';
+import { importSpecsFromContent, previewSpecImport } from '../spec/spec-import.js';
+import { traceTaskPlan } from '../task-plan/task-plan-trace.js';
 import {
   applyEvidenceCleanup,
   applyForceUnlock,
@@ -617,6 +622,18 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
       sendOk(res, await collectMaintenancePlan(root));
       return true;
     }
+    if (segments[0] === 'gate' && segments.length === 1 && method === 'GET') {
+      // 「现在能不能提交」= 判定结果（与 `gate check` 同源，只读）；「装没装」= git hook 状态。
+      // 两者放同一个响应里，是因为界面上它们是同一个问题的两半：结论 + 这个结论会不会被自动执行。
+      const [check, install] = await Promise.all([runSpecGates(root), gitHookStatus(root)]);
+      sendOk(res, { check, install });
+      return true;
+    }
+    if (segments[0] === 'spec' && segments[1] === 'anchors' && method === 'GET') {
+      // 锚点平铺：全部锚点（不只带验收的那些）+ kind + 绑定任务 + 可执行验收数。
+      sendOk(res, await collectSpecAnchors(root));
+      return true;
+    }
 
     // ---- init-manifest / spec scaffold ----
     if (segments[0] === 'init-manifest' && method === 'GET') {
@@ -822,6 +839,27 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
       sendOk(res, await validateSpecs(root));
       return true;
     }
+    // 表格导入：`dryRun !== false` 时只回预览（解析 + 会写哪些能力 + 哪些会被跳过），不落盘。
+    if (segments[0] === 'spec' && segments[1] === 'import' && method === 'POST') {
+      const body = await readJsonBody(req);
+      const content = stringField(body.content);
+      if (content.trim() === '') {
+        sendError(res, 400, 'empty-content', 'content 必填：粘贴 CSV / TSV / Markdown 表格内容');
+        return true;
+      }
+      const source = stringField(body.source, 'web-paste') || 'web-paste';
+      if (body.dryRun !== false) {
+        sendOk(res, { preview: await previewSpecImport(root, source, content) });
+        return true;
+      }
+      const result = await importSpecsFromContent(root, source, content, {
+        force: body.force === true,
+        module: stringField(body.module) || undefined,
+      });
+      jobs.stateChanged(projectId, '/api/specs');
+      sendOk(res, { result });
+      return true;
+    }
     if (segments[0] === 'spec-index' && method === 'GET') {
       sendOk(res, await buildSpecIndex(root));
       return true;
@@ -933,6 +971,31 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
       const goal = segments[1];
       try {
         sendOk(res, await readTaskPlan(root, goal));
+      } catch {
+        sendError(res, 404, 'unknown-plan', 'plan not found for ' + goal);
+      }
+      return true;
+    }
+    // 任务 → spec 追溯：与 `plan trace` 同源的文本投影 + 同一份数据的结构化视图（界面用后者）。
+    if (segments[0] === 'plans' && segments.length === 3 && segments[2] === 'trace' && method === 'GET') {
+      const goal = segments[1];
+      try {
+        const plan = await readTaskPlan(root, goal);
+        sendOk(res, {
+          goal: plan.goal,
+          status: plan.status,
+          lines: traceTaskPlan(plan),
+          tasks: plan.tasks.map((task) => ({
+            id: task.id,
+            title: task.title,
+            capability: task.capability,
+            spec_ref: task.spec_ref ?? null,
+            spec_anchor: task.spec_anchor ?? null,
+            spec_version: task.spec_version ?? null,
+            acceptance_ids: task.acceptance_ids,
+            status: task.status,
+          })),
+        });
       } catch {
         sendError(res, 404, 'unknown-plan', 'plan not found for ' + goal);
       }

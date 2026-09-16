@@ -865,6 +865,82 @@ export interface EvolveRollbackResponse {
   lines: string[];
 }
 
+/** 门禁：判定结果（`gate check`）+ 安装状态（`gate status`）。 */
+export interface GateStep {
+  name: string;
+  ok: boolean;
+  detail: string;
+}
+
+export interface GitHookStatus {
+  isRepository: boolean;
+  host: string;
+  hooksDir: string | null;
+  hooksPathOverride: string | null;
+  hookPath: string | null;
+  installed: boolean;
+  chained: boolean;
+  drifted: boolean;
+  note: string | null;
+}
+
+export interface GateResponse {
+  check: { ok: boolean; steps: GateStep[] };
+  install: GitHookStatus;
+}
+
+/** 锚点平铺（`spec anchors` 的投影）。 */
+export interface SpecAnchorEntry {
+  path: string;
+  kind: string;
+  anchor: string;
+  acceptance: number;
+  checked: number;
+  bound_tasks: string[];
+}
+
+export interface SpecAnchorsProjection {
+  entries: SpecAnchorEntry[];
+  totals: { anchors: number; bound: number; unbound: number; acceptance: number; checked: number };
+}
+
+/** 任务 → spec 追溯（`plan trace` 的投影 + 同一份数据的结构化视图）。 */
+export interface PlanTraceTask {
+  id: string;
+  title: string;
+  capability: string;
+  spec_ref: string | null;
+  spec_anchor: string | null;
+  spec_version: number | null;
+  acceptance_ids: string[];
+  status: string;
+}
+
+export interface PlanTraceResponse {
+  goal: string;
+  status: string;
+  lines: string[];
+  tasks: PlanTraceTask[];
+}
+
+/** 表格导入：预览（只读）与写入结果。 */
+export interface SpecImportPreview {
+  source: string;
+  rows: number;
+  issues: Array<{ line: number; reason: string }>;
+  invalid: string[];
+  existing: string[];
+  writable: string[];
+}
+
+export interface SpecImportResult {
+  source: string;
+  capabilities: string[];
+  written: string[];
+  skipped: string[];
+  issues: Array<{ line: number; reason: string }>;
+}
+
 /** current-change 指针（`GET /current-change`）：多活跃 change 时唯一能解除 hook fail closed 的入口。 */
 export interface CurrentChangePointer {
   schema: string;

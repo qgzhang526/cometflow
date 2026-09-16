@@ -18,6 +18,7 @@
     <ChecksTab v-else-if="activeTab === 'checks'" />
     <VersionsTab v-else-if="activeTab === 'versions'" ref="versionsTab" />
     <SpecGraphTab v-else-if="activeTab === 'graph'" @open="openSpec" />
+    <ImportTab v-else-if="activeTab === 'import'" />
     <IntegrityTab v-else />
   </div>
 
@@ -76,6 +77,7 @@ import VersionsTab from './specs/VersionsTab.vue';
 import SpecGraphTab from './specs/SpecGraphTab.vue';
 import SpecEditor from './specs/SpecEditor.vue';
 import IntegrityTab from './specs/IntegrityTab.vue';
+import ImportTab from './specs/ImportTab.vue';
 import StatusBadge from '../../components/StatusBadge.vue';
 import { lineDiff, summarizeDiff, type DiffLine } from '../../utils/diff';
 import type { ChangeState, SpecProposal, SpecProposalsResponse, SpecVersionContent, SpecVersionRecord } from '../../api/types';
@@ -86,8 +88,9 @@ const TABS = [
   { id: 'files', label: 'Spec 文件' },
   { id: 'checks', label: '验收覆盖' },
   { id: 'versions', label: '版本' },
-  { id: 'graph', label: '引用图' },
-  { id: 'integrity', label: '影响与门禁' },
+    { id: 'graph', label: '引用图' },
+    { id: 'integrity', label: '影响与门禁' },
+    { id: 'import', label: '导入' },
 ] as const;
 
 const project = useProjectStore();
