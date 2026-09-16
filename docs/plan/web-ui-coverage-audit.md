@@ -1,6 +1,6 @@
 # Web 前端覆盖度审计（后端已实现能力 ↔ 界面可见性）
 
-状态：审计报告（只读调研；2026-09-16 按新基线修订 §1/§3/§5/§7/§9，实施批次见
+状态：审计报告（只读调研；2026-09-16 按新基线修订 §1/§3/§5/§7/§9，同日补登 C18，实施批次见
 [web-ui-visibility-plan.md](./web-ui-visibility-plan.md)）
 分支：`codex/enrich-ui`
 基线：`main @ 2a4d54f`（含平台侧 P1–P5：doctor 汇总写保护状态、git 提交门禁、metrics 阈值可配、
@@ -16,7 +16,7 @@ gate findings 统一呈现）+ 本分支的审计文档
 | 口径 | 结果 | 说明 |
 |---|---|---|
 | HTTP 端点接线率 | **90 / 92 ≈ 98%** | `/config/project` 与 `/spec-index` 按 V4-5 的决策**保留给 CLI/脚本**（有文档与测试的对外投影，不是缺口） |
-| CLI 能力完整可见率 | **59 / 78 ≈ 76%** | 另有 1 条「部分可见」、18 条「无 UI 入口」，且**产品缺口已清零**：18 条里 14 条是安装/运维/长驻进程（§5.2），4 条是按决策退出界面（Classic 弃用 3 条 + spec index 保留 1 条，§5.1） |
+| CLI 能力完整可见率 | **59 / 78 ≈ 76%** | 另有 1 条「部分可见」、18 条「无 UI 入口」，V4 时产品缺口清零；2026-09-16 复核新登记 1 条（C18：Web 无法为 capability 建骨架），**同日按 [spec-authoring-plan.md](./spec-authoring-plan.md) G3 交付**。18 条里 14 条是安装/运维/长驻进程（§5.2），4 条是按决策退出界面（Classic 弃用 3 条 + spec index 保留 1 条，§5.1） |
 | 核心流水线可见率（扣除 18 条安装/运维/弃用/保留命令） | **59 / 60 ≈ 98%** 完整，**100%** 至少部分可见 | 剩下的「部分可见」只有 `bundle compile`（编译产物已在资产面板预览，仅装配动作留 CLI） |
 
 一句话结论：**008 的 S1–S5 与 W1–W5 / N1–N6 声称的产物都在代码里，主流水线（goal → plan → spec →
@@ -142,6 +142,7 @@ gate findings 统一呈现）已合入 `main` 并逐条验证落地；本报告�
 | ✅ C15 | Eval 无历史对比 | `adoptLatestJob()` 只找回最近一次 `eval-run` | **V4-1 已交付**：历史表 + 「对比轮」+ 指标差值与结论翻转清单 |
 | ✅ C16 | 目标只能追加 | `addGoal()` 只能追加新块 | **V4-3 已交付**：按 `### Gn` 块就地编辑/删除（删除前显示原块），写回后自动 sync |
 | ✅ C17 | 总览的问题清单只有一个来源 | Doctor 卡只渲染 `doctor.findings`；P5 的 `collectFindings`（两源、去重、带 `subject`）没有端点 | **V1-1 已交付**：问题清单与 `gate check . --findings` 同源，可跳转到对应面板 |
+| ✅ C18 | capability spec 的骨架入口只在 CLI | `POST /spec/scaffold` 只接受 `kinds` / `answers`（`domains/server/api.ts:647`），走 root kind 的 `scaffoldKinds` / `scaffoldProject`；`--capability` 只在 `app/cli/index.ts:687` | 四条产出路径（手写 / 骨架 / spec-authoring 任务 / 表格导入）里，界面只暴露「手写 / 导入」两条 | **G3 已交付**（[spec-authoring-plan.md](./spec-authoring-plan.md) §7）：端点接受 `capabilities[]` 并复用 `scaffoldCapabilities`，脚手架页签可点名生成、分别显示 created/skipped/invalid；顺带修掉「端点缺 stack 时把 root kind 判成 absent」 |
 
 ## 8. 与 008 阶段设计的对照
 

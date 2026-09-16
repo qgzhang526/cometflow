@@ -50,6 +50,8 @@ export interface GoalRecord {
 export interface SpecEntry {
   path: string;
   kind: string;
+  /** 定稿状态（G1）：draft 的 spec 不能参与 plan freeze，需要先批准。 */
+  status: 'draft' | 'approved';
 }
 
 export interface KindEntry {

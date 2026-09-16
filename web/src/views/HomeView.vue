@@ -2,7 +2,7 @@
   <div class="home">
     <div class="hero">
       <h1>CometFlow</h1>
-      <p>全时运行的自主 Agent 开发平台 · 把 CLI 工作流可视化</p>
+      <p>规格驱动开发（SDD）· 自主 Agent 执行 · 独立验证与门禁 · 可追溯变更与证据 · 全时无人值守调度 · 科学评估与门禁式进化 · CLI + Web 工作台</p>
       <div class="actions">
         <button class="primary" @click="startWizard">＋ 新建项目</button>
         <button @click="openPickerForImport">打开已有项目</button>
@@ -107,7 +107,7 @@
         <div class="meta" style="margin-top: 8px">
           <span class="muted">最近打开：{{ relativeTime(project.lastOpenedAt) }}</span>
           <span class="grow" />
-          <button class="ghost" @click="removeProject(project)">从工作区移除</button>
+          <button class="ghost card-action" @click="removeProject(project)">从工作区移除</button>
         </div>
       </div>
     </div>

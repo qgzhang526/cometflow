@@ -9,9 +9,18 @@
 
 ### 1.1 一句话概括
 
-CometFlow 是一个**全时运行的自主 Agent 开发平台**。
+CometFlow 是一个**规格驱动开发（SDD）的自主 Agent 开发平台**。
 
-人类只写两样东西——**项目使命**（`COMETFLOW.md`）和**项目级 spec**（`specs/`）；剩下的拆解、实现、验证、归档、无人值守推进、评估与进化，由 CometFlow 驱动外部编码 Agent（opencode / claude-code 等）完成。
+人类**必须**写的只有 `COMETFLOW.md`：使命 + 每个目标的「范围 / 成功标准 / 非目标」。它派生两件事——`范围:` 里的 capability 决定有哪些 `specs/<capability>/spec.md`，spec 里每个 anchor 决定一个任务。
+
+`specs/` 的**内容**（anchor 与 acceptance）可以由人写，也可以由 Agent 起草：缺 spec 时 `plan generate` 会发一条 `spec-authoring` 任务，`spec scaffold --capability <name>` 只给骨架，`spec import` 从表格导入。定稿要过计划阶段的三道命令——`plan review / approve / freeze`，其中 `freeze` 才把 acceptance 与 spec hash 固化下来。
+这三条机器产出路径都会写上 `status: draft`：**草案可以被阅读、被拆解，但不能被 `plan freeze` 绑定成契约**，
+确认后运行 `cometflow spec approve <spec-file>` 定稿（缺省没有这个字段的老 spec 视为已定稿）。
+
+剩下的事由两种执行者分担：
+
+- **CometFlow 自己（确定性代码）**：`context / goal sync`、`spec validate / lock / index`、**`plan generate / validate / freeze`**、findings / metrics / 门禁判定。**拆解就在这一步，不调用 Agent**——它按「capability → spec anchor」一对一派生任务。
+- **外部编码 Agent（opencode / claude-code 等）**：`change run` 的实现（Builder）、`change verify` 的独立复核（Verifier）、`cometflow run` 试跑、`eval` 的可选 LLM judge；再由调度器（daemon）串成无人值守推进、评估与进化。
 
 它由两个既有项目融合而来：
 
@@ -100,7 +109,7 @@ cometflow eval / evolve / daemon   # 评估、进化、无人值守持续推进
 | 文件 / 目录 | 内容 | 谁写 |
 |---|---|---|
 | `COMETFLOW.md` | 使命、技术栈、运行环境、任务目标（人类唯一入口） | 人类 |
-| `specs/**` | 项目级 spec（12 类 kind） | 人类（Agent 只能产出 `[DRAFT]`，批准后才是正式 spec） |
+| `specs/**` | 项目级 spec（12 类 kind） | 人类定稿；内容可由人类或 Agent 起草（`spec scaffold` 骨架 / `spec-authoring` 任务 / `spec import`）。三条机器产出路径写出的文件带 `status: draft`，**草案不能参与 `plan freeze`**，要先 `cometflow spec approve <spec-file>`（缺省无该字段视为已定稿，存量项目不受影响） |
 | `.cometflow/config.yaml` | 项目配置 | 人类 / CLI / Web |
 | `.cometflow/project-context.yaml` | 技术栈/运行环境投影 | `context sync`（机器生成） |
 | `.cometflow/goals/*.yaml` | 目标投影 | `goal sync`（机器生成） |
@@ -330,6 +339,12 @@ my-project/
 | `pages` | 前端页面/交互规格 | `specs/pages.md` |
 
 > `capability` 不由 `init` 生成，也不会由工具凭空撰写内容：它由 `plan generate` 的 spec-authoring 任务起草，或由 `spec scaffold --capability <name>` 建骨架后填写。对照已定标准（工标/接口规范）开发时，直接把标准里的接口与工作流誊写进这些 spec 作为唯一真相源，再 `spec lock` 冻结、`plan generate` 派生实现任务。
+>
+> 起草类任务（`kind: spec-authoring`）没有 acceptance，因此它**不适用**「验收必须先冻结」那条：
+> `change transition <name> confirm-acceptance` 对它直接放行。它真正的验收条件是产物本身——
+> `change verify` / `change archive` 会要求 `specs/<capability>/spec.md` 已存在且 `spec validate` 无 error
+> （产物应带 `status: draft`，由人确认后 `spec approve` 定稿）。提示词里会带上该 goal 的范围、
+> 成功标准与非目标，agent 不再是「凭一行标题写契约」。
 > 「本项目不需要」也会留痕：`init-manifest.yaml` 记录 pending 状态，让 `spec validate` 能区分「有意缺席」与「遗漏」。
 
 ### 4.2 增量补 spec kind
@@ -339,6 +354,7 @@ cometflow spec scaffold .                          # 按技术栈推断，补缺
 cometflow spec scaffold . --interactive            # 逐项问答
 cometflow spec scaffold --list .                   # 只列出各 kind 状态
 cometflow spec scaffold . --capability order       # 建 specs/order/spec.md 骨架（可重复）
+cometflow spec approve specs/order/spec.md          # 草案 → 定稿（之后才能 plan freeze）
 cometflow spec scaffold . --capability order --capability payment
 ```
 
@@ -379,6 +395,8 @@ order,GET,/api/orders/{id},机机,,orderId;status,NOT_FOUND,internal/order
 - 生成的文件带 `capability:` / `module:` front-matter，`module` 会成为拆解时任务的代码边界（不填会得到 `missing-module-declaration` 警告）。
 - 默认**不覆盖**已存在的 spec（加 `--force` 覆盖），幂等可重跑。
 - 导入后自动跑 `spec validate`：字段/错误码/API 引用对不上会直接报出来。
+- 生成的文件带 `status: draft`：导入物是机器誊写的，对照原始标准确认后
+  `cometflow spec approve specs/<模块>/spec.md` 才算定稿（草案不能参与 `plan freeze`）。
 
 #### Word（.docx）
 
@@ -758,6 +776,10 @@ cometflow plan freeze     <goal> [path]     # → frozen
 cometflow plan trace      <goal> [path]
 ```
 
+`plan generate` / `plan regenerate` 之后是否自动往下走，由 `.cometflow/config.yaml` 的
+`plan_review` 决定：`auto` 在机器校验通过后自动 `review` + `approve`，`human` 停在 draft，
+`high-risk`（规则未实现）与未知值按 `human` 兜底。命令会把结论打成一行 `plan review: …`。
+
 ### 6.2 生成规则
 
 `plan generate` 读取 goal 的 `scope`（capability 列表）与 `specs/`：
@@ -810,8 +832,11 @@ cometflow plan trace G1 .
 
 输出 goal/status 与每个任务的 capability、spec、anchor、acceptance、status。
 
-> 注：`.cometflow/config.yaml` 里的 `plan_review`（`auto | high-risk | human`）与
-> `default_workflow` 目前只作为配置记录保存，CLI 尚未按它们自动分支；review/approve 始终是显式命令。
+> 注：`.cometflow/config.yaml` 里的 `plan_review`（`auto | high-risk | human`）**已生效**于
+> `plan generate` / `plan regenerate`：`auto` 在机器校验通过后自动 review + approve（校验有 error 则停在 draft）；
+> `human` 停在 draft 等显式命令；未配置、值不认识、或配了 `high-risk`（高风险识别规则尚未实现）一律按 `human` 兜底。
+> 无论哪种策略，`plan review` / `plan approve` / `plan freeze` 仍然可以手动敲。
+> `default_workflow` 目前仍只作为配置记录保存。
 
 ---
 
@@ -1193,6 +1218,12 @@ token: <random>
 - **调度预算**：调度面板显示跨重启累计的「已用预算」（`runtime/budget.json`）；重置走
   `cometflow daemon budget . --reset`（界面只读）。
 - **Specs 面板 6 个页签**：12-kind 状态、脚手架、Spec 文件、验收覆盖、版本、影响与门禁。
+- **脚手架页签的 capability 入口**：root kind 由项目类型推导，capability 不由 init 生成、也无法推断，
+  所以在同一页签里可以点名生成 `specs/<capability>/spec.md` 骨架（逗号分隔，可多个）。
+  幂等：已存在的文件只报「未覆盖」，非法名字（含路径分隔符 / 隐藏文件）单独列出且不落盘。
+- **Spec 文件页签的定稿状态**：每个 spec 显示「草案 / 已定稿」；草案带「批准定稿」按钮
+  （等价 `cometflow spec approve <spec-file>`，带二次确认）。草案在 `plan freeze` 时会被拒，
+  报错信息直接给出该命令。
 - **引用图页签**（W1 之后新增，共 7 个）：按 009 的引用方向表聚合 kind 之间的引用，
   点击可下钻 kind → 文件 → anchor 并列出该文件的逐条引用与位置；未解析引用红色标注，
   且与 `spec validate` 同源（图上红的就是门禁会报的）。对应 CLI：`cometflow spec graph [--json]`（只做投影，不设退出码）。
@@ -1259,7 +1290,7 @@ pnpm build                   # tsc（CLI）+ vite build（Web）
 | GET | `/api/projects/<id>/config/project` | 项目层覆盖（不含全局默认） |
 | GET | `/api/projects/<id>/agents` | Agent 可用性 |
 | GET | `/api/projects/<id>/init-manifest` | 12-kind 状态 |
-| POST | `/api/projects/<id>/spec/scaffold` \| `/spec/validate` | 脚手架 / 校验 |
+| POST | `/api/projects/<id>/spec/scaffold` \| `/spec/validate` | 脚手架 / 校验（脚手架可带 `{capabilities: string[]}` 点名 capability 骨架；缺 stack 时用项目上下文推导 root kind） |
 | GET | `/api/projects/<id>/spec-index` | spec 投影 |
 | GET/POST | `/api/projects/<id>/specs` | 列 spec / 新建 spec 文件 |
 | GET/PUT | `/api/projects/<id>/specs/content?path=...` | 读写单个 spec |
@@ -1273,6 +1304,7 @@ pnpm build                   # tsc（CLI）+ vite build（Web）
 | GET | `/api/projects/<id>/spec/proposals[?path=]` | 提案索引（带 path 时回正文），用于反查与对比 |
 | POST | `/api/projects/<id>/spec/proposal` | 存为提案（只允许 shape 阶段的 change；不改 canonical spec） |
 | POST | `/api/projects/<id>/spec/lock` | 建立基线：登记版本 + 刷新 spec-lock |
+| POST | `/api/projects/<id>/spec/approve` | 草案 → 定稿（`{path}`；等价 `spec approve`，改完刷新版本与 lock） |
 | POST | `/api/projects/<id>/spec/restore` | 恢复历史版本（覆盖前先给当前内容记一版） |
 | GET | `/api/projects/<id>/changes/<name>/scope` | 实现范围报告（归属解释 + 越界 + omission） |
 | GET | `/api/projects/<id>/changes/<name>/journal[?limit=]` | 审计流水（含崩溃收敛与轮转后的历史） |
@@ -1509,7 +1541,7 @@ cometflow spec verify . --with-doctor  # 显式要求时，把 doctor 的发现�
 # .cometflow/config.yaml
 schema: cometflow.project.v1
 default_workflow: native        # 记录用字段
-plan_review: high-risk          # 记录用字段
+plan_review: high-risk          # 拆解审核策略；auto 自动 review+approve，high-risk 暂按 human 兜底
 agent: opencode                 # 默认 Agent
 model: deepseek-v4-flash        # 默认模型
 agents:                         # 按 Agent 覆盖模型

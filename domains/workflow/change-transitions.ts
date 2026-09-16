@@ -5,7 +5,11 @@ export function applyChangeTransition(state: ChangeState, event: ChangeEvent): C
 
   if (event === 'confirm-acceptance') {
     if (state.phase !== 'shape') throw new Error('confirm-acceptance requires shape phase');
-    if (state.acceptance_ids.length === 0) throw new Error('Acceptance must be frozen before build');
+    // 起草类 change（task_kind: spec-authoring）没有 acceptance 可确认：它的产物就是那份 spec，
+    // 验收条件写在该任务的 DoD 里，由验收/归档时的 `spec validate` 把关（G4）。
+    // 不放开这一条，起草任务会被永久卡在 shape 阶段——「先起草 spec」这条路根本走不通。
+    const authoring = state.task_kind === 'spec-authoring';
+    if (!authoring && state.acceptance_ids.length === 0) throw new Error('Acceptance must be frozen before build');
     return { ...state, phase: 'build' };
   }
 

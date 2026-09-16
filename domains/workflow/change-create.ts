@@ -57,6 +57,8 @@ export async function createChangeFromTask(options: {
     spec_base_hash: baseHash,
     anchor_hash: task.anchor_hash ?? null,
     module: task.module ?? null,
+    capability: task.capability ?? null,
+    task_kind: task.kind,
     base_commit: provenance.isRepository ? provenance.head : null,
     base_branch: provenance.branch,
     created_at: new Date().toISOString(),

@@ -2,6 +2,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { toPosix } from '../../platform/paths/relative.js';
 import { kindForSpecFile, type SpecKind } from './kind.js';
+import { parseSpecMeta } from './spec-meta.js';
 
 async function walkMarkdown(root: string, current = root): Promise<string[]> {
   const entries = await fs.readdir(current, { withFileTypes: true });
@@ -35,9 +36,26 @@ export function capabilitySpecFile(capability: string): string {
 export interface SpecEntry {
   path: string;
   kind: SpecKind;
+  /** 定稿状态（G1）：`draft` 表示这份契约还没被人确认，不能参与 `plan freeze`。 */
+  status: 'draft' | 'approved';
 }
 
 export async function listSpecEntries(projectRoot: string): Promise<SpecEntry[]> {
   const files = await listSpecFiles(projectRoot);
-  return files.map((file) => ({ path: file, kind: kindForSpecFile(file) }));
+  return Promise.all(
+    files.map(async (file) => ({
+      path: file,
+      kind: kindForSpecFile(file),
+      // 草案标记只影响展示与冻结门禁；读不到内容时按 approved 处理，与缺省语义一致。
+      status: await readSpecStatus(projectRoot, file),
+    })),
+  );
+}
+
+async function readSpecStatus(projectRoot: string, relativePath: string): Promise<'draft' | 'approved'> {
+  try {
+    return parseSpecMeta(await fs.readFile(path.join(projectRoot, relativePath), 'utf8')).status;
+  } catch {
+    return 'approved';
+  }
 }

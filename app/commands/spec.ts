@@ -19,6 +19,7 @@ import { readInitManifest, scaffoldCapabilities, scaffoldProject } from '../../d
 import { importSpecsFromFile } from '../../domains/spec/spec-import.js';
 import { writeSpecIndex } from '../../domains/spec/spec-project.js';
 import { collectAcceptanceChecks } from '../../domains/spec/spec-checks.js';
+import { approveSpec } from '../../domains/spec/spec-approval.js';
 import { collectSpecGraph } from '../../domains/spec/spec-graph.js';
 import { askScaffoldPrompts } from './scaffold-prompts.js';
 import { collectFindings, formatFinding } from '../../domains/gates/findings.js';
@@ -361,4 +362,23 @@ export async function specImportCommand(
     console.log('spec validate: OK（请人工审核后再 spec lock）');
   }
   if (!result.validation.valid) process.exitCode = 1;
+}
+
+/**
+ * 把一份 spec 标成定稿（G1）。
+ *
+ * 与 `spec lock` 的分工：lock 只建立 hash 基线，不管这份契约有没有人确认过；
+ * approve 改的是 `status` 字段本身，是 `plan freeze` 的前置条件。
+ */
+export async function specApproveCommand(specRef: string, targetPath: string): Promise<void> {
+  const projectRoot = path.resolve(targetPath);
+  const result = await approveSpec(projectRoot, specRef);
+  if (!result.changed) {
+    console.log('spec approve: ' + result.path + ' 已经是 approved，无需改动');
+    return;
+  }
+  console.log(
+    'spec approve: ' + result.path + ' ' + result.previous + ' → approved（版本 v' + (result.spec_version ?? '?') + '）',
+  );
+  console.log('（front-matter status 已改；spec-lock 与版本仓已同步刷新）');
 }

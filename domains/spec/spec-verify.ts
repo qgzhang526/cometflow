@@ -5,6 +5,7 @@ import { pathExists, readTextFile } from '../../platform/fs/read-file.js';
 import { hashSpecText } from './spec-hash.js';
 import { listSpecFiles } from './spec-index.js';
 import { parseSpecContent } from './spec-parse.js';
+import { parseSpecMeta } from './spec-meta.js';
 import { diffSpecs, readSpecLock } from './spec-lock.js';
 import { hasSpecBlob, latestSpecVersion, readSpecBlob } from './spec-version.js';
 import { listChangeStates } from '../workflow/change-list.js';
@@ -27,6 +28,7 @@ export type SpecVerifyCode =
   | 'change-base-conflict'
   | 'plan-integrity'
   | 'change-state-integrity'
+  | 'spec-is-draft'
   | 'concurrency-warn-expired';
 
 export interface SpecVerifyFinding {
@@ -96,6 +98,19 @@ export async function verifySpecIntegrity(projectRoot: string): Promise<SpecVeri
   }
 
   const lock = await readSpecLock(projectRoot);
+  // 草案不是错误、也不能悄悄放过：它只挡 `plan freeze`，但必须能在 findings 里被看见，
+  // 否则「这份契约还没人确认」这件事只存在于某次会话的记忆里（G1）。
+  for (const relativePath of files) {
+    const source = await readTextFile(path.join(projectRoot, relativePath));
+    if (parseSpecMeta(source).status !== 'draft') continue;
+    findings.push({
+      severity: 'warning',
+      code: 'spec-is-draft',
+      subject: relativePath,
+      message: 'spec 仍是草案（front-matter status: draft）；确认后运行 cometflow spec approve ' + relativePath,
+    });
+  }
+
   if (!lock) {
     findings.push({
       severity: 'error',

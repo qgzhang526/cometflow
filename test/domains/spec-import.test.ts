@@ -88,7 +88,8 @@ describe('spec import', () => {
   it('renders canonical capability markdown that the validator accepts', () => {
     const { rows } = parseInterfaceTable(MARKDOWN_TABLE);
     const markdown = renderCapabilitySpec('order', rows.slice(0, 2), 'std.csv', 'internal/order');
-    expect(markdown.startsWith('---\ncapability: order\nmodule: internal/order\n---\n')).toBe(true);
+    // 导入物是机器誊写的：front-matter 带 status: draft，人工确认后 spec approve 才算定稿（G1）。
+    expect(markdown.startsWith('---\ncapability: order\nmodule: internal/order\nstatus: draft\n---\n')).toBe(true);
     expect(markdown).toContain('# order');
     expect(markdown).toContain('## POST /api/orders');
     expect(markdown).toContain('## Acceptance');

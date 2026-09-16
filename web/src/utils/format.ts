@@ -1,18 +1,33 @@
-/** 把 ISO 时间渲染成「3 分钟前 / 昨天 / 2026-09-14」这类相对时间。 */
-export function relativeTime(iso: string | null | undefined): string {
+/**
+ * 把 ISO 时间渲染成「3 分钟前 / 昨天 / 2026-09-14」这类相对时间。
+ *
+ * 分钟与小时向下取整：`Math.round` 会把「1 分 01 秒」说成 2 分钟前、把「59 分钟」说成 1 小时前。
+ * 天数按**自然日**算，不按 24 小时的整数倍：「昨天」是日历上的昨天，
+ * 23.6 小时前可能还是今天，而 36 小时前也可能只是昨天——用小时数除 24 四舍五入两种都会说错。
+ *
+ * `now` 可注入，便于按固定时刻验证边界（其余调用方只传 iso）。
+ */
+export function relativeTime(iso: string | null | undefined, now: Date = new Date()): string {
   if (!iso) return '—';
   const then = new Date(iso).getTime();
   if (Number.isNaN(then)) return iso;
-  const seconds = Math.round((Date.now() - then) / 1000);
+  const seconds = Math.round((now.getTime() - then) / 1000);
   if (seconds < 60) return '刚刚';
-  const minutes = Math.round(seconds / 60);
+  const minutes = Math.floor(seconds / 60);
   if (minutes < 60) return minutes + ' 分钟前';
-  const hours = Math.round(minutes / 60);
+  const hours = Math.floor(minutes / 60);
   if (hours < 24) return hours + ' 小时前';
-  const days = Math.round(hours / 24);
+  const days = calendarDaysBetween(new Date(then), now);
   if (days === 1) return '昨天';
+  if (days === 2) return '前天';
   if (days < 30) return days + ' 天前';
   return new Date(then).toISOString().slice(0, 10);
+}
+
+/** 两个时刻相差几个自然日（按本地时区取当天 00:00 再相减，避开夏令时造成的 23/25 小时）。 */
+function calendarDaysBetween(then: Date, now: Date): number {
+  const startOfDay = (value: Date): number => new Date(value.getFullYear(), value.getMonth(), value.getDate()).getTime();
+  return Math.round((startOfDay(now) - startOfDay(then)) / 86_400_000);
 }
 
 export function shortHash(hash: string | null | undefined): string {

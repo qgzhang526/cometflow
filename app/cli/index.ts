@@ -70,6 +70,7 @@ import { initCommand } from '../commands/init.js';
 import { runCommand } from '../commands/run.js';
 import {
   specAnchorsCommand,
+  specApproveCommand,
   specChecksCommand,
   specDiffCommand,
   specDriftCommand,
@@ -677,6 +678,13 @@ spec
   .option('--with-doctor', 'Also list doctor findings (another scope; does not change the exit code)')
   .action(async (targetPath = '.', options) => {
     await specVerifyCommand(targetPath, options);
+  });
+
+spec
+  .command('approve <spec-file> [path]')
+  .description('Mark a spec as approved (draft → approved); required before plan freeze')
+  .action(async (specFile, targetPath = '.') => {
+    await specApproveCommand(specFile, targetPath);
   });
 
 spec

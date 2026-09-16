@@ -40,6 +40,14 @@ async function freezeTaskPlanLocked(projectRoot: string, plan: TaskPlan): Promis
     if (acceptance.length === 0) throw new Error('No acceptance for task ' + task.id);
 
     const content = await readTextFile(path.join(projectRoot, task.spec_ref));
+    // 草案契约不能进冻结计划（G1）：冻结会把 acceptance 与 spec hash 固化成「契约」，
+    // 而草案的定义就是「还没被人确认过」。放它过去，等于用机器草稿给实现背书。
+    if (parseSpecMeta(content).status === 'draft') {
+      throw new Error(
+        'Spec ' + task.spec_ref + ' 仍是草案（front-matter status: draft），不能冻结任务 ' + task.id +
+          '；先 cometflow spec approve ' + task.spec_ref + ' 再冻结',
+      );
+    }
     // 冻结同时绑定模块边界：老计划（在 module 机制之前生成）不会带着 module 字段，
     // 如果只刷新 hash，change 就会拿到一个「无边界」的任务，越界检查随之失效。
     const module = normalizeModulePath(parseSpecMeta(content).module);

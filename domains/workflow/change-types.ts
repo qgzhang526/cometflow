@@ -37,6 +37,16 @@ export interface ChangeState {
   anchor_hash?: string | null;
   /** 该 change 允许改动/新增代码的模块边界（来自 spec front-matter module）。 */
   module?: string | null;
+  /**
+   * 来源任务的 capability。spec-authoring 任务没有 spec_ref，提示词要靠它指出
+   * 产物应当落在 `specs/<capability>/spec.md`。
+   */
+  capability?: string | null;
+  /**
+   * 来源任务的 kind。起草类 change（`spec-authoring`）没有可对照的 acceptance，
+   * 验收/归档改看它产出的 spec 是否合格（G4）。
+   */
+  task_kind?: string | null;
   created_at: string;
   archived: boolean;
   /** 规范化内容哈希；由写入方盖章，用于发现被手工改写的 change 状态。 */

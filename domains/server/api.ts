@@ -3,13 +3,14 @@ import path from 'node:path';
 import { parse } from 'yaml';
 import { collectProjectStatus } from '../dashboard/collector.js';
 import { runDoctor } from '../dashboard/doctor.js';
-import { syncProjectContext } from '../project/context.js';
+import { loadProjectContext, syncProjectContext } from '../project/context.js';
 import { syncGoals } from '../goal/goal-sync.js';
 import type { GoalRecord } from '../goal/types.js';
 import { initializeProject } from '../project/init.js';
 import {
   detectKindNeeds,
   readInitManifest,
+  scaffoldCapabilities,
   scaffoldKinds,
   scaffoldProject,
   writeInitManifest,
@@ -46,6 +47,7 @@ import { acquireLock, LockHeldError } from '../../platform/fs/file-lock.js';
 import { readCasConflicts, recordCasConflict, resolveConcurrencyPolicy } from '../project/concurrency.js';
 import { generateTaskPlan } from '../task-plan/task-plan-generate.js';
 import { validateTaskPlan } from '../task-plan/task-plan-validate.js';
+import { applyPlanReviewPolicy } from '../task-plan/plan-review-policy.js';
 import { freezeTaskPlan } from '../task-plan/task-plan-freeze.js';
 import { regenerateTaskPlan } from '../task-plan/task-plan-regenerate.js';
 import {
@@ -94,6 +96,7 @@ import { runSpecGates } from '../gates/spec-gates.js';
 import { describeMetricsGate } from '../metrics/metric-gates.js';
 import { collectMetrics } from '../metrics/metrics-service.js';
 import { collectSpecAnchors } from '../spec/spec-anchors.js';
+import { approveSpec } from '../spec/spec-approval.js';
 import { importSpecsFromContent, previewSpecImport } from '../spec/spec-import.js';
 import { buildSpecIndex } from '../spec/spec-project.js';
 import { traceTaskPlan } from '../task-plan/task-plan-trace.js';
@@ -647,6 +650,11 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
     if (segments[0] === 'spec' && segments[1] === 'scaffold' && method === 'POST') {
       const body = await readJsonBody(req);
       const answers = (body.answers ?? {}) as ScaffoldAnswers;
+      // capability 骨架：root kind 由项目类型推导，capability 只能由调用方点名
+      // （goal 的 scope 或外部标准），所以这里必须显式传入，不能自动推断。
+      const capabilities = Array.isArray(body.capabilities)
+        ? body.capabilities.filter((entry): entry is string => typeof entry === 'string' && entry.trim() !== '')
+        : [];
       let result: { kinds: Record<string, KindEntry>; created: string[]; skipped: string[]; manifestPath?: string };
       if (body.kinds) {
         const kinds = body.kinds as Record<string, KindEntry>;
@@ -659,10 +667,22 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
           backend: stringField(body.backend),
           database: stringField(body.database),
         };
+        // 调用方没给技术栈时退回项目上下文里的投影（与 CLI `spec scaffold` 同源）。
+        // 不兜底的话空串会被 detectKindNeeds 判成 absent，点一次按钮就把
+        // models / pages / constraints 写成「本项目不需要」——那是比脚手架没生效更坏的结果。
+        if (stack.frontend === '' && stack.backend === '' && stack.database === '') {
+          const context = await loadProjectContext(root);
+          if (context !== null) {
+            stack.frontend = context.tech_stack.frontend;
+            stack.backend = context.tech_stack.backend;
+            stack.database = context.tech_stack.database;
+          }
+        }
         result = await scaffoldProject(root, stack, answers);
       }
+      const capabilityResult = capabilities.length > 0 ? await scaffoldCapabilities(root, capabilities) : null;
       jobs.stateChanged(projectId, '/api/specs');
-      sendOk(res, result);
+      sendOk(res, { ...result, capabilities: capabilityResult });
       return true;
     }
 
@@ -863,6 +883,24 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
       sendOk(res, { result });
       return true;
     }
+    // 定稿（G1）：草案 → approved。与 CLI `spec approve` 共用同一份领域实现，
+    // 改完立刻刷新版本与 lock（否则 spec verify 会以 stale-spec-lock 报警）。
+    if (segments[0] === 'spec' && segments[1] === 'approve' && method === 'POST') {
+      const body = await readJsonBody(req);
+      const specPath = stringField(body.path);
+      if (specPath === '') {
+        sendError(res, 400, 'missing-path', 'path 必填：specs/<capability>/spec.md');
+        return true;
+      }
+      try {
+        const result = await approveSpec(root, specPath);
+        jobs.stateChanged(projectId, '/api/specs');
+        sendOk(res, result);
+      } catch (error) {
+        sendError(res, 400, 'invalid-spec-path', error instanceof Error ? error.message : String(error));
+      }
+      return true;
+    }
     // 保留：spec 投影（等价 `cometflow spec index` 的产物视图），CLI 与脚本用。
     // 界面走 `/spec/graph`（带解析状态与边）与 `/spec/anchors`，不再消费这一份。
     if (segments[0] === 'spec-index' && method === 'GET') {
@@ -954,22 +992,25 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
     }
     if (segments[0] === 'plans' && segments[1] === 'generate' && method === 'POST') {
       const body = await readJsonBody(req);
-      const plan = await generateTaskPlan(root, stringField(body.goal));
-      const filePath = await writeTaskPlan(root, plan);
+      // 拆解审核策略（ADR 0003）与 CLI `plan generate` 共用同一份实现。
+      const review = await applyPlanReviewPolicy(root, await generateTaskPlan(root, stringField(body.goal)));
+      const filePath = await writeTaskPlan(root, review.plan);
       jobs.stateChanged(projectId, '/api/plans');
-      sendOk(res, { plan, written: filePath });
+      jobs.stateChanged(projectId, '/api/plans/' + stringField(body.goal));
+      sendOk(res, { plan: review.plan, written: filePath, review });
       return true;
     }
     if (segments[0] === 'plans' && segments[1] === 'regenerate' && method === 'POST') {
       const body = await readJsonBody(req);
       const goal = stringField(body.goal);
       const previous = await readTaskPlan(root, goal);
-      const plan = await regenerateTaskPlan(root, goal, previous, {
+      const regenerated = await regenerateTaskPlan(root, goal, previous, {
         preserveApproved: body.preserveApproved === true,
       });
-      const filePath = await writeTaskPlan(root, plan);
+      const review = await applyPlanReviewPolicy(root, regenerated);
+      const filePath = await writeTaskPlan(root, review.plan);
       jobs.stateChanged(projectId, '/api/plans');
-      sendOk(res, { plan, written: filePath });
+      sendOk(res, { plan: review.plan, written: filePath, review });
       return true;
     }
     if (segments[0] === 'plans' && segments.length === 2 && method === 'GET') {

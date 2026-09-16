@@ -5,6 +5,9 @@ import { pathExists } from '../../platform/fs/read-file.js';
 import { toPosix } from '../../platform/paths/relative.js';
 import { runLocalEval } from '../eval/eval-service.js';
 import { ROOT_KIND_FILES } from '../spec/kind.js';
+import { capabilitySpecFile } from '../spec/spec-index.js';
+import { readGoalRecord } from '../goal/goal-sync.js';
+import { validateSpecs } from '../spec/spec-validate.js';
 import { extractAnchorSection, parseSpecContent } from '../spec/spec-parse.js';
 import { normalizeModulePath, parseSpecMeta } from '../spec/spec-meta.js';
 import { hashSpecText } from '../spec/spec-hash.js';
@@ -100,13 +103,81 @@ export class SpecConflictError extends Error {
 }
 
 /**
- * Builder 的输入必须是「冻结版本」的 spec 段落，而不是当前工作区的内容。
+ * 起草类 change（`task_kind: spec-authoring`）的收口护栏（G4）。
  *
- * 这是 spec 驱动重建的核心：只要 spec 在，agent 就能拿到确定的契约 + 验收项，
- * 于是代码丢失后重新生成的结果与当初冻结时是同一个目标。
+ * 这类 change 没有 spec_ref，`validateVerifierCoverage` 拿空 acceptance_ids 对照，
+ * 于是「覆盖 0 条」也算通过——可它真正要交付的就是那份 spec 本身。
+ * 所以验证与归档前都必须确认：产物存在，且 `spec validate` 对它没有 error。
+ *
+ * 注意不在 `plan freeze` 拦：冻结发生在起草之前（spec 缺失正是产生这条任务的原因），
+ * 在那里要求产物存在等于让这条路走不通。
  */
+async function assertAuthoredSpecReady(projectRoot: string, state: ChangeState): Promise<void> {
+  if (state.task_kind !== 'spec-authoring') return;
+  if (!state.capability) {
+    throw new Error('起草 change ' + state.name + ' 未记录 capability，无法确认产物路径');
+  }
+  const target = capabilitySpecFile(state.capability);
+  if (!(await pathExists(path.join(projectRoot, target)))) {
+    throw new Error(
+      '起草 change ' + state.name + ' 的产物还不存在：' + target +
+        '；先写出 spec（front-matter 带 status: draft）再验收 / 归档',
+    );
+  }
+  const errors = (await validateSpecs(projectRoot)).findings.filter(
+    (finding) => finding.path === target && finding.severity === 'error',
+  );
+  if (errors.length > 0) {
+    throw new Error(
+      '起草 change ' + state.name + ' 的产物未通过 spec validate（' + errors.length + ' 条 error）：' +
+        errors.map((finding) => finding.code).join(', ') + '；修好 ' + target + ' 再验收 / 归档',
+    );
+  }
+}
+
+/**
+ * 起草类任务（`kind: spec-authoring`）没有可冻结的契约——它要产出的正是那份 spec（G4）。
+ *
+ * 过去这里直接返回空段落，Agent 只拿到 `brief.md` 的一行标题，等于让它凭空写契约。
+ * 现在至少把「这份 capability 服务于哪个 goal、成功标准与非目标是什么」交底，
+ * 并要求产物带 `status: draft`：起草件必须走 G1 的定稿关口才能被冻结绑定。
+ */
+async function specAuthoringSection(projectRoot: string, state: ChangeState): Promise<string[]> {
+  const target = state.capability ? capabilitySpecFile(state.capability) : 'specs/<capability>/spec.md';
+  const lines: string[] = [
+    '## Spec authoring',
+    '本次任务的产物是契约本身（' + target + '），没有可绑定的冻结 spec。',
+    '',
+    '要求：',
+    '- 每个需求一个 `## <anchor>` 段落，段落内给出可判定的验收（`## 验收` 下的 `- A<n>：…`）；',
+    '- front-matter 写 `capability: ' + (state.capability ?? '<capability>') + '` 与 `module: <代码模块>`；',
+    '- front-matter 必须带 `status: draft`：起草件在被人工确认前不是契约，不能参与 plan freeze。',
+  ];
+
+  const goal = await readGoalRecord(projectRoot, state.goal);
+  if (goal === null) {
+    lines.push('', '## Goal', 'goal: ' + state.goal + '（未找到 goal 投影，运行 cometflow goal sync 补齐）');
+    return lines;
+  }
+  lines.push('', '## Goal');
+  lines.push('goal: ' + goal.id + ' · ' + goal.title);
+  if (goal.summary !== '') lines.push('summary: ' + goal.summary);
+  if (goal.scope.length > 0) lines.push('scope: ' + goal.scope.join(', '));
+  if (goal.success_criteria.length > 0) {
+    lines.push('success_criteria:');
+    for (const item of goal.success_criteria) lines.push('- ' + item);
+  }
+  if (goal.non_goals.length > 0) {
+    lines.push('non_goals:');
+    for (const item of goal.non_goals) lines.push('- ' + item);
+  }
+  return lines;
+}
+
 async function frozenSpecSection(projectRoot: string, state: ChangeState): Promise<string[]> {
-  if (!state.spec_ref) return [];
+  // Builder 的输入必须是「冻结版本」的 spec 段落，而不是当前工作区的内容：
+  // 这是 spec 驱动重建的核心——代码丢失后按同一份契约重建，目标不会漂。
+  if (!state.spec_ref) return specAuthoringSection(projectRoot, state);
   const lines: string[] = ['## Frozen spec'];
   lines.push('spec_ref: ' + state.spec_ref);
   lines.push('spec_anchor: ' + (state.spec_anchor ?? '(none)'));
@@ -311,6 +382,8 @@ export async function verifyChange(
   const state = await readChangeState(projectRoot, name);
   if (state.phase !== 'verify') throw new Error('change verify requires verify phase');
   await assertGitProvenance(projectRoot, name, state, { allowDrift: options.allowDrift });
+  // 起草类 change 的「验收」就是那份 spec 本身：先确认它真的合格，再谈别的。
+  await assertAuthoredSpecReady(projectRoot, state);
 
   const config = await readProjectConfig(projectRoot);
   const mode: VerificationMode = options.mode ?? config.verification?.mode ?? 'checks';
@@ -832,6 +905,8 @@ export async function archiveChange(
   await assertGitProvenance(projectRoot, name, state, options);
   await appendChangeEvent(projectRoot, name, 'archive-started', {}, { phase: state.phase });
   await assertSpecBaselineIntact(projectRoot, name, state);
+  // 起草类 change 即使绕过 verify，也不能带着不合格的 spec 进归档。
+  await assertAuthoredSpecReady(projectRoot, state);
   // 最后一道模块闸门：即使 verify 被绕过，越界改动也不能进入归档。
   const scope = await collectImplementationScope(projectRoot, name, {
     module: state.module ?? null,

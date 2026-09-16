@@ -188,12 +188,44 @@ check('scaffold 重建 constraints.md', existsSync(path.join(project, 'specs', '
 // 脚手架是幂等的：已存在的文件不能被覆盖（fixture 里 models.md 现在是 present kind，带交叉引用内容）
 check('scaffold 不覆盖已存在的 models.md', readFileSync(modelsPath, 'utf8') === modelsBefore);
 
+// capability 骨架（G3）：root kind 靠项目类型推导，capability 只能点名。
+// 探针验完即删——多出来的 spec 文件会让后续 spec verify 的 lock 基线失真。
+expectOk('spec scaffold --capability', ['spec', 'scaffold', '.', '--capability', 'regression-probe'], project);
+const probeSpec = path.join(project, 'specs', 'regression-probe', 'spec.md');
+check('capability 骨架已生成', existsSync(probeSpec));
+check('capability 骨架带 module front-matter', fileContains(probeSpec, 'module: internal/regression-probe'));
+const probeBefore = existsSync(probeSpec) ? readFileSync(probeSpec, 'utf8') : '';
+expectOk('spec scaffold --capability（幂等）', ['spec', 'scaffold', '.', '--capability', 'regression-probe'], project);
+check('已存在的 capability spec 不被覆盖', existsSync(probeSpec) && readFileSync(probeSpec, 'utf8') === probeBefore);
+expectDenied(
+  'spec scaffold --capability ../escape',
+  ['spec', 'scaffold', '.', '--capability', '../escape'],
+  project,
+  'invalid capability name',
+);
+check('非法 capability 名不落盘', !existsSync(path.join(project, 'escape')));
+removeWithRetry(path.join(project, 'specs', 'regression-probe'));
+check('capability 探针已清理', !existsSync(probeSpec));
+
 expectOk('spec index', ['spec', 'index', '.'], project);
 check('spec index 产出 apis.yaml', existsSync(path.join(project, '.cometflow', 'spec-index', 'apis.yaml')));
 
+// 拆解审核策略（G2）：fixture 的 plan_review 是 auto，生成之后应该直达 approved。
 expectOk('plan generate G3', ['plan', 'generate', 'G3', '.'], project);
+check(
+  'auto 策略让 generate 直达 approved',
+  fileContains(path.join(project, '.cometflow', 'plans', 'G3.task-plan.yaml'), 'status: approved'),
+);
 expectOk('plan validate G3', ['plan', 'validate', 'G3', '.'], project);
-expectOk('plan freeze G3', ['plan', 'freeze', 'G3', '.'], project);
+
+// 草案契约（G1）：改成 draft 后冻结必须被拒，approve 之后才放行。
+const reportSpec = path.join(project, 'specs', 'report', 'spec.md');
+const reportSpecBefore = readFileSync(reportSpec, 'utf8');
+writeFileSync(reportSpec, '---\nstatus: draft\n---\n\n' + reportSpecBefore);
+expectDenied('草案 spec 不能冻结', ['plan', 'freeze', 'G3', '.'], project, '仍是草案');
+expectOk('spec approve', ['spec', 'approve', 'specs/report/spec.md', '.'], project);
+check('approve 后 front-matter 是 approved', fileContains(reportSpec, 'status: approved'));
+expectOk('approve 后 plan freeze G3', ['plan', 'freeze', 'G3', '.'], project);
 
 expectOk('eval', ['eval', '.'], project);
 expectOk('skill add', ['skill', 'add', 'skills/safe-skill', '--project', '.'], project);
@@ -534,6 +566,31 @@ expectDenied(
   project,
   'denied: multiple-active-changes',
 );
+
+// 起草类任务（G4）：goal 的 capability 还没有 spec 时，generate 产出 spec-authoring 任务。
+// 这条任务过去被两处卡死：change 缺 acceptance 无法 shape → build；验收/归档也不看产物。
+writeFileSync(
+  path.join(project, 'COMETFLOW.md'),
+  readFileSync(path.join(project, 'COMETFLOW.md'), 'utf8') +
+    '\n### G9：drafting 能力\n- 目标：验证起草任务护栏\n- 范围：drafting\n- 成功标准：\n  - 起草任务的产物必须通过 spec validate\n',
+);
+expectOk('goal sync（新增 G9）', ['goal', 'sync', '.'], project);
+expectOk('plan generate G9（产出起草任务）', ['plan', 'generate', 'G9', '.'], project);
+expectOk('plan freeze G9', ['plan', 'freeze', 'G9', '.'], project);
+expectOk('change new drafting-demo', ['change', 'new', 'drafting-demo', '--goal', 'G9', '--task', 'T1', '--path', '.'], project);
+expectOk('起草 change 缺 acceptance 也能进 build', ['change', 'transition', 'drafting-demo', 'confirm-acceptance', '.'], project);
+expectOk('起草 change → verify 阶段', ['change', 'transition', 'drafting-demo', 'submit-candidate', '.'], project);
+expectDenied(
+  '起草 change 缺产物时验收被拒',
+  ['change', 'verify', 'drafting-demo', '.'],
+  project,
+  '产物还不存在',
+);
+// 补上产物（带验收清单）后，验收不再被这条护栏挡住：起草物本身就是「通过 spec validate 的 spec」。
+expectOk('spec scaffold --capability drafting', ['spec', 'scaffold', '.', '--capability', 'drafting'], project);
+const draftedSpec = path.join(project, 'specs', 'drafting', 'spec.md');
+check('起草产物已落盘', existsSync(draftedSpec));
+check('起草产物是草案（status: draft）', fileContains(draftedSpec, 'status: draft'));
 
 console.log('');
 if (failures > 0) {

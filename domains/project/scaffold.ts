@@ -287,6 +287,8 @@ function capabilityTemplate(capability: string): string {
 capability: ${capability}
 # 该 capability 的实现模块边界（项目相对路径）；拆解时任务会继承它
 module: internal/${capability}
+# 骨架是机器产的占位内容，不能直接当契约用：确认后 cometflow spec approve specs/${capability}/spec.md
+status: draft
 ---
 
 # ${capability}

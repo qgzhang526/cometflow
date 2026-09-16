@@ -8,7 +8,7 @@
 
 ## 定位
 
-CometFlow 是一个 **全时运行的自主 Agent 开发平台**。
+CometFlow 是一个 **规格驱动开发（SDD）的自主 Agent 开发平台**。
 
 它把空闲或持续可用的算力，转化为规范、可恢复、可评估、可持续进化的 Agent 开发工作流。
 
@@ -107,3 +107,12 @@ CometFlow 由两个项目融合而来：
 - spec 变更影响：004-spec-change-impact.md
 - CLI 与流程：005-cli-and-workflow.md
 - 路线图：006-roadmap.md
+
+## 修订（2026-09-16）：定位表述对齐已实现的界面
+
+原表述「全时运行的自主 Agent 开发平台」有两个偏差：调度模式实际是 `always / idle / schedule / manual`
+四选一，「全时」是能力而非默认；而「把 CLI 工作流可视化」把这个 Web 客户端说小了——它通过
+`cometflow serve`（ADR 0007）写回状态，与 CLI 共用同一套领域逻辑，不是 CLI 输出的显示器。
+
+现按首页 hero 的实际文案统一为「规格驱动开发（SDD）」，能力关键词连排版本见
+[README](../../README.md)、[USAGE](../USAGE.md) 与 [008 §5.3](./008-client-visualization.md)。

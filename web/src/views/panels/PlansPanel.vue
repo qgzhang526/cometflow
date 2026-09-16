@@ -21,7 +21,9 @@
     </div>
     <p class="muted">
       状态流转：draft → validated → approved → frozen。冻结会把「任务 ↔ spec」固化成可校验的版本引用。
+      拆解审核策略 <code>plan_review</code>：<b>{{ policyLabel }}</b>{{ policyHint }}
     </p>
+    <p v-if="review !== null" class="muted">上次拆解：{{ review.note }}</p>
   </div>
 
   <div class="card">
@@ -127,6 +129,25 @@ const summaries = ref<Array<{ goal: string; status: string; tasks: number }>>([]
 const trace = ref<PlanTraceResponse | null>(null);
 const busy = ref(false);
 
+/** 拆解审核策略（ADR 0003）：策略本身在配置里，界面的职责是把它摊开说清楚。 */
+interface PlanReviewNote {
+  policy: string;
+  declared: string | null;
+  applied: boolean;
+  note: string;
+}
+
+const review = ref<PlanReviewNote | null>(null);
+const policy = ref<string | null>(null);
+
+const policyLabel = computed(() => policy.value ?? '未配置');
+const policyHint = computed(() => {
+  if (policy.value === 'auto') return '——生成后机器校验，通过就直接 review + approve';
+  if (policy.value === 'high-risk') return '——高风险识别规则尚未实现，当前按 human 处理（停在 draft）';
+  if (policy.value === 'human') return '——生成后停在 draft，等人评审 / 批准';
+  return '——未配置或值不认识时按 human 处理（停在 draft）';
+});
+
 const canValidate = computed(() => plan.value !== null);
 const canApprove = computed(() => plan.value?.status === 'draft' || plan.value?.status === 'validated');
 const canFreeze = computed(() => plan.value?.status === 'approved');
@@ -176,10 +197,13 @@ async function action(kind: 'generate' | 'review' | 'approve' | 'freeze'): Promi
   try {
     const suffix = kind === 'generate' ? '/plans/generate' : '/plans/' + encodeURIComponent(selectedGoal.value) + '/' + kind;
     const body = kind === 'generate' ? { goal: selectedGoal.value } : {};
-    await project.projectApi(suffix, { method: 'POST', body });
+    const data = await project.projectApi<{ review?: PlanReviewNote }>(suffix, { method: 'POST', body });
+    if (data.review) review.value = data.review;
     await loadPlan();
     await loadSummaries();
-    toasts.success('已执行 ' + kind);
+    // 策略介入过就把结论原样说出来：不然「生了但停在 draft」看起来像没生效。
+    if (data.review) toasts.success('已执行 ' + kind, data.review.note);
+    else toasts.success('已执行 ' + kind);
   } catch (error) {
     toasts.error(kind + ' 失败', errorMessage(error));
   } finally {
@@ -191,13 +215,14 @@ async function regenerate(): Promise<void> {
   if (selectedGoal.value === '') return;
   busy.value = true;
   try {
-    await project.projectApi('/plans/regenerate', {
+    const data = await project.projectApi<{ review?: PlanReviewNote }>('/plans/regenerate', {
       method: 'POST',
       body: { goal: selectedGoal.value, preserveApproved: true },
     });
+    if (data.review) review.value = data.review;
     await loadPlan();
     await loadSummaries();
-    toasts.success('已重新生成', '未受影响的 approved/frozen 任务被保留');
+    toasts.success('已重新生成', data.review?.note ?? '未受影响的 approved/frozen 任务被保留');
   } catch (error) {
     toasts.error('重新生成失败', errorMessage(error));
   } finally {
@@ -229,6 +254,8 @@ onMounted(async () => {
   try {
     await loadGoals();
     await loadPlan();
+    const config = await project.loadConfig();
+    policy.value = config.config.plan_review ?? null;
   } catch (error) {
     toasts.error('加载失败', errorMessage(error));
   }

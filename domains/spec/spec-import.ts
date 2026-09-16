@@ -343,11 +343,14 @@ export function renderCapabilitySpec(capability: string, rows: InterfaceRow[], s
     'capability: ' + capability,
   ];
   if (module !== undefined && module !== '') lines.push('module: ' + module);
+  // 表格导入也是机器产出：生成物先算草案，人工对照原始标准确认后 `cometflow spec approve <path>`。
+  lines.push('status: draft');
   lines.push('---', '');
   lines.push(
     '# ' + capability,
     '',
-    '> 由 `cometflow spec import` 从 ' + source + ' 生成；请对照原始标准人工审核，确认后 `cometflow spec lock`。',
+    '> 由 `cometflow spec import` 从 ' + source + ' 生成；请对照原始标准人工审核，确认后 `cometflow spec approve specs/'
+      + capability + '/spec.md`（草案不能参与 `plan freeze`）。',
   );
 
   let index = 0;
