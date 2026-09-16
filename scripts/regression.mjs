@@ -12,7 +12,7 @@
  * 用法：node scripts/regression.mjs [fixturePath]
  */
 import { spawnSync } from 'node:child_process';
-import { chmodSync, cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
@@ -604,6 +604,45 @@ expectOk('spec scaffold --capability drafting', ['spec', 'scaffold', '.', '--cap
 const draftedSpec = path.join(project, 'specs', 'drafting', 'spec.md');
 check('起草产物已落盘', existsSync(draftedSpec));
 check('起草产物是草案（status: draft）', fileContains(draftedSpec, 'status: draft'));
+
+// P4：daemon 现在走 change 交付通道（S1），队列是可重建的派生视图（S3），
+// 进程仍由 CLI 持有、控制走控制文件（S4 / ADR 0026）。
+const archivedChangeCount = () => {
+  const dir = path.join(project, 'changes');
+  if (!existsSync(dir)) return 0;
+  return readdirSync(dir).filter((name) => fileContains(path.join(dir, name, 'comet-state.yaml'), 'archived: true')).length;
+};
+const rebuilt = expectOk('daemon queue rebuild', ['daemon', 'queue', 'rebuild', '.'], project);
+check('rebuild 打印待办计数', /queued=\d+/u.test(rebuilt.stdout), rebuilt.stdout.trim().slice(0, 120));
+
+const archivedBefore = archivedChangeCount();
+expectOk('daemon stop（只写控制文件）', ['daemon', 'stop', '.'], project);
+expectOk(
+  'daemon start 消费 stop 后立即退出',
+  ['daemon', 'start', '.', '--mode', 'always', '--agent', 'mock', '--budget', '60000'],
+  project,
+);
+check(
+  '状态投影记录 stopped-by-control',
+  fileContains(path.join(project, '.cometflow', 'runtime', 'daemon-state.json'), 'stopped-by-control'),
+);
+check('stop 期间没有交付任何 change', archivedChangeCount() === archivedBefore, 'archived=' + archivedChangeCount());
+
+expectOk('daemon resume（清掉控制指令）', ['daemon', 'resume', '.'], project);
+expectOk(
+  'daemon start 驱动一次交付',
+  ['daemon', 'start', '.', '--mode', 'always', '--agent', 'mock', '--budget', '120000', '--max-attempts', '1'],
+  project,
+);
+check(
+  'daemon 交付了任务（archived change 增加）',
+  archivedChangeCount() > archivedBefore,
+  'before=' + archivedBefore + ' after=' + archivedChangeCount(),
+);
+check(
+  '队列里记下交付结论',
+  fileContains(path.join(project, '.cometflow', 'runtime', 'queue.json'), 'delivered'),
+);
 
 console.log('');
 if (failures > 0) {

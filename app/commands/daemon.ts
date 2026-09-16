@@ -6,6 +6,7 @@ import { resolveAgentId } from '../../domains/scheduler/flow-run.js';
 import { resolveModel } from '../../domains/project/config.js';
 import { parseScheduleWindow } from '../../domains/scheduler/schedule.js';
 import { rebuildQueue, resetQueue } from '../../domains/scheduler/daemon-todo.js';
+import { writeDaemonControl } from '../../domains/scheduler/daemon-control.js';
 
 export interface DaemonCommandOptions {
   mode: SchedulerMode;
@@ -93,5 +94,23 @@ export async function daemonQueueCommand(action: string, targetPath: string): Pr
     console.log(
       ['  ', task.goal + ':' + task.task, task.status, task.source, task.change ?? ''].filter(Boolean).join(' '),
     );
+  }
+}
+
+/**
+ * 暂停 / 继续 / 停止正在跑的 daemon（S4）：只写控制文件，不碰进程。
+ *
+ * 进程由启动它的终端持有——这是刻意的（见 ADR 0026）：界面或脚本能发指令，
+ * 但不会让 serve 成为进程主人（日志、退出码、pid 的归属都不变）。
+ */
+export async function daemonControlCommand(
+  action: 'pause' | 'resume' | 'stop',
+  targetPath: string,
+): Promise<void> {
+  const projectRoot = path.resolve(targetPath);
+  const record = await writeDaemonControl(projectRoot, action, { by: 'cli' });
+  console.log('daemon control: ' + record.action + ' requested_at=' + record.requested_at);
+  if (action === 'stop') {
+    console.log('（正在跑的 daemon 会在下一轮退出；没有在跑时这条指令会在下次 start 时被消费）');
   }
 }

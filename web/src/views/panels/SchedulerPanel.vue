@@ -98,9 +98,29 @@
 
   <div class="card">
     <div class="row">
+      <h2>控制</h2>
+      <span class="grow" />
+      <!--
+        只写控制文件，不启停进程（ADR 0026）：进程归启动它的终端，serve/浏览器不持有它。
+        所以这里没有「启动 daemon」按钮——那是 CLI 的事，界面只负责「让正在跑的那个停/等」。
+      -->
+      <button :disabled="controlBusy" @click="control('pause')">暂停</button>
+      <button :disabled="controlBusy" @click="control('resume')">继续</button>
+      <button :disabled="controlBusy" @click="control('stop')">停止</button>
+      <StatusBadge v-if="data?.control && data.control.action !== 'idle'" tone="warn" :text="'已请求 ' + data.control.action" />
+    </div>
+    <p class="muted">
+      暂停 / 停止在 daemon 的下一轮生效；启动仍然在终端里跑
+      <code>cometflow daemon start . --mode always</code>。队列是可以随意重建的派生视图，不需要先停调度器再改。
+    </p>
+  </div>
+
+  <div class="card">
+    <div class="row">
       <h2>下一个待办</h2>
       <span class="grow" />
-      <StatusBadge :tone="data?.queue ? 'ok' : 'warn'" :text="data?.queue ? 'daemon 队列' : '推导视图'" />
+      <!-- S3 之后待办是合并视图：每行都能回答「从哪来」。 -->
+      <StatusBadge tone="brand" :text="'待交付 ' + pendingCount + ' · 已交付 ' + deliveredCount" />
     </div>
     <p v-if="data?.next === null" class="muted">没有排队中的任务。</p>
     <table v-else>
@@ -129,7 +149,8 @@
     <table v-else>
       <thead>
         <tr>
-          <th>目标</th><th>任务</th><th>标题</th><th>状态</th><th>尝试</th>
+          <th>目标</th><th>任务</th><th>标题</th><th>调度状态</th><th>来源</th>
+          <th>交付（change）</th><th>尝试</th>
           <th v-if="hasDaemonQueue">更新时间</th>
         </tr>
       </thead>
@@ -143,6 +164,23 @@
               :tone="task.status === 'done' ? 'ok' : task.status === 'failed' ? 'err' : task.status === 'running' ? 'brand' : 'warn'"
               :text="task.status"
             />
+          </td>
+          <!-- 「从哪来」：derived=推导出的待办，overlay=运行时记录，delivered=change 账本。 -->
+          <td class="muted">
+            {{ task.source === 'delivered' ? '交付账本' : task.source === 'overlay' ? '运行时记录' : '计划推导' }}
+          </td>
+          <!-- 工作流视角（P4 原文的「status 同时显示调度与工作流状态」）：跑过 ≠ 交付过。 -->
+          <td>
+            <template v-if="task.workflow">
+              <b style="margin-right: 6px">{{ task.workflow.name }}</b>
+              <StatusBadge
+                :tone="task.workflow.archived ? 'ok' : task.workflow.status === 'blocked' ? 'err' : 'warn'"
+                :text="task.workflow.phase + (task.workflow.archived ? ' · 已归档' : '')"
+              />
+              <span v-if="task.workflow.status === 'blocked'" class="badge err">blocked，需人工</span>
+            </template>
+            <span v-else-if="task.verdict" class="muted">{{ task.verdict }}（无 change 记录）</span>
+            <span v-else class="muted">—</span>
           </td>
           <td>{{ task.attempts }}</td>
           <td v-if="hasDaemonQueue" class="muted">{{ relativeTime(task.updated_at) }}</td>
@@ -165,12 +203,30 @@ import { relativeTime } from '../../utils/format';
 const project = useProjectStore();
 const toasts = useToastStore();
 const data = ref<SchedulerResponse | null>(null);
+const controlBusy = ref(false);
 
-const tasks = computed(() => data.value?.queue?.tasks ?? data.value?.derived.tasks ?? []);
+/** S3：面板看的是合并视图（推导 + 运行时覆盖 + 交付账本），不是 `queue.json` 那一份。 */
+const tasks = computed(() => data.value?.tasks ?? []);
+const pendingCount = computed(() => tasks.value.filter((task) => task.status === 'queued').length);
+const deliveredCount = computed(() => tasks.value.filter((task) => task.delivered).length);
+
+/** 暂停 / 继续 / 停止：写控制文件（ADR 0026），进程仍归启动它的终端。 */
+async function control(action: 'pause' | 'resume' | 'stop'): Promise<void> {
+  controlBusy.value = true;
+  try {
+    await project.projectApi('/scheduler/daemon/control', { method: 'POST', body: { action } });
+    await load();
+    toasts.success('已请求 ' + action, 'daemon 会在下一轮生效（没在跑时下次启动时消费）');
+  } catch (error) {
+    toasts.error('控制失败', errorMessage(error));
+  } finally {
+    controlBusy.value = false;
+  }
+}
 
 /**
- * 只有 daemon 写过 `queue.json`，队列行上的 `updated_at` 才是真实时间。
- * 推导视图（`buildQueueFromPlans`）是按请求时刻现造的行，用它渲染「更新时间」会得到「刚刚」。
+ * 只有运行时记录（overlay / 交付账本）的行的 `updated_at` 才是真实时间；
+ * 推导行的时间戳是请求时刻现造的，渲染出来会变成「刚刚」，所以那一列对它们没有意义。
  */
 const hasDaemonQueue = computed(() => data.value?.queue !== null && data.value?.queue !== undefined);
 

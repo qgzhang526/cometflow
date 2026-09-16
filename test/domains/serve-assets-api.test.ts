@@ -112,6 +112,27 @@ describe('scheduler / assets / guard API', () => {
     expect(reset.body.data.tasks.some((task) => task.delivered)).toBe(true);
   });
 
+  // S4：界面能暂停/停止，但只写控制文件——进程归启动它的终端（ADR 0026）。
+  it('writes daemon control requests instead of touching the process', async () => {
+    const paused = await post<{ control: { action: string; requested_by: string } }>('/scheduler/daemon/control', {
+      action: 'pause',
+    });
+    expect(paused.status).toBe(200);
+    expect(paused.body.data.control.action).toBe('pause');
+    expect(paused.body.data.control.requested_by).toBe('web');
+
+    // GET 里能看到未消费的指令：界面据此显示「已请求 pause」。
+    const view = await get<{ control: { action: string } | null }>('/scheduler/queue');
+    expect(view.body.data.control?.action).toBe('pause');
+
+    const resumed = await post<{ control: { action: string } }>('/scheduler/daemon/control', { action: 'resume' });
+    expect(resumed.body.data.control.action).toBe('resume');
+
+    const bad = await post<unknown>('/scheduler/daemon/control', { action: 'explode' });
+    expect(bad.status).toBe(400);
+    expect(bad.body.error?.code).toBe('invalid-control-action');
+  });
+
   it('lists installed skills and reads one skill definition', async () => {
     const list = await get<{ skills: Array<{ name: string; files: string[] }> }>('/skills');
     expect(list.status).toBe(200);

@@ -1,6 +1,6 @@
 # P4 Workflow 深度融合：让 daemon 驱动 change 生命周期
 
-状态：**计划（未实施）**——2026-09-17 立项，分支 `codex/daemon-drives-change`
+状态：**S1–S4 已实施**（2026-09-17，分支 `codex/daemon-drives-change`；实施结果见 §7）
 来源：[006-roadmap.md](../design/006-roadmap.md) 的 **P4「Workflow 深度融合」**
 关联：ADR [0013](../decisions/0013-verification-must-be-executable.md)（验收必须可执行）、
 [0016](../decisions/0016-bounded-repair-loop.md)（有界修复循环）、
@@ -120,3 +120,28 @@ daemon 从「把 agent 叫起来的批处理泵」升级为**交付流水线**�
 - 不做 Classic 工作流的调度接入（Classic 已按决策退出界面，见审计 C10）；
 - 不引入第四份状态：S3 优先「队列降级为派生视图」，而不是新增一份"交付记录"；
 - 不在本批做 LLM 智能拆解（ADR 0007 仍列为未来项）。
+
+## 7. 实施结果（2026-09-17）
+
+| 项 | 落点 | 验证 |
+|---|---|---|
+| S1 交付通道 | 新增 `domains/scheduler/daemon-run-change.ts`：`goal-task` 确定性命名、按 phase 续作、已归档即跳过；daemon 循环改用它，队列行带 `change`/`verdict`，状态投影带 `last_task.change/verdict/detail` | `daemon-drives-change` 4 例（交付归档并对账、失败重试到上限、spec 存续期被改→冲突停机、验收不过重试）；回归 145 步 |
+| S1 顺带修复 | `runChange` 把 `model` 与 `timeoutMs` 传给 runner——此前 build 链路完全忽略模型配置与单任务超时（挂起的 agent 会永久阻塞 daemon） | `scheduler-durability` 断言超时被传下去 |
+| S2 异常路径 | 三类结论都带人工出口：验收不过（重试 + verification.md 路径）、blocked（`change unblock` 提示）、spec 冲突（rebase 或 reconciliation，ADR 0004）；blocked/冲突直接停机 | 单测断言 detail 文案 + 停机状态 |
+| S3 派生待办 | 新增 `daemon-todo.ts`：`mergeTodoView`（change 账本 > 运行时覆盖 > 计划推导）、`rebuildQueue`（保留 legacy done）、`resetQueue`（清覆盖）；`queue.json` 降级为覆盖+快照；CLI `daemon queue rebuild\|reset` + 两个端点 | `daemon-todo` 5 例 + serve 端点 1 例；`next` 语义随之更新（交付过的会被跳过） |
+| S3 不重复干活 | 同一任务上已有别的 change（非 daemon 命名）→ 标「在飞」并让开；daemon 自己的未归档 change → 保持待办并续作（崩溃恢复不丢） | `daemon-todo` 用例覆盖两种情况 |
+| S4 控制语义 | 新增 `daemon-control.ts` + ADR 0026：进程归 CLI，`pause\|resume\|stop` 写控制文件，循环每轮读；CLI 三条命令 + `POST /scheduler/daemon/control`；面板加控制按钮 | `daemon-control` 3 例 + serve 端点 1 例 |
+| S4 两态并列 | `GET /scheduler/queue` 的 `tasks` 每行带 `source`（计划推导/运行时记录/交付账本）与 `workflow`（change 名、phase、是否归档、blocked）；面板把这两个视角并成两列 | 浏览器走查（见 §8） |
+
+## 8. 验证链（本批实测）
+
+| 命令 | 结果 |
+|---|---|
+| `npx vitest run` | **84 文件 / 501 例全绿** |
+| `node scripts/regression.mjs` | **145 步 PASS**（新增 10 步：队列重建、控制文件生效、驱动一次真实交付） |
+| `tsc --noEmit` / `vue-tsc --noEmit` / `pnpm build` / `pnpm package-e2e` | 全部通过 |
+| 浏览器走查 | 调度面板：控制按钮 + 来源列 + 交付列（change/phase/已归档）渲染正常，控制台无 error |
+
+与计划的偏差一处，按代码事实记录：**S1 的「change 名由任务派生」还额外承担了「区分谁在干」的职责**——
+非 daemon 命名的活跃 change 被视为「别人在干」，daemon 让开（否则两条通道会同时改同一块代码）。
+这一条在 §3 S3 里只写了「跳过已归档」，实现时按「避免重复劳动」的动机补全。

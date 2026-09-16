@@ -5,6 +5,7 @@ import { addBudgetUsage, Budget, readBudgetUsage } from './budget.js';
 import { runFlowRun } from './flow-run.js';
 import { changeNameForTask, runTaskThroughChange } from './daemon-run-change.js';
 import { mergeTodoView } from './daemon-todo.js';
+import { clearDaemonControl, readDaemonControl } from './daemon-control.js';
 import { idleGovernorAllows, type SchedulerMode } from './idle-governor.js';
 import { buildRollbackGuidance, captureGitSafetySnapshot } from './git-safety.js';
 import {
@@ -181,6 +182,24 @@ export async function runDaemonLoop(options: DaemonLoopOptions): Promise<void> {
 
   let index = 0;
   while (!budget.isExhausted()) {
+    // 控制语义（S4）：每轮先看有没有人按下暂停 / 停止。进程仍归 CLI 持有，这里只读一个文件。
+    const control = await readDaemonControl(options.projectRoot);
+    if (control?.action === 'stop') {
+      console.log(['daemon', String(index), 'stopped-by-control', control.requested_by].join(' '));
+      // 一次性动作消费掉：否则下次 start 会立刻又停。
+      await clearDaemonControl(options.projectRoot);
+      await reportState(queue, index, 'stopped', { ran: false, reason: 'stopped-by-control', task: null }, 'stopped-by-control');
+      break;
+    }
+    if (control?.action === 'pause') {
+      console.log(['daemon', String(index), 'paused-by-control', control.requested_by].join(' '));
+      await reportState(queue, index, 'skipping', { ran: false, reason: 'paused-by-control', task: null }, 'paused-by-control');
+      index += 1;
+      // 暂停也要能退出：否则预算耗尽的进程会一直停在暂停里出不来。
+      if (budget.isExhausted()) break;
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+      continue;
+    }
     // 每轮再回收一次：同一轮里也可能有别的进程留下的过期租约。
     const swept = reclaimExpiredLeases(queue, { maxAttempts });
     if (swept.reclaimed.length > 0 || swept.exhausted.length > 0) {

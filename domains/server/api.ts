@@ -98,6 +98,7 @@ import { nextQueuedTask } from '../scheduler/queue.js';
 import type { SchedulerQueue } from '../scheduler/queue.js';
 import { readBudgetUsage } from '../scheduler/budget.js';
 import { readDaemonState } from '../scheduler/daemon-state.js';
+import { readDaemonControl, writeDaemonControl } from '../scheduler/daemon-control.js';
 import { mergeTodoView, rebuildQueue, resetQueue } from '../scheduler/daemon-todo.js';
 import { runLocalEval } from '../eval/eval-service.js';
 import { collectFindings } from '../gates/findings.js';
@@ -1474,15 +1475,45 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
       // 调度器的状态投影（C5）：没有它，界面答不出「无人值守到底有没有在工作」。
       // 读不到就是从未跑过 daemon，界面据此显式说明，而不是拿空队列糊弄。
       const daemon = await readDaemonState(root);
+      const control = await readDaemonControl(root);
+      // 每行任务补上「工作流视角」（S4）：队列状态回答「跑没跑」，change 回答「交付没交付」。
+      // 两列并排，才看得出「跑过但没交付」和「已交付」的区别。
+      const tasks = await Promise.all(
+        view.tasks.map(async (task) => {
+          if (!task.change) return task;
+          const state = await readChangeState(root, task.change).catch(() => null);
+          return {
+            ...task,
+            workflow:
+              state === null
+                ? null
+                : { name: state.name, phase: state.phase, status: state.status, archived: state.archived },
+          };
+        }),
+      );
       sendOk(res, {
-        tasks: view.tasks,
+        tasks,
         queue,
         derived,
         next: nextQueuedTask({ schema: 'cometflow.queue.v1', tasks: view.tasks }),
         scheduler: config.scheduler ?? null,
         budget,
         daemon,
+        control,
       });
+      return true;
+    }
+    // daemon 控制（S4）：只写控制文件，不启停进程——进程归启动它的终端（ADR 0026）。
+    if (segments[0] === 'scheduler' && segments[1] === 'daemon' && segments[2] === 'control' && method === 'POST') {
+      const body = await readJsonBody(req);
+      const action = stringField(body.action);
+      if (action !== 'pause' && action !== 'resume' && action !== 'stop') {
+        sendError(res, 400, 'invalid-control-action', 'action must be pause, resume or stop');
+        return true;
+      }
+      const record = await writeDaemonControl(root, action, { by: 'web' });
+      jobs.stateChanged(projectId, '/api/scheduler/queue');
+      sendOk(res, { control: record });
       return true;
     }
     // 队列维护（S3）：把「手工删 queue.json」升级成有语义的动作，与 CLI `daemon queue` 同源。

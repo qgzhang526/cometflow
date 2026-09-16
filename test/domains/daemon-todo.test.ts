@@ -141,4 +141,34 @@ describe('待办推导（S3）', () => {
     expect(view.tasks.find((task) => task.task === 'T1')?.status).toBe('done');
     expect(view.tasks.find((task) => task.task === 'T1')?.delivered).toBe(true);
   });
+
+  it('别的通道正在做的任务：daemon 让开（标在飞），但自己没跑完的 change 继续做', async () => {
+    // 人手工建的 change（名字不是 daemon 的确定性命名）→ daemon 不碰 T2。
+    const dir = path.join(root, 'changes', 'human-made');
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(
+      path.join(dir, 'comet-state.yaml'),
+      ['schema: cometflow.change.v1', 'name: human-made', 'goal: G1', 'task: T2', 'phase: build', 'status: active', 'archived: false', ''].join('\n'),
+    );
+
+    const view = await mergeTodoView(root);
+    const t2 = view.tasks.find((task) => task.task === 'T2');
+    expect(t2?.status).toBe('running');
+    expect(t2?.verdict).toBe('in-flight');
+    expect(t2?.change).toBe('human-made');
+    // T1 没有人在做 → 仍是待办。
+    expect(view.tasks.find((task) => task.task === 'T1')?.status).toBe('queued');
+
+    // daemon 自己没跑完的（确定性命名 G1-T1）→ 仍是待办，下一轮续作（崩溃恢复语义不变）。
+    const own = path.join(root, 'changes', 'G1-T1');
+    await fs.mkdir(own, { recursive: true });
+    await fs.writeFile(
+      path.join(own, 'comet-state.yaml'),
+      ['schema: cometflow.change.v1', 'name: G1-T1', 'goal: G1', 'task: T1', 'phase: build', 'status: active', 'archived: false', ''].join('\n'),
+    );
+    const again = await mergeTodoView(root);
+    const t1 = again.tasks.find((task) => task.task === 'T1');
+    expect(t1?.status).toBe('queued');
+    expect(t1?.change).toBe('G1-T1');
+  });
 });

@@ -972,6 +972,8 @@ cometflow daemon start [path] \
   [--safety-bundle] [--max-attempts <n>] [--task-timeout <ms>]
 
 cometflow daemon budget [path] [--reset]   # 查看/清零跨重启累计的已用预算
+cometflow daemon pause|resume|stop [path]  # 写控制文件（下一轮生效），不碰进程
+cometflow daemon queue rebuild|reset [path] # 重建待办（保留运行时覆盖）/ 清掉覆盖强制重跑
 ```
 
 | 模式 | 行为 |
@@ -983,11 +985,30 @@ cometflow daemon budget [path] [--reset]   # 查看/清零跨重启累计的已�
 
 要点：
 
-- 队列来自 `.cometflow/plans/*.task-plan.yaml` 中 `frozen/approved` 的任务，落盘在 `.cometflow/runtime/queue.json`；已存在则复用。
+- **daemon 走的是交付通道**（P4）：取到任务后自动建 change（名字由 `goal-task` 确定性派生，如 `G1-T1`）
+  → `confirm-acceptance` → 跑 builder → **独立验收** → 归档；「做完了没有」由 acceptance 结论回答，
+  不再由 agent 退出码回答。已归档 change 的任务不会重跑。
+- **待办是推导出来的**（S3）：`plans` 里 `frozen/approved` 的任务 − 已有归档 change 的 `(goal, task)`，
+  再叠加运行时覆盖（在跑的租约、尝试次数、上次结论）。优先级是
+  **change 账本（交付）> 运行时覆盖 > 计划推导**；每行在界面上都标明来源。
+- 同一个任务上已有别的 change（非 daemon 命名）时，daemon 让开并把它标成「在飞」，不做重复劳动；
+  它自己上次没跑完的 change 则按 phase 续作。
+- 队列文件 `.cometflow/runtime/queue.json` 不再决定「该不该跑」，它是**运行时覆盖 + 上次快照**；
+- `daemon queue rebuild` 重新推导并保留覆盖（含老路径留下的 `done`，迁移期不重跑）；
+  `daemon queue reset` 清掉覆盖，显式要求全部重跑（已归档 change 的任务仍算已交付）。
 - `--budget 0` 表示不限时；`--interval` 默认 60000ms。
 - 启动时先做 git 安全快照并打印回滚指引；`--safety-bundle` 额外生成
   `.cometflow/runtime/safety.bundle`（`git bundle create ... --all`）。
-- 每个任务执行成功/失败都会结算为 `done`/`failed` 并写回队列。
+- 每个任务按交付结论结算：`delivered` → `done`，可重试的失败 → 回到 `queued`（受尝试上限约束），
+  需要人工介入的（spec 冲突 / blocked）→ `failed` 并**停机**，状态投影里写明人工出口。
+
+#### 暂停 / 停止（ADR 0026）
+
+进程由 CLI 持有（`daemon start` 是唯一 spawn 点），**控制走控制文件**
+`.cometflow/runtime/daemon.control.json`：`daemon pause|resume|stop` 与界面按钮都只写这个文件，
+daemon 每轮读它——`stop` 退出并写 `stopped_reason=stopped-by-control`（指令随即回落 `idle`），
+`pause` 只跳过不退出。控制是**状态**而不是信号，所以换机器、重启后依然有效；界面因此可以「可控」，
+但不必拥有进程（界面没有「启动 daemon」按钮）。
 
 #### 崩溃恢复与重试（ADR 0024）
 
@@ -1223,6 +1244,10 @@ token: <random>
   「最近决策跑没跑 + 原因 + 针对哪个任务」、上一次任务的结论与耗时、队列计数与预算快照。
   从未跑过 daemon 时显式说明「这台机器上没写过状态投影」，而不是拿空队列糊弄；
   面板也明说「是不是还在跑」不由界面猜——时间戳是最后一次写状态的时间，pid 只是线索。
+- **调度器的「控制」与「两态并列」**（P4/S4）：面板顶部有暂停 / 继续 / 停止三个按钮，
+  它们只写控制文件（下一轮生效，不启停进程）；队列表里每行同时显示**调度状态**
+  （queued/running/done/failed + 尝试次数 + 来源）与**交付状态**（change 名、phase、是否已归档、
+  blocked 标记），于是「跑过」与「交付过」在界面上是两列而不是一个模糊的 done。
 - **Specs 面板 6 个页签**：12-kind 状态、脚手架、Spec 文件、验收覆盖、版本、影响与门禁。
 - **脚手架页签的 capability 入口**：root kind 由项目类型推导，capability 不由 init 生成、也无法推断，
   所以在同一页签里可以点名生成 `specs/<capability>/spec.md` 骨架（逗号分隔，可多个）。
@@ -1327,7 +1352,9 @@ pnpm build                   # tsc（CLI）+ vite build（Web）
 | GET | `/api/projects/<id>/changes/<name>/evidence` | 证据文件与提案 spec、未完成归档事务 |
 | POST | `/api/projects/<id>/changes/<name>/rebase` | 重新冻结到当前 spec 版本（409 = 不可 rebase） |
 | POST | `/api/projects/<id>/changes/<name>/unblock` | 解除停机（409 = 该 change 未停机） |
-| GET | `/api/projects/<id>/scheduler/queue` | 调度队列 + 推导视图 + 下一个待办 + 调度器参数 + `budget` + `daemon`（状态投影，从未跑过为 `null`） |
+| GET | `/api/projects/<id>/scheduler/queue` | 调度面板的全部事实：`tasks`（合并视图：推导 + 运行时覆盖 + 交付账本，每行带 `source`/`delivered`/`workflow`）+ `derived` / `queue`（对账）+ `next` + `scheduler` + `budget` + `daemon`（状态投影）+ `control`（未消费的暂停/停止指令） |
+| POST | `/api/projects/<id>/scheduler/queue/rebuild` \| `/reset` | 重建待办（保留运行时覆盖）/ 清掉覆盖强制重跑（等价 `daemon queue rebuild|reset`） |
+| POST | `/api/projects/<id>/scheduler/daemon/control` | `{action: pause\|resume\|stop}`：只写控制文件，不启停进程（ADR 0026） |
 | GET | `/api/projects/<id>/skills`、`/skills/<name>` | 已安装 skill 列表 / 单个 skill 详情（含 SKILL.md） |
 | GET | `/api/projects/<id>/bundles` | bundle manifest + 编译产物预览 + 支持平台 |
 | POST | `/api/projects/<id>/hook/check` | 写入门禁预览（与 `hook check` 同源） |

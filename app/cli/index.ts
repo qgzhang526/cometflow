@@ -64,7 +64,12 @@ import {
 } from '../commands/evolve.js';
 import { statusCommand } from '../commands/status.js';
 import { metricsCommand } from '../commands/metrics.js';
-import { daemonBudgetCommand, daemonQueueCommand, daemonStartCommand } from '../commands/daemon.js';
+import {
+  daemonBudgetCommand,
+  daemonControlCommand,
+  daemonQueueCommand,
+  daemonStartCommand,
+} from '../commands/daemon.js';
 import { goalSyncCommand } from '../commands/goal.js';
 import { initCommand } from '../commands/init.js';
 import { runCommand } from '../commands/run.js';
@@ -587,6 +592,15 @@ daemon
   .action(async (action, targetPath = '.') => {
     await daemonQueueCommand(action, targetPath);
   });
+
+for (const action of ['pause', 'resume', 'stop'] as const) {
+  daemon
+    .command(action + ' [path]')
+    .description(action === 'pause' ? 'Ask the running daemon to pause (next iteration)' : action === 'resume' ? 'Clear a pause request' : 'Ask the running daemon to stop (next iteration)')
+    .action(async (targetPath = '.') => {
+      await daemonControlCommand(action, targetPath);
+    });
+}
 
 const context = program.command('context').description('Project context commands');
 

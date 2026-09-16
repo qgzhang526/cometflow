@@ -5,6 +5,7 @@ import { buildQueueFromPlans, queueFromPlan, readQueue, writeQueue } from './que
 import type { QueueTask, SchedulerQueue } from './queue.js';
 import { listChangeStates } from '../workflow/change-list.js';
 import type { TaskPlan } from '../task-plan/types.js';
+import { changeNameForTask } from './daemon-run-change.js';
 
 /**
  * 待办清单的**唯一推导规则**（P4 / S3）：
@@ -65,6 +66,23 @@ export async function deliveredTasks(projectRoot: string): Promise<Map<string, s
   return delivered;
 }
 
+/**
+ * 未归档但已存在的 change：`(goal, task)` → change 名。
+ *
+ * 用途是**不重复干活**：同一个任务上已经有一个活的 change 时，daemon 必须让开。
+ * 但要让开给谁，取决于名字——
+ * - 名字等于 daemon 的确定性命名（`goal-task`）：那是它自己上次没跑完的活，**继续做**（崩溃恢复）；
+ * - 别的名字：那是人（或另一条通道）正在做的，daemon 只标记「在飞」，不碰它。
+ */
+export async function inFlightTasks(projectRoot: string): Promise<Map<string, string>> {
+  const inFlight = new Map<string, string>();
+  for (const state of await listChangeStates(projectRoot)) {
+    if (state.archived) continue;
+    inFlight.set(state.goal + ':' + state.task, state.name);
+  }
+  return inFlight;
+}
+
 export async function deriveTodoList(projectRoot: string): Promise<QueueTask[]> {
   const tasks: QueueTask[] = [];
   for (const plan of await readPlans(projectRoot)) {
@@ -74,10 +92,11 @@ export async function deriveTodoList(projectRoot: string): Promise<QueueTask[]> 
 }
 
 export async function mergeTodoView(projectRoot: string): Promise<TodoView> {
-  const [derived, overlay, delivered] = await Promise.all([
+  const [derived, overlay, delivered, inFlight] = await Promise.all([
     deriveTodoList(projectRoot),
     readQueue(projectRoot),
     deliveredTasks(projectRoot),
+    inFlightTasks(projectRoot),
   ]);
 
   const overlayById = new Map((overlay?.tasks ?? []).map((task) => [task.goal + ':' + task.task, task]));
@@ -96,7 +115,25 @@ export async function mergeTodoView(projectRoot: string): Promise<TodoView> {
       merged.push({ ...task, ...runtime, delivered: false, source: 'overlay' });
       continue;
     }
-    merged.push({ ...task, delivered: false, source: 'derived' });
+    const claimed = inFlight.get(key);
+    if (claimed !== undefined && claimed !== changeNameForTask(task.goal, task.task)) {
+      // 有人（或另一条通道）正在这个任务上干活：标记在飞，daemon 让开，别让两个 agent 改同一块代码。
+      merged.push({
+        ...task,
+        status: 'running',
+        change: claimed,
+        verdict: 'in-flight',
+        delivered: false,
+        source: 'overlay',
+        // 刻意不给租约：它不是 daemon 的租约，不该被回收逻辑当成「崩溃遗留」抢回来。
+        lease_until: null,
+        owner: 'external-change',
+      });
+      overlayById.delete(key);
+      continue;
+    }
+    // daemon 自己上次没跑完的 change（确定性命名）：保持待办，下一轮由驱动按 phase 续作。
+    merged.push({ ...task, change: claimed ?? task.change ?? null, delivered: false, source: 'derived' });
     overlayById.delete(key);
   }
 
