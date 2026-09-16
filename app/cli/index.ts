@@ -64,7 +64,7 @@ import {
 } from '../commands/evolve.js';
 import { statusCommand } from '../commands/status.js';
 import { metricsCommand } from '../commands/metrics.js';
-import { daemonBudgetCommand, daemonStartCommand } from '../commands/daemon.js';
+import { daemonBudgetCommand, daemonQueueCommand, daemonStartCommand } from '../commands/daemon.js';
 import { goalSyncCommand } from '../commands/goal.js';
 import { initCommand } from '../commands/init.js';
 import { runCommand } from '../commands/run.js';
@@ -579,6 +579,13 @@ daemon
   .option('--reset', 'Reset used budget to zero')
   .action(async (targetPath = '.', options) => {
     await daemonBudgetCommand(targetPath, options);
+  });
+
+daemon
+  .command('queue <action> [path]')
+  .description('Rebuild the todo list from facts (rebuild) or drop the runtime overlay (reset)')
+  .action(async (action, targetPath = '.') => {
+    await daemonQueueCommand(action, targetPath);
   });
 
 const context = program.command('context').description('Project context commands');

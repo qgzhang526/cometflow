@@ -4,6 +4,7 @@ import type { AgentRunner } from '../../platform/agents/types.js';
 import { addBudgetUsage, Budget, readBudgetUsage } from './budget.js';
 import { runFlowRun } from './flow-run.js';
 import { changeNameForTask, runTaskThroughChange } from './daemon-run-change.js';
+import { mergeTodoView } from './daemon-todo.js';
 import { idleGovernorAllows, type SchedulerMode } from './idle-governor.js';
 import { buildRollbackGuidance, captureGitSafetySnapshot } from './git-safety.js';
 import {
@@ -154,7 +155,12 @@ export async function runDaemonLoop(options: DaemonLoopOptions): Promise<void> {
   }
   const budget = new Budget({ budgetMs: remainingMs });
   const intervalMs = options.intervalMs ?? 60_000;
-  let queue = (await readQueue(options.projectRoot)) ?? (await buildQueueFromPlans(options.projectRoot));
+  // S3：待办由事实推导（plans 的 frozen/approved 减去已归档 change），再叠加运行时覆盖。
+  // `queue.json` 从此只是「覆盖 + 上次快照」，不再决定「该不该跑」。
+  let queue: SchedulerQueue = {
+    schema: 'cometflow.queue.v1',
+    tasks: (await mergeTodoView(options.projectRoot)).tasks,
+  };
 
   // 启动时先回收：上一次进程可能崩在 running 上。
   const startup = reclaimExpiredLeases(queue, { maxAttempts });

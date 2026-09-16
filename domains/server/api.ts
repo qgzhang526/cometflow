@@ -94,9 +94,11 @@ import {
   supportedBundlePlatforms,
 } from '../bundle/bundle-service.js';
 import { evaluateHook, type HookEvent } from '../guard/hook-guard.js';
-import { buildQueueFromPlans, nextQueuedTask, readQueue } from '../scheduler/queue.js';
+import { nextQueuedTask } from '../scheduler/queue.js';
+import type { SchedulerQueue } from '../scheduler/queue.js';
 import { readBudgetUsage } from '../scheduler/budget.js';
 import { readDaemonState } from '../scheduler/daemon-state.js';
+import { mergeTodoView, rebuildQueue, resetQueue } from '../scheduler/daemon-todo.js';
 import { runLocalEval } from '../eval/eval-service.js';
 import { collectFindings } from '../gates/findings.js';
 import { readMetricsGate } from '../gates/metrics-gate.js';
@@ -1461,10 +1463,11 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
 
     // ---- 调度 / 资产 / 写入门禁（W5：把 8 面板之外的资产纳入界面）----
     if (segments[0] === 'scheduler' && segments[1] === 'queue' && method === 'GET') {
-      const queue = await readQueue(root);
-      // 没有运行过 daemon 时队列文件不存在：用「按已冻结计划推导的待办」给出可用视图，
-      // 而不是让用户对着空页面猜。
-      const derived = await buildQueueFromPlans(root);
+      // S3：待办由事实推导（plans 的 frozen/approved 减去已归档 change），再叠加运行时覆盖。
+      // `tasks` 是给界面的合并视图；`queue`（覆盖）与 `derived`（推导）保留给对账与脚本。
+      const view = await mergeTodoView(root);
+      const queue = view.overlay;
+      const derived: SchedulerQueue = { schema: 'cometflow.queue.v1', tasks: view.derived };
       const config = await readProjectConfig(root);
       // 预算用量是跨重启累计的：只读展示它，「改/重置」仍走 CLI `daemon budget --reset`。
       const budget = await readBudgetUsage(root);
@@ -1472,13 +1475,27 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
       // 读不到就是从未跑过 daemon，界面据此显式说明，而不是拿空队列糊弄。
       const daemon = await readDaemonState(root);
       sendOk(res, {
+        tasks: view.tasks,
         queue,
         derived,
-        next: nextQueuedTask(queue ?? derived),
+        next: nextQueuedTask({ schema: 'cometflow.queue.v1', tasks: view.tasks }),
         scheduler: config.scheduler ?? null,
         budget,
         daemon,
       });
+      return true;
+    }
+    // 队列维护（S3）：把「手工删 queue.json」升级成有语义的动作，与 CLI `daemon queue` 同源。
+    if (segments[0] === 'scheduler' && segments[1] === 'queue' && segments[2] === 'rebuild' && method === 'POST') {
+      const view = await rebuildQueue(root);
+      jobs.stateChanged(projectId, '/api/scheduler/queue');
+      sendOk(res, { tasks: view.tasks, queued: view.tasks.filter((task) => task.status === 'queued').length });
+      return true;
+    }
+    if (segments[0] === 'scheduler' && segments[1] === 'queue' && segments[2] === 'reset' && method === 'POST') {
+      const view = await resetQueue(root);
+      jobs.stateChanged(projectId, '/api/scheduler/queue');
+      sendOk(res, { tasks: view.tasks, queued: view.tasks.filter((task) => task.status === 'queued').length });
       return true;
     }
     if (segments[0] === 'skills' && segments.length === 1 && method === 'GET') {

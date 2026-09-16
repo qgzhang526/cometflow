@@ -126,7 +126,13 @@ export async function runTaskThroughChange(options: RunTaskThroughChangeOptions)
             '验收未通过（' +
             verified.verdicts.filter((verdict) => verdict.result !== 'passed').length +
             ' 项未过' +
-            (blocked ? '；已达修复上限，change 置 blocked' : '') +
+            (blocked
+              ? '；已达修复上限，change 置 blocked → 看 changes/' +
+                change +
+                '/verification.md，改完用 cometflow change unblock ' +
+                change +
+                ' 重开'
+              : '；将按尝试上限重试，细节见 changes/' + change + '/verification.md') +
             '）',
           // blocked 说明「同一失败结论反复出现」，重跑无意义；普通不过则留给 attempts 重试。
           needsHuman: blocked,
@@ -163,7 +169,10 @@ export async function runTaskThroughChange(options: RunTaskThroughChangeOptions)
         change,
         phase: state?.phase ?? null,
         archived: false,
-        detail: 'spec 基线冲突：' + error.conflicts.map((conflict) => conflict.path).join(', '),
+        detail:
+          'spec 基线冲突（' +
+          error.conflicts.map((conflict) => conflict.path).join(', ') +
+          '）→ 选 rebase（接受新基线）或建 reconciliation change（ADR 0004），不静默覆盖',
         needsHuman: true,
       };
     }

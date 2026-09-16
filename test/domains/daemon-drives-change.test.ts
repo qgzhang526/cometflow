@@ -173,5 +173,40 @@ describe('daemon 驱动 change（S1）', () => {
     expect(outcome.archived).toBe(false);
     // 卡在归档前的基线冲突：canonical spec 在 change 存续期间被改过，不能静默覆盖（ADR 0004）。
     expect(outcome.verdict).toBe('spec-conflict');
+    // 人工出口要写在结论里（日志 / 状态投影 / 界面都显示同一句）。
+    expect(outcome.detail).toContain('reconciliation');
+  });
+
+  it('验收不过 → 回到 queued 重试，并按上限停机；两次的结论都留在账本里', async () => {
+    // 把验收 check 改成恒失败：builder 成功、验收不过——这正是「不能再按退出码判成败」的场景。
+    await fs.writeFile(
+      path.join(root, 'specs', 'core', 'spec.md'),
+      SPEC.replace('node -e "process.exit(0)"', 'node -e "process.exit(1)"'),
+    );
+    await freezePlan();
+
+    await runDaemonLoop({
+      projectRoot: root,
+      agentId: 'mock',
+      mode: 'always',
+      runner: mockRunner(),
+      intervalMs: 0,
+      maxAttempts: 2,
+    });
+
+    const queue = await readQueue(root);
+    const task = queue?.tasks.find((entry) => entry.id === 'G1:T1');
+    expect(task?.status).toBe('failed');
+    expect(task?.attempts).toBe(2);
+    expect(task?.verdict).toBe('verify-failed');
+    // change 没归档、停在 build，人可以接手；账本里留着验收结论。
+    const state = await readChangeState(root, changeNameForTask('G1', 'T1'));
+    expect(state.archived).toBe(false);
+    expect(state.phase).toBe('build');
+    const verification = await fs.readFile(path.join(root, 'changes', 'G1-T1', 'verification.md'), 'utf8');
+    expect(verification).toContain('failed');
+    // 状态投影里能看到「为什么停」：attempts 用尽 → failed，停机原因是队列跑空。
+    const daemon = await readDaemonState(root);
+    expect(daemon?.last_task?.verdict).toBe('verify-failed');
   });
 });
