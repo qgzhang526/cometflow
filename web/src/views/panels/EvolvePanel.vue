@@ -48,6 +48,9 @@
           批准
         </button>
         <button :disabled="busy || proposal.status !== 'ready-for-review'" @click="startReview(proposal.name, 'reject')">驳回</button>
+        <button class="ghost" :disabled="rollbackBusy === proposal.name" @click="openRollback(proposal.name)">
+          回滚指引
+        </button>
       </div>
     </div>
   </div>
@@ -66,6 +69,17 @@
       <button class="primary" :disabled="busy" @click="confirmReview">确认</button>
     </template>
   </ModalCard>
+
+  <ModalCard v-if="rollback !== null" :title="'回滚指引 · ' + rollback.name" @close="rollback = null">
+    <p class="muted">
+      与 <code>cometflow evolve rollback &lt;name&gt;</code> 同源的投影（只读，不改任何状态）：
+      approved 之后要撤销，按下面的步骤在 git 里回退，并把提案状态与评审记录一并处理。
+    </p>
+    <pre class="mdblock">{{ rollback.lines.join('\n') }}</pre>
+    <template #footer>
+      <button @click="rollback = null">关闭</button>
+    </template>
+  </ModalCard>
 </template>
 
 <script setup lang="ts">
@@ -77,7 +91,7 @@ import { refreshCounter } from '../../composables/useRefresh';
 import { useJobsStore } from '../../stores/jobs';
 import { useProjectStore } from '../../stores/project';
 import { useToastStore } from '../../stores/toasts';
-import type { EvolutionProposal, EvolutionStatus, JobRecord } from '../../api/types';
+import type { EvolveRollbackResponse, EvolutionProposal, EvolutionStatus, JobRecord } from '../../api/types';
 import { relativeTime } from '../../utils/format';
 
 const project = useProjectStore();
@@ -91,6 +105,23 @@ const busy = ref(false);
 const verifyingName = ref('');
 const includeEval = ref(false);
 const review = ref<{ name: string; action: 'approve' | 'reject'; note: string; commits: string; reason: string } | null>(null);
+const rollback = ref<{ name: string; lines: string[] } | null>(null);
+const rollbackBusy = ref('');
+
+/** 回滚指引是纯投影：approve 之后想撤销，界面至少要把「怎么做」给出来，而不是让人去翻 CLI。 */
+async function openRollback(name: string): Promise<void> {
+  rollbackBusy.value = name;
+  try {
+    const data = await project.projectApi<EvolveRollbackResponse>(
+      '/evolutions/' + encodeURIComponent(name) + '/rollback',
+    );
+    rollback.value = { name: data.name, lines: data.lines };
+  } catch (error) {
+    toasts.error('读取回滚指引失败', errorMessage(error));
+  } finally {
+    rollbackBusy.value = '';
+  }
+}
 
 function toneFor(status: EvolutionStatus): 'ok' | 'warn' | 'err' | 'gray' | 'brand' {
   if (status === 'approved') return 'ok';

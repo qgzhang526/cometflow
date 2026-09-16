@@ -122,6 +122,39 @@ describe('scheduler / assets / guard API', () => {
     expect(body.data.error).toBeNull();
   });
 
+  // C12：分发从「回 CLI」变成一次点击，但仍然保留预告环节。
+  it('previews a bundle distribution, then writes it on confirmation', async () => {
+    const preview = await post<{
+      platform: string;
+      skillsRoot: string;
+      items: Array<{ name: string; target: string; overwritten: boolean }>;
+      written: string[];
+    }>('/bundles/distribute', { platform: 'opencode' });
+
+    expect(preview.status).toBe(200);
+    expect(preview.body.data.platform).toBe('opencode');
+    expect(preview.body.data.skillsRoot.replace(/\\/gu, '/')).toContain('.opencode/skills');
+    // 预告不落盘：这次调用不该写任何目录。
+    expect(preview.body.data.written).toEqual([]);
+    expect(preview.body.data.items.length).toBeGreaterThan(0);
+    const firstTarget = preview.body.data.items[0].target;
+    expect(await fs.access(firstTarget).then(() => true, () => false)).toBe(false);
+
+    const done = await post<{ written: string[] }>('/bundles/distribute', { platform: 'opencode', dryRun: false });
+    expect(done.status).toBe(200);
+    expect(done.body.data.written.length).toBe(preview.body.data.items.length);
+    // 执行后再看一次预告：这次每一项都已存在（会被替换），语义与 CLI 的 rm -rf + cp 一致。
+    const again = await post<{ items: Array<{ overwritten: boolean }> }>('/bundles/distribute', { platform: 'opencode' });
+    expect(again.body.data.items.every((item) => item.overwritten)).toBe(true);
+  });
+
+  it('rejects an unknown bundle platform', async () => {
+    const bad = await post<unknown>('/bundles/distribute', { platform: 'not-a-platform' });
+    expect(bad.status).toBe(400);
+    expect(bad.body.error?.code).toBe('unknown-platform');
+    expect(bad.body.error?.message).toContain('opencode');
+  });
+
   it('previews write guard decisions without touching the working tree', async () => {
     // .cometflow 是机器状态：任何阶段都不允许写。
     const machine = await post<{ decision: { allowed: boolean; reason: string } }>('/hook/check', {

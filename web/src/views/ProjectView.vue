@@ -5,6 +5,13 @@
     <span class="muted">{{ project.current?.path }}</span>
     <RouterLink to="/">切换项目</RouterLink>
     <span class="grow" />
+    <!-- 项目健康徽章（008 §5.1）：数据来自与总览同一份 findings，不另拉一次。 -->
+    <RouterLink :to="'/project/' + projectId + '/overview'">
+      <StatusBadge
+        :tone="findings.errorCount > 0 ? 'err' : findings.warningCount > 0 ? 'warn' : 'ok'"
+        :text="findings.errorCount + ' error / ' + findings.warningCount + ' warning'"
+      />
+    </RouterLink>
     <StatusBadge
       v-for="agent in project.agents"
       :key="agent.id"
@@ -32,7 +39,9 @@
     <main class="content">
       <div v-if="project.error" class="card finding">[error] {{ project.error }}</div>
       <PanelBoundary @retry="panelEpoch += 1">
-        <component :is="activeComponent" :key="activePanel + ':' + panelEpoch" />
+        <!-- key 里带 projectId：切换项目时面板必须重新挂载，否则面板自己取的数据（findings/metrics/
+             维护预告、变更列表……）会停在上一个项目的快照上，而 store 里的 status/doctor 已经换了。 -->
+        <component :is="activeComponent" :key="projectId + ':' + activePanel + ':' + panelEpoch" />
       </PanelBoundary>
     </main>
   </div>
@@ -48,6 +57,7 @@ import StatusBadge from '../components/StatusBadge.vue';
 import PanelBoundary from '../components/PanelBoundary.vue';
 import { PANELS, type PanelId } from '../router';
 import { useJobsStore } from '../stores/jobs';
+import { useFindingsStore } from '../stores/findings';
 import { useProjectStore } from '../stores/project';
 import { useToastStore } from '../stores/toasts';
 import { errorMessage } from '../api/client';
@@ -68,6 +78,7 @@ const props = defineProps<{ id: string; panel?: string }>();
 const route = useRoute();
 const project = useProjectStore();
 const jobs = useJobsStore();
+const findings = useFindingsStore();
 const toasts = useToastStore();
 
 const COMPONENTS: Record<PanelId, Component> = {
@@ -97,8 +108,9 @@ watch(
   async (id) => {
     try {
       await project.open(id);
-      await jobs.load();
+      await Promise.all([jobs.load(), findings.load(id)]);
     } catch (error) {
+      findings.reset();
       toasts.error('打开项目失败', errorMessage(error));
     }
   },

@@ -9,9 +9,18 @@
 
 ### 1.1 一句话概括
 
-CometFlow 是一个**全时运行的自主 Agent 开发平台**。
+CometFlow 是一个**规格驱动开发（SDD）的自主 Agent 开发平台**。
 
-人类只写两样东西——**项目使命**（`COMETFLOW.md`）和**项目级 spec**（`specs/`）；剩下的拆解、实现、验证、归档、无人值守推进、评估与进化，由 CometFlow 驱动外部编码 Agent（opencode / claude-code 等）完成。
+人类**必须**写的只有 `COMETFLOW.md`：使命 + 每个目标的「范围 / 成功标准 / 非目标」。它派生两件事——`范围:` 里的 capability 决定有哪些 `specs/<capability>/spec.md`，spec 里每个 anchor 决定一个任务。
+
+`specs/` 的**内容**（anchor 与 acceptance）可以由人写，也可以由 Agent 起草：缺 spec 时 `plan generate` 会发一条 `spec-authoring` 任务，`spec scaffold --capability <name>` 只给骨架，`spec import` 从表格导入。定稿要过计划阶段的三道命令——`plan review / approve / freeze`，其中 `freeze` 才把 acceptance 与 spec hash 固化下来。
+这三条机器产出路径都会写上 `status: draft`：**草案可以被阅读、被拆解，但不能被 `plan freeze` 绑定成契约**，
+确认后运行 `cometflow spec approve <spec-file>` 定稿（缺省没有这个字段的老 spec 视为已定稿）。
+
+剩下的事由两种执行者分担：
+
+- **CometFlow 自己（确定性代码）**：`context / goal sync`、`spec validate / lock / index`、**`plan generate / validate / freeze`**、findings / metrics / 门禁判定。**拆解就在这一步，不调用 Agent**——它按「capability → spec anchor」一对一派生任务。
+- **外部编码 Agent（opencode / claude-code 等）**：`change run` 的实现（Builder）、`change verify` 的独立复核（Verifier）、`cometflow run` 试跑、`eval` 的可选 LLM judge；再由调度器（daemon）串成无人值守推进、评估与进化。
 
 它由两个既有项目融合而来：
 
@@ -100,7 +109,7 @@ cometflow eval / evolve / daemon   # 评估、进化、无人值守持续推进
 | 文件 / 目录 | 内容 | 谁写 |
 |---|---|---|
 | `COMETFLOW.md` | 使命、技术栈、运行环境、任务目标（人类唯一入口） | 人类 |
-| `specs/**` | 项目级 spec（12 类 kind） | 人类（Agent 只能产出 `[DRAFT]`，批准后才是正式 spec） |
+| `specs/**` | 项目级 spec（12 类 kind） | 人类定稿；内容可由人类或 Agent 起草（`spec scaffold` 骨架 / `spec-authoring` 任务 / `spec import`）。三条机器产出路径写出的文件带 `status: draft`，**草案不能参与 `plan freeze`**，要先 `cometflow spec approve <spec-file>`（缺省无该字段视为已定稿，存量项目不受影响） |
 | `.cometflow/config.yaml` | 项目配置 | 人类 / CLI / Web |
 | `.cometflow/project-context.yaml` | 技术栈/运行环境投影 | `context sync`（机器生成） |
 | `.cometflow/goals/*.yaml` | 目标投影 | `goal sync`（机器生成） |
@@ -109,6 +118,7 @@ cometflow eval / evolve / daemon   # 评估、进化、无人值守持续推进
 | `.cometflow/init-manifest.yaml` | 每个 spec kind 的 present/deferred/absent | `init` / `spec scaffold` |
 | `.cometflow/spec-index/*.yaml` | models/apis/flows/errors/config 投影 | `spec index` |
 | `.cometflow/runtime/queue.json` | 调度队列 | `daemon` |
+| `.cometflow/runtime/daemon-state.json` | 调度器最近一次决策的**投影**（只读展示在调度面板） | `daemon` |
 | `.cometflow/runtime/safety.bundle` | git 快照（可选） | `daemon --safety-bundle` |
 | `.cometflow/eval-report.json` | 评估报告 | `eval` |
 | `.cometflow/skills/<name>/` | 已安装 Skill | `skill add/import` |
@@ -330,6 +340,12 @@ my-project/
 | `pages` | 前端页面/交互规格 | `specs/pages.md` |
 
 > `capability` 不由 `init` 生成，也不会由工具凭空撰写内容：它由 `plan generate` 的 spec-authoring 任务起草，或由 `spec scaffold --capability <name>` 建骨架后填写。对照已定标准（工标/接口规范）开发时，直接把标准里的接口与工作流誊写进这些 spec 作为唯一真相源，再 `spec lock` 冻结、`plan generate` 派生实现任务。
+>
+> 起草类任务（`kind: spec-authoring`）没有 acceptance，因此它**不适用**「验收必须先冻结」那条：
+> `change transition <name> confirm-acceptance` 对它直接放行。它真正的验收条件是产物本身——
+> `change verify` / `change archive` 会要求 `specs/<capability>/spec.md` 已存在且 `spec validate` 无 error
+> （产物应带 `status: draft`，由人确认后 `spec approve` 定稿）。提示词里会带上该 goal 的范围、
+> 成功标准与非目标，agent 不再是「凭一行标题写契约」。
 > 「本项目不需要」也会留痕：`init-manifest.yaml` 记录 pending 状态，让 `spec validate` 能区分「有意缺席」与「遗漏」。
 
 ### 4.2 增量补 spec kind
@@ -339,6 +355,7 @@ cometflow spec scaffold .                          # 按技术栈推断，补缺
 cometflow spec scaffold . --interactive            # 逐项问答
 cometflow spec scaffold --list .                   # 只列出各 kind 状态
 cometflow spec scaffold . --capability order       # 建 specs/order/spec.md 骨架（可重复）
+cometflow spec approve specs/order/spec.md          # 草案 → 定稿（之后才能 plan freeze）
 cometflow spec scaffold . --capability order --capability payment
 ```
 
@@ -379,6 +396,8 @@ order,GET,/api/orders/{id},机机,,orderId;status,NOT_FOUND,internal/order
 - 生成的文件带 `capability:` / `module:` front-matter，`module` 会成为拆解时任务的代码边界（不填会得到 `missing-module-declaration` 警告）。
 - 默认**不覆盖**已存在的 spec（加 `--force` 覆盖），幂等可重跑。
 - 导入后自动跑 `spec validate`：字段/错误码/API 引用对不上会直接报出来。
+- 生成的文件带 `status: draft`：导入物是机器誊写的，对照原始标准确认后
+  `cometflow spec approve specs/<模块>/spec.md` 才算定稿（草案不能参与 `plan freeze`）。
 
 #### Word（.docx）
 
@@ -758,6 +777,10 @@ cometflow plan freeze     <goal> [path]     # → frozen
 cometflow plan trace      <goal> [path]
 ```
 
+`plan generate` / `plan regenerate` 之后是否自动往下走，由 `.cometflow/config.yaml` 的
+`plan_review` 决定：`auto` 在机器校验通过后自动 `review` + `approve`，`human` 停在 draft，
+`high-risk`（规则未实现）与未知值按 `human` 兜底。命令会把结论打成一行 `plan review: …`。
+
 ### 6.2 生成规则
 
 `plan generate` 读取 goal 的 `scope`（capability 列表）与 `specs/`：
@@ -810,8 +833,11 @@ cometflow plan trace G1 .
 
 输出 goal/status 与每个任务的 capability、spec、anchor、acceptance、status。
 
-> 注：`.cometflow/config.yaml` 里的 `plan_review`（`auto | high-risk | human`）与
-> `default_workflow` 目前只作为配置记录保存，CLI 尚未按它们自动分支；review/approve 始终是显式命令。
+> 注：`.cometflow/config.yaml` 里的 `plan_review`（`auto | high-risk | human`）**已生效**于
+> `plan generate` / `plan regenerate`：`auto` 在机器校验通过后自动 review + approve（校验有 error 则停在 draft）；
+> `human` 停在 draft 等显式命令；未配置、值不认识、或配了 `high-risk`（高风险识别规则尚未实现）一律按 `human` 兜底。
+> 无论哪种策略，`plan review` / `plan approve` / `plan freeze` 仍然可以手动敲。
+> `default_workflow` 目前仍只作为配置记录保存。
 
 ---
 
@@ -885,6 +911,10 @@ acceptance:
 两种模式都会把结果写入 `changes/<name>/verification.md`。
 
 ### 7.4 Classic 工作流
+
+> **弃用中（2026-09-16 决策）**：Classic 与 native change 并存属于历史包袱，产品方向是**只保留 native**。
+> 界面已经移除 Classic 相关内容（资产面板不再有该页签）；CLI 与 `GET /api/projects/<id>/classic`
+> 暂时保留以便存量项目过渡，后续版本会一并移除。新项目请直接用 native change。
 
 用于更传统的阶段式流程：
 
@@ -1144,7 +1174,71 @@ token: <random>
   （warn 必须带未来到期日、fail 不许留到期日），界面不是第二条写入通路。
   多文件事务（归档应用提案 spec、计划冻结、恢复历史版本）整段持 `.cometflow/runtime/lock`：
   取不到即 **409 `lock-held`**（说明持有者），`doctor` 报告锁状态，`doctor --force-unlock` 才清理。
+- **总览（Overview）的三块投影**：界面不再有「后端算出来了、但只能敲命令」的空白。
+  - **问题清单**：与 `cometflow gate check . --findings` **同一份投影**（spec verify + doctor 两个来源，
+    按 `code + subject` 去重，同一个判定不会显示两次），按级别分组并给出「去处理」跳转；
+    顶部徽章由 error 数驱动（不再是只看 doctor 一个来源）。
+  - **质量与健康度**：与 `cometflow metrics . --json` 同源的指标（首次通过率、check 覆盖、
+    验收可执行率、anchor 覆盖率、漂移、版本链），并**把当前生效的门禁阈值一起显示**——
+    未配置时显示内置方向表，避免出现「看不见的约束」。
+  - **维护动作**：`doctor --clean-temp` / `--clean-jobs` / `--force-unlock` 的界面入口。流程固定为
+    「预告 → 二次确认 → 执行」：确认框显示将删除的文件/任务数量与锁的持有者（pid / host / action / 起始时间），
+    并把该数字原样回传，服务端在执行前**重新核对**——不一致返回 **409 `stale-maintenance-preview`**，
+    且**一个字节都不删**；执行成功后返回新的 doctor 结论，界面直接采用。
+    同一张卡还带 **change 运行证据**行（等价 `change gc --apply`）：按 change 列出占用（前 3）、可回收项数与体积、
+    候选路径，确认后只回收 `.cometflow/runtime` 下**可重新推导**的中间产物（归档事务的 staged/backup、
+    已归档 change 的实现范围基线）；超过阈值的 journal 只轮转不删除。同样有预告值护栏——不匹配时
+    连轮转都不做。
+- **current-change 指针**：多个活跃 change 时写入门禁会 `fail closed`（reason `multiple-active-changes`）。
+  Changes 面板顶部显示当前指针，每行可「设为当前」、指针本身可「清除」（等价 `cometflow change select`）；
+  资产面板的 Hook 预览在这两种拒绝原因（`multiple-active-changes` / `stale-current-change`）下就地给出
+  change 下拉与「设为当前并重新检查」，把「被拒」变成一步可操作的动作。
+- **Evolve 回滚指引**：每个提案卡有「回滚指引」按钮，弹窗内容与 `cometflow evolve rollback <name>` 同源
+  （git tag / git show / git revert 步骤 + 当前状态），是纯投影、不改任何状态。
+- **写保护状态（ADR 0023）**：资产面板的 Hook 页签顶部列出各平台的支持性、条目数、守卫脚本是否存在/漂移、
+  以及守卫实际会调用的 CLI 能否解析。`claude-code` 是唯一支持安装的平台，另外两个显示「暂不支持安装」
+  而不是「未安装」；安装与卸载仍走 CLI（会改机器配置，界面只做状态与判定预览）。
+- **门禁可见性（ADR 0025）**：总览「门禁」卡给出 `gate check` 的逐项结论（spec validate / spec verify /
+  doctor / change gc dry-run / plan validate / metrics 阈值与基线），以及本地提交门禁的安装状态
+  （是否 git 仓库、宿主 plain/husky/lefthook、是否链式、内容是否漂移、`core.hooksPath` 指向）。
+  「现在能不能提交」和「这个结论会不会被自动执行」是同一个问题的两半，所以放在同一张卡里。
+- **任务追溯**：Plans 面板的「追溯」按钮展开「任务 → spec 绑定 → 验收项 → 状态」表
+  （未绑定 spec、无验收项的任务显式标注），并附一份与 `cometflow plan trace <goal>` 逐字相同的文本清单。
+- **锚点平铺**：Specs 面板「验收覆盖」页签下半部分列出**全部锚点**（不只是有验收项的）：
+  kind、有效验收项与其中可执行的数量、绑定它的 frozen/approved 任务；未绑定与无验收项分别标注。
+  口径与 `cometflow spec anchors`、指标里的 `anchor_coverage_rate` 同源。
+- **表格导入**：Specs 面板「导入」页签支持粘贴 CSV / TSV / Markdown 表格（Excel 导出直接可用），
+  先「预览」再「导入」：预览只解析、不落盘，并列出会新写的能力、因已存在而跳过的能力、能力名非法的项与解析问题；
+  勾选「覆盖」才会重写已有 capability spec。解析与分组规则与 `cometflow spec import <file>` 是同一份实现。
+- **顶栏健康徽章**：顶栏显示当前项目的 `N error / M warning`，数据与总览「问题清单」是同一份（共享 store），
+  点击回到总览。打开项目时就加载，切换项目不会残留上一个项目的数字。
+- **Eval 历史与对比**：评估面板列出该项目所有带报告的 `eval-run`（任务中心持久化，重启后仍在），
+  可任选一轮作为「对比轮」，得到 Pass@k / Pass^k / 通过轮次的差值与「结论翻转」的任务清单。
+- **目标单条编辑/删除**：「目标投影」页签每行有「编辑 / 删除」，只改 `COMETFLOW.md` 里对应的 `### Gn` 块
+  （删除前弹窗显示将被删除的原文），保存后自动 `goal sync`；其它目标与段落不动。
+- **调度预算**：调度面板显示跨重启累计的「已用预算」（`runtime/budget.json`）；重置走
+  `cometflow daemon budget . --reset`（界面只读）。
+- **调度器最近一次决策**（C5）：调度面板顶部读 `.cometflow/runtime/daemon-state.json`
+  （daemon 在每个决策点写下的投影），显示 mode / agent / 轮次 / pid / 最近活动时间、
+  「最近决策跑没跑 + 原因 + 针对哪个任务」、上一次任务的结论与耗时、队列计数与预算快照。
+  从未跑过 daemon 时显式说明「这台机器上没写过状态投影」，而不是拿空队列糊弄；
+  面板也明说「是不是还在跑」不由界面猜——时间戳是最后一次写状态的时间，pid 只是线索。
 - **Specs 面板 6 个页签**：12-kind 状态、脚手架、Spec 文件、验收覆盖、版本、影响与门禁。
+- **脚手架页签的 capability 入口**：root kind 由项目类型推导，capability 不由 init 生成、也无法推断，
+  所以在同一页签里可以点名生成 `specs/<capability>/spec.md` 骨架（逗号分隔，可多个）。
+  幂等：已存在的文件只报「未覆盖」，非法名字（含路径分隔符 / 隐藏文件）单独列出且不落盘。
+- **Spec 文件页签的定稿状态**：每个 spec 显示「草案 / 已定稿」；草案带「批准定稿」按钮
+  （等价 `cometflow spec approve <spec-file>`，带二次确认）。草案在 `plan freeze` 时会被拒，
+  报错信息直接给出该命令。
+- **资产页签的 bundle 分发**（C12）：Bundle 页签按平台列出「分发到 &lt;平台&gt;」按钮
+  （平台列表来自 `GET /bundles`，界面不另存一份）。点击是**预告 → 确认 → 执行**：
+  先用 `dryRun` 拿到每个 skill 的目标路径与「是否会被替换」，确认框里逐行列出并在有覆盖时
+  点明「会被整个替换」，确认后才落盘。分发前会先 `compile` 一遍——清单读不出来时宁可在这里
+  失败，也不要在「一半拷进去了」的状态下退出。
+- **设置页的「一次性试跑」**：等价 `cometflow run [path] --agent <id>`——把 `COMETFLOW.md` 与 `specs/`
+  交给一个 agent 跑一轮，用来确认「agent + 这个项目的上下文」能跑通。它**不绑 change / task / acceptance**，
+  产物不进验收账本；日志走任务中心（`job.kind = flow-run`，刷新不丢）。界面会在执行前二次确认并写明
+  「写入不受 change 约束，多个活跃变更时可能被写保护守卫拒绝」。
 - **引用图页签**（W1 之后新增，共 7 个）：按 009 的引用方向表聚合 kind 之间的引用，
   点击可下钻 kind → 文件 → anchor 并列出该文件的逐条引用与位置；未解析引用红色标注，
   且与 `spec validate` 同源（图上红的就是门禁会报的）。对应 CLI：`cometflow spec graph [--json]`（只做投影，不设退出码）。
@@ -1211,7 +1305,7 @@ pnpm build                   # tsc（CLI）+ vite build（Web）
 | GET | `/api/projects/<id>/config/project` | 项目层覆盖（不含全局默认） |
 | GET | `/api/projects/<id>/agents` | Agent 可用性 |
 | GET | `/api/projects/<id>/init-manifest` | 12-kind 状态 |
-| POST | `/api/projects/<id>/spec/scaffold` \| `/spec/validate` | 脚手架 / 校验 |
+| POST | `/api/projects/<id>/spec/scaffold` \| `/spec/validate` | 脚手架 / 校验（脚手架可带 `{capabilities: string[]}` 点名 capability 骨架；缺 stack 时用项目上下文推导 root kind） |
 | GET | `/api/projects/<id>/spec-index` | spec 投影 |
 | GET/POST | `/api/projects/<id>/specs` | 列 spec / 新建 spec 文件 |
 | GET/PUT | `/api/projects/<id>/specs/content?path=...` | 读写单个 spec |
@@ -1225,16 +1319,31 @@ pnpm build                   # tsc（CLI）+ vite build（Web）
 | GET | `/api/projects/<id>/spec/proposals[?path=]` | 提案索引（带 path 时回正文），用于反查与对比 |
 | POST | `/api/projects/<id>/spec/proposal` | 存为提案（只允许 shape 阶段的 change；不改 canonical spec） |
 | POST | `/api/projects/<id>/spec/lock` | 建立基线：登记版本 + 刷新 spec-lock |
+| POST | `/api/projects/<id>/spec/approve` | 草案 → 定稿（`{path}`；等价 `spec approve`，改完刷新版本与 lock） |
+| POST | `/api/projects/<id>/bundles/distribute` | bundle 分发：`{platform, dryRun?}`；默认只回预告（目标路径 + 是否覆盖），`dryRun: false` 才落盘（等价 `bundle distribute`） |
 | POST | `/api/projects/<id>/spec/restore` | 恢复历史版本（覆盖前先给当前内容记一版） |
 | GET | `/api/projects/<id>/changes/<name>/scope` | 实现范围报告（归属解释 + 越界 + omission） |
 | GET | `/api/projects/<id>/changes/<name>/journal[?limit=]` | 审计流水（含崩溃收敛与轮转后的历史） |
 | GET | `/api/projects/<id>/changes/<name>/evidence` | 证据文件与提案 spec、未完成归档事务 |
 | POST | `/api/projects/<id>/changes/<name>/rebase` | 重新冻结到当前 spec 版本（409 = 不可 rebase） |
 | POST | `/api/projects/<id>/changes/<name>/unblock` | 解除停机（409 = 该 change 未停机） |
-| GET | `/api/projects/<id>/scheduler/queue` | 调度队列 + 推导视图 + 下一个待办 + 调度器参数 |
+| GET | `/api/projects/<id>/scheduler/queue` | 调度队列 + 推导视图 + 下一个待办 + 调度器参数 + `budget` + `daemon`（状态投影，从未跑过为 `null`） |
 | GET | `/api/projects/<id>/skills`、`/skills/<name>` | 已安装 skill 列表 / 单个 skill 详情（含 SKILL.md） |
 | GET | `/api/projects/<id>/bundles` | bundle manifest + 编译产物预览 + 支持平台 |
 | POST | `/api/projects/<id>/hook/check` | 写入门禁预览（与 `hook check` 同源） |
+| GET | `/api/projects/<id>/findings` | 统一 findings 投影（verify + doctor 两源、去重；与 `gate check --findings` 同源） |
+| GET | `/api/projects/<id>/metrics` | 度量报告 + 当前生效的门禁阈值（与 `metrics --json` 同源） |
+| GET | `/api/projects/<id>/maintenance` | 维护动作的只读预告：残留临时文件 / 任务证据 / 事务锁 |
+| POST | `/api/projects/<id>/project/evidence/clean` | 回收 change 运行证据（等价 `change gc --apply`；须回传预告值，不匹配 → 409 且什么都不做） |
+| POST | `/api/projects/<id>/project/doctor/clean-temp` \| `/clean-jobs` \| `/force-unlock` | 执行维护动作（须回传预告值；不匹配 → 409 且不删任何文件） |
+| GET/POST | `/api/projects/<id>/current-change` | 读写 current-change 指针（POST `{name}` 设定、`{name:null}` 清除；改指针 route 到 changes 面板刷新） |
+| GET | `/api/projects/<id>/evolutions/<name>/rollback` | 回滚指引（等价 `evolve rollback`，纯投影） |
+| GET | `/api/projects/<id>/hook/status` | 写保护安装状态（等价 `hook status`：条目、脚本漂移、守卫调用的 CLI 解析） |
+| GET | `/api/projects/<id>/gate` | 门禁判定（等价 `gate check`）+ 本地提交门禁安装状态（等价 `gate status`） |
+| GET | `/api/projects/<id>/spec/anchors` | 锚点平铺（等价 `spec anchors`：kind / 验收项 / 可执行数 / 绑定任务） |
+| POST | `/api/projects/<id>/run` | 一次性 agent 试跑（等价 `cometflow run`）：`{agent?, model?, timeoutMs?}` → 202 `{jobId, agent}`；未知 agent 400 |
+| POST | `/api/projects/<id>/spec/import` | 表格导入：`dryRun !== false` 只回预览（不落盘），否则写入（`{content, source?, module?, force?}`） |
+| GET | `/api/projects/<id>/plans/<goal>/trace` | 任务追溯（等价 `plan trace`：文本清单 + 结构化任务行） |
 | GET | `/api/projects/<id>/classic` | Classic change 只读列表 |
 | GET/POST | `/api/projects/<id>/plans`、`/plans/generate`、`/plans/regenerate` | 计划列表 / 生成 / 重生成 |
 | GET/POST | `/api/projects/<id>/plans/<goal>`、`/plans/<goal>/{validate,review,approve,freeze}` | 计划读写与状态推进 |
@@ -1449,7 +1558,7 @@ cometflow spec verify . --with-doctor  # 显式要求时，把 doctor 的发现�
 # .cometflow/config.yaml
 schema: cometflow.project.v1
 default_workflow: native        # 记录用字段
-plan_review: high-risk          # 记录用字段
+plan_review: high-risk          # 拆解审核策略；auto 自动 review+approve，high-risk 暂按 human 兜底
 agent: opencode                 # 默认 Agent
 model: deepseek-v4-flash        # 默认模型
 agents:                         # 按 Agent 覆盖模型

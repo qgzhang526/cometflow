@@ -100,6 +100,73 @@
       <p v-for="(note, index) in report.judge.notes" :key="index" class="muted">{{ note }}</p>
     </template>
   </div>
+
+  <div v-if="history.length > 0" class="card">
+    <div class="row">
+      <h2>历史与对比</h2>
+      <span class="grow" />
+      <span class="muted">{{ history.length }} 次评估（任务中心持久化，重启后仍在）</span>
+    </div>
+    <table>
+      <thead><tr><th>时间</th><th>结论</th><th>Pass@k</th><th>Pass^k</th><th>状态</th><th /></tr></thead>
+      <tbody>
+        <tr v-for="run in history" :key="run.id">
+          <td class="muted">{{ relativeTime(run.createdAt) }}</td>
+          <td>
+            <StatusBadge
+              :tone="evalOf(run)?.passed ? 'ok' : 'err'"
+              :text="evalOf(run)?.passed ? 'PASS' : 'FAIL'"
+            />
+          </td>
+          <td>{{ formatRate(evalOf(run)?.passAtKRate) }}</td>
+          <td>{{ formatRate(evalOf(run)?.passAllKRate) }}</td>
+          <td>
+            <StatusBadge v-if="run.id === activeJobId" tone="brand" text="当前" />
+            <StatusBadge v-else-if="run.id === compareId" tone="warn" text="对比轮" />
+            <span v-else class="muted">—</span>
+          </td>
+          <td>
+            <button class="ghost" :disabled="run.id === compareId" @click="compareId = run.id">设为对比轮</button>
+            <button class="ghost" :disabled="run.id === activeJobId" @click="compareId = run.id; activeJobId = run.id">
+              打开
+            </button>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+
+    <template v-if="comparison !== null">
+      <h3>两轮对比（对比轮 → 当前）</h3>
+      <table>
+        <thead><tr><th>指标</th><th>对比轮</th><th>当前</th><th>变化</th></tr></thead>
+        <tbody>
+          <tr v-for="row in comparison.rows" :key="row.label">
+            <td><b>{{ row.label }}</b></td>
+            <td>{{ row.before }}</td>
+            <td>{{ row.after }}</td>
+            <td>
+              <StatusBadge :tone="row.tone" :text="row.delta" />
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <template v-if="comparison.flipped.length > 0">
+        <h3>结论发生变化的任务</h3>
+        <table>
+          <thead><tr><th>任务</th><th>对比轮</th><th>当前</th></tr></thead>
+          <tbody>
+            <tr v-for="task in comparison.flipped" :key="task.name">
+              <td><b>{{ task.name }}</b></td>
+              <td><StatusBadge :tone="task.before ? 'ok' : 'err'" :text="task.before ? 'passed' : 'failed'" /></td>
+              <td><StatusBadge :tone="task.after ? 'ok' : 'err'" :text="task.after ? 'passed' : 'failed'" /></td>
+            </tr>
+          </tbody>
+        </table>
+      </template>
+      <p v-else class="muted">两轮之间没有任何任务改变结论。</p>
+    </template>
+    <p v-else class="muted">选一轮作为「对比轮」，就能看到与当前报告的逐项差异与翻转的任务。</p>
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -110,7 +177,8 @@ import { useJobsStore } from '../../stores/jobs';
 import { useProjectStore } from '../../stores/project';
 import { useToastStore } from '../../stores/toasts';
 import type { EvalReport } from '../../api/types';
-import { relativeTime } from '../../utils/format';
+import type { JobRecord } from '../../api/types';
+import { formatRate, relativeTime } from '../../utils/format';
 
 const project = useProjectStore();
 const jobs = useJobsStore();
@@ -118,6 +186,7 @@ const toasts = useToastStore();
 
 const activeJobId = ref<string | null>(null);
 const openTask = ref('');
+const compareId = ref<string | null>(null);
 
 const activeJob = computed(() => (activeJobId.value === null ? null : jobs.jobs[activeJobId.value] ?? null));
 const running = computed(() => activeJob.value?.status === 'queued' || activeJob.value?.status === 'running');
@@ -132,6 +201,69 @@ const jobLog = computed(() => {
   if (job.status === 'failed') return lines + '\n[failed] ' + (job.error ?? '');
   if (job.status === 'succeeded') return lines + '\n[succeeded]';
   return lines === '' ? '等待日志…' : lines;
+});
+
+/** 这个 job 的评估报告（没有报告的历史任务——比如失败的——不参与对比）。 */
+function evalOf(job: JobRecord): EvalReport | null {
+  return (job.result as { report?: EvalReport } | undefined)?.report ?? null;
+}
+
+/**
+ * 同一项目下带报告的历史评估。
+ *
+ * 任务中心本来就持久化这些 job（`runtime/jobs/`），所以「历史对比」不需要新端点，
+ * 只需要把已经存下来的报告按时间排开、算一次差异。
+ */
+const history = computed(() =>
+  jobs
+    .forProject(project.currentId)
+    .filter((job) => job.kind === 'eval-run' && evalOf(job) !== null)
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt)),
+);
+
+const compareJob = computed(() => (compareId.value === null ? null : jobs.jobs[compareId.value] ?? null));
+
+/** 两轮对比：比率类指标给百分比与差值的颜色方向，另附「结论翻转」的任务清单。 */
+const comparison = computed(() => {
+  const before = compareJob.value === null ? null : evalOf(compareJob.value);
+  const after = report.value;
+  if (before === null || after === null) return null;
+
+  const rateRow = (label: string, beforeValue: number, afterValue: number) => {
+    const delta = afterValue - beforeValue;
+    return {
+      label,
+      before: formatRate(beforeValue),
+      after: formatRate(afterValue),
+      delta: (delta >= 0 ? '+' : '') + (delta * 100).toFixed(1) + '%',
+      tone: (delta > 0 ? 'ok' : delta < 0 ? 'err' : 'gray') as 'ok' | 'err' | 'gray',
+    };
+  };
+  const countRow = (label: string, beforeValue: number, afterValue: number) => {
+    const delta = afterValue - beforeValue;
+    return {
+      label,
+      before: String(beforeValue),
+      after: String(afterValue),
+      delta: (delta >= 0 ? '+' : '') + delta,
+      tone: (delta > 0 ? 'ok' : delta < 0 ? 'err' : 'gray') as 'ok' | 'err' | 'gray',
+    };
+  };
+
+  const beforeByName = new Map(before.results.map((task) => [task.name, task]));
+  const flipped = after.results
+    .filter((task) => beforeByName.has(task.name) && beforeByName.get(task.name)!.passed !== task.passed)
+    .map((task) => ({ name: task.name, before: beforeByName.get(task.name)!.passed, after: task.passed }));
+
+  return {
+    rows: [
+      rateRow('Pass@k 率', before.passAtKRate, after.passAtKRate),
+      rateRow('Pass^k 率', before.passAllKRate, after.passAllKRate),
+      countRow('通过轮次（Pass@k）', before.passAtK, after.passAtK),
+      countRow('全通过轮次（Pass^k）', before.passAllK, after.passAllK),
+    ],
+    flipped,
+  };
 });
 
 /** 刷新页面后，从任务列表里找回最近一次 eval 的 job（结果随 job 一起返回）。 */

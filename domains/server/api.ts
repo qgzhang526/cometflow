@@ -3,13 +3,14 @@ import path from 'node:path';
 import { parse } from 'yaml';
 import { collectProjectStatus } from '../dashboard/collector.js';
 import { runDoctor } from '../dashboard/doctor.js';
-import { syncProjectContext } from '../project/context.js';
+import { loadProjectContext, syncProjectContext } from '../project/context.js';
 import { syncGoals } from '../goal/goal-sync.js';
 import type { GoalRecord } from '../goal/types.js';
 import { initializeProject } from '../project/init.js';
 import {
   detectKindNeeds,
   readInitManifest,
+  scaffoldCapabilities,
   scaffoldKinds,
   scaffoldProject,
   writeInitManifest,
@@ -19,14 +20,15 @@ import {
   mergeProjectConfigOverride,
   readProjectConfig,
   readProjectConfigOverride,
+  resolveModel,
   validateProjectConfig,
   writeProjectConfig,
 } from '../project/config.js';
 import type { ProjectConfig } from '../project/config.js';
 import { builtInAgentRunners, getBuiltInAgentRunner } from '../../platform/agents/registry.js';
-import { readTextFile } from '../../platform/fs/read-file.js';
+import { resolveAgentId, runFlowRun } from '../scheduler/flow-run.js';
+import { pathExists, readTextFile } from '../../platform/fs/read-file.js';
 import { listSpecEntries } from '../spec/spec-index.js';
-import { buildSpecIndex } from '../spec/spec-project.js';
 import { validateSpecs } from '../spec/spec-validate.js';
 import {
   readSpecBlob,
@@ -47,6 +49,7 @@ import { acquireLock, LockHeldError } from '../../platform/fs/file-lock.js';
 import { readCasConflicts, recordCasConflict, resolveConcurrencyPolicy } from '../project/concurrency.js';
 import { generateTaskPlan } from '../task-plan/task-plan-generate.js';
 import { validateTaskPlan } from '../task-plan/task-plan-validate.js';
+import { applyPlanReviewPolicy } from '../task-plan/plan-review-policy.js';
 import { freezeTaskPlan } from '../task-plan/task-plan-freeze.js';
 import { regenerateTaskPlan } from '../task-plan/task-plan-regenerate.js';
 import {
@@ -83,16 +86,55 @@ import {
 } from '../evolution/evolution-service.js';
 import { listClassicStates } from '../classic/classic-store.js';
 import { listInstalledSkills } from '../skill/skill-list.js';
-import { compileBundle, readBundleManifest, supportedBundlePlatforms } from '../bundle/bundle-service.js';
+import {
+  compileBundle,
+  distributeBundle,
+  platformSkillsRoot,
+  readBundleManifest,
+  supportedBundlePlatforms,
+} from '../bundle/bundle-service.js';
 import { evaluateHook, type HookEvent } from '../guard/hook-guard.js';
 import { buildQueueFromPlans, nextQueuedTask, readQueue } from '../scheduler/queue.js';
+import { readBudgetUsage } from '../scheduler/budget.js';
+import { readDaemonState } from '../scheduler/daemon-state.js';
 import { runLocalEval } from '../eval/eval-service.js';
+import { collectFindings } from '../gates/findings.js';
+import { readMetricsGate } from '../gates/metrics-gate.js';
+import { gitHookStatus } from '../gates/git-hook.js';
+import { runSpecGates } from '../gates/spec-gates.js';
+import { describeMetricsGate } from '../metrics/metric-gates.js';
+import { collectMetrics } from '../metrics/metrics-service.js';
+import { collectSpecAnchors } from '../spec/spec-anchors.js';
+import { approveSpec } from '../spec/spec-approval.js';
+import { importSpecsFromContent, previewSpecImport } from '../spec/spec-import.js';
+import { buildSpecIndex } from '../spec/spec-project.js';
+import { traceTaskPlan } from '../task-plan/task-plan-trace.js';
+import {
+  applyEvidenceCleanup,
+  applyForceUnlock,
+  applyJobCleanup,
+  applyTempCleanup,
+  collectMaintenancePlan,
+  StaleMaintenancePreviewError,
+} from '../dashboard/maintenance.js';
+import { HOOK_PLATFORMS, hookStatus } from '../guard/hook-install.js';
+import { rollbackEvolution } from '../evolution/evolution-service.js';
+import {
+  clearCurrentChange,
+  readCurrentChange,
+  selectCurrentChange,
+} from '../workflow/current-change.js';
 import type { ApiContext } from './http.js';
 import { readJsonBody, requestUrl, sendError, sendJson, sendOk } from './http.js';
 import { getProject, listProjects, registerProject, removeProject, touchProject } from './workspace.js';
 
 function stringField(value: unknown, fallback = ''): string {
   return typeof value === 'string' ? value : fallback;
+}
+
+/** 预告值回传校验用：只接受有限数字，`null` 表示「调用方没给」。 */
+function numberField(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
 /**
@@ -380,6 +422,108 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
       return true;
     }
 
+    // ---- 维护动作（V1-4）：预告 → 确认 → 执行，回传值不匹配就拒绝且不删任何东西 ----
+    if (segments[0] === 'project' && segments[1] === 'doctor' && segments[2] === 'clean-temp' && method === 'POST') {
+      const body = await readJsonBody(req);
+      const expectedFiles = numberField(body.expectedFiles);
+      if (expectedFiles === null) {
+        sendError(res, 400, 'missing-expected', 'expectedFiles 必填：先读 GET /maintenance 的预告值再回传');
+        return true;
+      }
+      try {
+        const cleaned = await applyTempCleanup(root, expectedFiles);
+        jobs.stateChanged(projectId, '/api/project/doctor');
+        sendOk(res, { cleaned, report: await runDoctor(root) });
+      } catch (error) {
+        if (error instanceof StaleMaintenancePreviewError) {
+          sendError(res, 409, 'stale-maintenance-preview', error.message, {
+            expected: error.expected,
+            actual: error.actual,
+          });
+          return true;
+        }
+        throw error;
+      }
+      return true;
+    }
+    if (segments[0] === 'project' && segments[1] === 'doctor' && segments[2] === 'clean-jobs' && method === 'POST') {
+      const body = await readJsonBody(req);
+      const expectedCandidates = numberField(body.expectedCandidates);
+      if (expectedCandidates === null) {
+        sendError(res, 400, 'missing-expected', 'expectedCandidates 必填：先读 GET /maintenance 的预告值再回传');
+        return true;
+      }
+      try {
+        const cleaned = await applyJobCleanup(root, expectedCandidates);
+        jobs.stateChanged(projectId, '/api/project/doctor');
+        jobs.stateChanged(projectId, '/api/jobs');
+        sendOk(res, { cleaned, report: await runDoctor(root) });
+      } catch (error) {
+        if (error instanceof StaleMaintenancePreviewError) {
+          sendError(res, 409, 'stale-maintenance-preview', error.message, {
+            expected: error.expected,
+            actual: error.actual,
+          });
+          return true;
+        }
+        throw error;
+      }
+      return true;
+    }
+    if (segments[0] === 'project' && segments[1] === 'doctor' && segments[2] === 'force-unlock' && method === 'POST') {
+      const body = await readJsonBody(req);
+      const expectedHolder = stringField(body.expectedHolder).trim();
+      if (expectedHolder === '') {
+        sendError(res, 400, 'missing-expected', 'expectedHolder 必填：先读 GET /maintenance 的 lock.holder 再回传');
+        return true;
+      }
+      try {
+        const cleaned = await applyForceUnlock(root, expectedHolder);
+        jobs.stateChanged(projectId, '/api/project/doctor');
+        sendOk(res, { cleaned, report: await runDoctor(root) });
+      } catch (error) {
+        if (error instanceof StaleMaintenancePreviewError) {
+          sendError(res, 409, 'stale-maintenance-preview', error.message, {
+            expected: error.expected,
+            actual: error.actual,
+          });
+          return true;
+        }
+        throw error;
+      }
+      return true;
+    }
+    // `change gc --apply` 的界面入口：与 doctor 三个动作同一套「预告 → 确认 → 执行」护栏。
+    if (segments[0] === 'project' && segments[1] === 'evidence' && segments[2] === 'clean' && method === 'POST') {
+      const body = await readJsonBody(req);
+      const expectedReclaimableBytes = numberField(body.expectedReclaimableBytes);
+      if (expectedReclaimableBytes === null) {
+        sendError(
+          res,
+          400,
+          'missing-expected',
+          'expectedReclaimableBytes 必填：先读 GET /maintenance 的 evidence.reclaimableBytes 再回传',
+        );
+        return true;
+      }
+      try {
+        const cleaned = await applyEvidenceCleanup(root, expectedReclaimableBytes);
+        jobs.stateChanged(projectId, '/api/project/doctor');
+        // 回带执行后的新预告：卡片据此刷新，不用再打一次 GET。
+        sendOk(res, { cleaned, plan: await collectMaintenancePlan(root) });
+      } catch (error) {
+        if (error instanceof StaleMaintenancePreviewError) {
+          sendError(res, 409, 'stale-maintenance-preview', error.message, {
+            expected: error.expected,
+            actual: error.actual,
+          });
+          return true;
+        }
+        throw error;
+      }
+      return true;
+    }
+
     // ---- mission.md ----
     if (segments[0] === 'mission.md') {
       const missionPath = path.join(root, 'COMETFLOW.md');
@@ -415,6 +559,8 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
     }
 
     // ---- config / agents ----
+    // 保留：项目层覆盖集合（CLI 与脚本用）。界面不需要它——`GET /config` 已经同时返回
+    // 合并视图与 `projectOverride`，设置页用的是后者（见审计 §6 与 V4-5 的决策记录）。
     if (segments[0] === 'config' && segments[1] === 'project' && method === 'GET') {
       sendOk(res, { override: await readProjectConfigOverride(root) });
       return true;
@@ -465,6 +611,45 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
       return true;
     }
 
+    // ---- 只读投影：把「已经算出来、但只能敲命令」的结论搬到界面（V1-1 / V1-2）----
+    if (segments[0] === 'findings' && segments.length === 1 && method === 'GET') {
+      // 与 `cometflow gate check . --findings` 同源：verify + doctor 两源、已去重、已排序。
+      sendOk(res, { findings: await collectFindings(root) });
+      return true;
+    }
+    if (segments[0] === 'metrics' && segments.length === 1 && method === 'GET') {
+      const report = await collectMetrics(root);
+      const gate = await readMetricsGate(root);
+      // 阈值只影响门禁结论、不参与指标本身。lines 始终给出（未配置时是内置方向表），
+      // 否则界面上就会出现一条看不见的约束。与 `metrics --json` 的 gates 字段同形。
+      sendOk(res, {
+        report,
+        gates: {
+          thresholds: gate.thresholds,
+          errors: gate.errors,
+          lines: describeMetricsGate(gate.thresholds),
+        },
+      });
+      return true;
+    }
+    if (segments[0] === 'maintenance' && segments.length === 1 && method === 'GET') {
+      // 只读预告：三个维护动作各自「将要删什么」。界面据此渲染确认弹窗。
+      sendOk(res, await collectMaintenancePlan(root));
+      return true;
+    }
+    if (segments[0] === 'gate' && segments.length === 1 && method === 'GET') {
+      // 「现在能不能提交」= 判定结果（与 `gate check` 同源，只读）；「装没装」= git hook 状态。
+      // 两者放同一个响应里，是因为界面上它们是同一个问题的两半：结论 + 这个结论会不会被自动执行。
+      const [check, install] = await Promise.all([runSpecGates(root), gitHookStatus(root)]);
+      sendOk(res, { check, install });
+      return true;
+    }
+    if (segments[0] === 'spec' && segments[1] === 'anchors' && method === 'GET') {
+      // 锚点平铺：全部锚点（不只带验收的那些）+ kind + 绑定任务 + 可执行验收数。
+      sendOk(res, await collectSpecAnchors(root));
+      return true;
+    }
+
     // ---- init-manifest / spec scaffold ----
     if (segments[0] === 'init-manifest' && method === 'GET') {
       const manifest = await readInitManifest(root);
@@ -474,6 +659,11 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
     if (segments[0] === 'spec' && segments[1] === 'scaffold' && method === 'POST') {
       const body = await readJsonBody(req);
       const answers = (body.answers ?? {}) as ScaffoldAnswers;
+      // capability 骨架：root kind 由项目类型推导，capability 只能由调用方点名
+      // （goal 的 scope 或外部标准），所以这里必须显式传入，不能自动推断。
+      const capabilities = Array.isArray(body.capabilities)
+        ? body.capabilities.filter((entry): entry is string => typeof entry === 'string' && entry.trim() !== '')
+        : [];
       let result: { kinds: Record<string, KindEntry>; created: string[]; skipped: string[]; manifestPath?: string };
       if (body.kinds) {
         const kinds = body.kinds as Record<string, KindEntry>;
@@ -486,10 +676,22 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
           backend: stringField(body.backend),
           database: stringField(body.database),
         };
+        // 调用方没给技术栈时退回项目上下文里的投影（与 CLI `spec scaffold` 同源）。
+        // 不兜底的话空串会被 detectKindNeeds 判成 absent，点一次按钮就把
+        // models / pages / constraints 写成「本项目不需要」——那是比脚手架没生效更坏的结果。
+        if (stack.frontend === '' && stack.backend === '' && stack.database === '') {
+          const context = await loadProjectContext(root);
+          if (context !== null) {
+            stack.frontend = context.tech_stack.frontend;
+            stack.backend = context.tech_stack.backend;
+            stack.database = context.tech_stack.database;
+          }
+        }
         result = await scaffoldProject(root, stack, answers);
       }
+      const capabilityResult = capabilities.length > 0 ? await scaffoldCapabilities(root, capabilities) : null;
       jobs.stateChanged(projectId, '/api/specs');
-      sendOk(res, result);
+      sendOk(res, { ...result, capabilities: capabilityResult });
       return true;
     }
 
@@ -669,6 +871,47 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
       sendOk(res, await validateSpecs(root));
       return true;
     }
+    // 表格导入：`dryRun !== false` 时只回预览（解析 + 会写哪些能力 + 哪些会被跳过），不落盘。
+    if (segments[0] === 'spec' && segments[1] === 'import' && method === 'POST') {
+      const body = await readJsonBody(req);
+      const content = stringField(body.content);
+      if (content.trim() === '') {
+        sendError(res, 400, 'empty-content', 'content 必填：粘贴 CSV / TSV / Markdown 表格内容');
+        return true;
+      }
+      const source = stringField(body.source, 'web-paste') || 'web-paste';
+      if (body.dryRun !== false) {
+        sendOk(res, { preview: await previewSpecImport(root, source, content) });
+        return true;
+      }
+      const result = await importSpecsFromContent(root, source, content, {
+        force: body.force === true,
+        module: stringField(body.module) || undefined,
+      });
+      jobs.stateChanged(projectId, '/api/specs');
+      sendOk(res, { result });
+      return true;
+    }
+    // 定稿（G1）：草案 → approved。与 CLI `spec approve` 共用同一份领域实现，
+    // 改完立刻刷新版本与 lock（否则 spec verify 会以 stale-spec-lock 报警）。
+    if (segments[0] === 'spec' && segments[1] === 'approve' && method === 'POST') {
+      const body = await readJsonBody(req);
+      const specPath = stringField(body.path);
+      if (specPath === '') {
+        sendError(res, 400, 'missing-path', 'path 必填：specs/<capability>/spec.md');
+        return true;
+      }
+      try {
+        const result = await approveSpec(root, specPath);
+        jobs.stateChanged(projectId, '/api/specs');
+        sendOk(res, result);
+      } catch (error) {
+        sendError(res, 400, 'invalid-spec-path', error instanceof Error ? error.message : String(error));
+      }
+      return true;
+    }
+    // 保留：spec 投影（等价 `cometflow spec index` 的产物视图），CLI 与脚本用。
+    // 界面走 `/spec/graph`（带解析状态与边）与 `/spec/anchors`，不再消费这一份。
     if (segments[0] === 'spec-index' && method === 'GET') {
       sendOk(res, await buildSpecIndex(root));
       return true;
@@ -758,28 +1001,56 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
     }
     if (segments[0] === 'plans' && segments[1] === 'generate' && method === 'POST') {
       const body = await readJsonBody(req);
-      const plan = await generateTaskPlan(root, stringField(body.goal));
-      const filePath = await writeTaskPlan(root, plan);
+      // 拆解审核策略（ADR 0003）与 CLI `plan generate` 共用同一份实现。
+      const review = await applyPlanReviewPolicy(root, await generateTaskPlan(root, stringField(body.goal)));
+      const filePath = await writeTaskPlan(root, review.plan);
       jobs.stateChanged(projectId, '/api/plans');
-      sendOk(res, { plan, written: filePath });
+      jobs.stateChanged(projectId, '/api/plans/' + stringField(body.goal));
+      sendOk(res, { plan: review.plan, written: filePath, review });
       return true;
     }
     if (segments[0] === 'plans' && segments[1] === 'regenerate' && method === 'POST') {
       const body = await readJsonBody(req);
       const goal = stringField(body.goal);
       const previous = await readTaskPlan(root, goal);
-      const plan = await regenerateTaskPlan(root, goal, previous, {
+      const regenerated = await regenerateTaskPlan(root, goal, previous, {
         preserveApproved: body.preserveApproved === true,
       });
-      const filePath = await writeTaskPlan(root, plan);
+      const review = await applyPlanReviewPolicy(root, regenerated);
+      const filePath = await writeTaskPlan(root, review.plan);
       jobs.stateChanged(projectId, '/api/plans');
-      sendOk(res, { plan, written: filePath });
+      sendOk(res, { plan: review.plan, written: filePath, review });
       return true;
     }
     if (segments[0] === 'plans' && segments.length === 2 && method === 'GET') {
       const goal = segments[1];
       try {
         sendOk(res, await readTaskPlan(root, goal));
+      } catch {
+        sendError(res, 404, 'unknown-plan', 'plan not found for ' + goal);
+      }
+      return true;
+    }
+    // 任务 → spec 追溯：与 `plan trace` 同源的文本投影 + 同一份数据的结构化视图（界面用后者）。
+    if (segments[0] === 'plans' && segments.length === 3 && segments[2] === 'trace' && method === 'GET') {
+      const goal = segments[1];
+      try {
+        const plan = await readTaskPlan(root, goal);
+        sendOk(res, {
+          goal: plan.goal,
+          status: plan.status,
+          lines: traceTaskPlan(plan),
+          tasks: plan.tasks.map((task) => ({
+            id: task.id,
+            title: task.title,
+            capability: task.capability,
+            spec_ref: task.spec_ref ?? null,
+            spec_anchor: task.spec_anchor ?? null,
+            spec_version: task.spec_version ?? null,
+            acceptance_ids: task.acceptance_ids,
+            status: task.status,
+          })),
+        });
       } catch {
         sendError(res, 404, 'unknown-plan', 'plan not found for ' + goal);
       }
@@ -838,6 +1109,58 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
       // 用解码后的名字参与后续的路径拼接与状态读取（客户端用 encodeURIComponent 传名字）。
       segments = [segments[0], decoded, ...segments.slice(2)];
     }
+
+    // ---- current-change 指针（ADR 0018 / V1-3）----
+    // 路径刻意**不**取 `/changes/current`：那会把一个真叫 `current` 的 change 永久遮蔽掉
+    // （change 名本可以是任意不含分隔符的字符串）。所以用项目级路径 `/current-change`。
+    if (segments[0] === 'current-change' && method === 'GET') {
+      const pointer = await readCurrentChange(root);
+      // 指针存在 ≠ 指针可用：指向已归档/已删除的 change 时，hook 会以 stale-current-change fail closed。
+      const change = pointer === null ? null : await readChangeState(root, pointer.change).catch(() => null);
+      sendOk(res, {
+        pointer,
+        change,
+        resolved: pointer !== null && change !== null && !change.archived,
+      });
+      return true;
+    }
+    if (segments[0] === 'current-change' && method === 'POST') {
+      const body = await readJsonBody(req);
+      // `{ name: null }` 表示清除指针；缺字段与 null 等价，避免前端还要区分两种「没有」。
+      if (body.name === null || body.name === undefined) {
+        const pointer = await readCurrentChange(root);
+        if (pointer === null) {
+          sendOk(res, { cleared: false, removed: null, pointer: null });
+          return true;
+        }
+        // force：清除动作本身就是「我要清掉现在这个」，不需要再比对名字。
+        const cleared = await clearCurrentChange(root, pointer.change, { force: true });
+        jobs.stateChanged(projectId, '/api/current-change');
+        sendOk(res, { cleared, removed: pointer, pointer: null });
+        return true;
+      }
+      const name = stringField(body.name).trim();
+      const safeName = safePathSegment(name);
+      if (name === '' || safeName === null) {
+        sendError(res, 400, 'invalid-change-name', 'change name must not contain path separators');
+        return true;
+      }
+      const state = await readChangeState(root, safeName).catch(() => null);
+      if (state === null) {
+        sendError(res, 404, 'unknown-change', 'change not found: ' + safeName);
+        return true;
+      }
+      // 与 CLI `change select` 同源：归档的 change 不能被选为当前（它已经不会再被写入）。
+      if (state.archived) {
+        sendError(res, 409, 'change-not-selectable', 'change ' + safeName + ' 已归档，不能设为当前 change');
+        return true;
+      }
+      const pointer = await selectCurrentChange(root, safeName, { source: 'manual' });
+      jobs.stateChanged(projectId, '/api/current-change');
+      sendOk(res, { pointer, change: state });
+      return true;
+    }
+
     if (segments[0] === 'changes' && segments.length === 1 && method === 'GET') {
       sendOk(res, { changes: await listChangeStates(root) });
       return true;
@@ -1062,6 +1385,21 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
       sendError(res, 404, 'unknown-evolution-action', action);
       return true;
     }
+    // 回滚指引：纯投影（`evolve rollback` 的输出），不改任何状态。
+    if (segments[0] === 'evolutions' && segments.length === 3 && segments[2] === 'rollback' && method === 'GET') {
+      const name = safePathSegment(segments[1]);
+      if (name === null) {
+        sendError(res, 400, 'invalid-evolution-name', 'evolution name must not contain path separators');
+        return true;
+      }
+      try {
+        const lines = await rollbackEvolution(root, name);
+        sendOk(res, { name, lines });
+      } catch (error) {
+        sendError(res, 404, 'unknown-evolution', error instanceof Error ? error.message : String(error));
+      }
+      return true;
+    }
 
     // ---- eval ----
     if (segments[0] === 'eval' && segments[1] === 'run' && method === 'POST') {
@@ -1081,6 +1419,46 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
       return true;
     }
 
+    // ---- 一次性 agent 试跑（C13）：等价 `cometflow run` ----
+    // 与 change run 的区别是「没有契约」：不绑 change / task / acceptance，所以它只是试跑，
+    // 结论不进验收账本——界面那侧必须把这句话写出来，否则会被当成交付。
+    if (segments[0] === 'run' && segments.length === 1 && method === 'POST') {
+      const body = await readJsonBody(req);
+      const requested = stringField(body.agent);
+      const agentId = requested !== '' ? requested : await resolveAgentId(root);
+      const knownAgent = builtInAgentRunners().some((runner) => runner.id === agentId);
+      if (!knownAgent) {
+        sendError(res, 400, 'unknown-agent', 'agent must be one of: ' + builtInAgentRunners().map((r) => r.id).join(', '));
+        return true;
+      }
+      const timeoutMs = numberField(body.timeoutMs);
+      const job = jobs.create(projectId, 'flow-run');
+      setImmediate(async () => {
+        jobs.start(job.id);
+        try {
+          jobs.log(job.id, 'flow run: agent=' + agentId + '（试跑：不绑 change / task / acceptance）');
+          const runner = getBuiltInAgentRunner(agentId);
+          const outcome = await runFlowRun(runner, {
+            projectRoot: root,
+            agentId,
+            model: stringField(body.model) !== '' ? stringField(body.model) : await resolveModel(root, agentId),
+            timeoutMs: timeoutMs === null ? undefined : timeoutMs,
+          });
+          for (const line of outcome.result.stdout.split(/\r?\n/u)) if (line !== '') jobs.log(job.id, line);
+          for (const line of outcome.result.stderr.split(/\r?\n/u)) if (line !== '') jobs.log(job.id, '[stderr] ' + line);
+          jobs.log(
+            job.id,
+            'flow run finished: exit=' + outcome.result.exitCode + (outcome.result.timedOut ? ' (timed out)' : ''),
+          );
+          jobs.complete(job.id, { agent: agentId, exitCode: outcome.result.exitCode }, outcome.result.exitCode);
+        } catch (error) {
+          jobs.fail(job.id, error instanceof Error ? error.message : String(error));
+        }
+      });
+      sendJson(res, 202, { ok: true, data: { jobId: job.id, agent: agentId }, requestId: String(Date.now()) });
+      return true;
+    }
+
     // ---- 调度 / 资产 / 写入门禁（W5：把 8 面板之外的资产纳入界面）----
     if (segments[0] === 'scheduler' && segments[1] === 'queue' && method === 'GET') {
       const queue = await readQueue(root);
@@ -1088,11 +1466,18 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
       // 而不是让用户对着空页面猜。
       const derived = await buildQueueFromPlans(root);
       const config = await readProjectConfig(root);
+      // 预算用量是跨重启累计的：只读展示它，「改/重置」仍走 CLI `daemon budget --reset`。
+      const budget = await readBudgetUsage(root);
+      // 调度器的状态投影（C5）：没有它，界面答不出「无人值守到底有没有在工作」。
+      // 读不到就是从未跑过 daemon，界面据此显式说明，而不是拿空队列糊弄。
+      const daemon = await readDaemonState(root);
       sendOk(res, {
         queue,
         derived,
         next: nextQueuedTask(queue ?? derived),
         scheduler: config.scheduler ?? null,
+        budget,
+        daemon,
       });
       return true;
     }
@@ -1150,6 +1535,51 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
       sendOk(res, { manifest, compiled, platforms, error });
       return true;
     }
+    // bundle 分发（C12）：先预告（会写哪些路径、哪些会被覆盖），确认后再执行。
+    // 覆盖语义是 `rm -rf 目标目录 + cp`，所以预告不是装饰——它是这个动作的安全带。
+    if (segments[0] === 'bundles' && segments[1] === 'distribute' && method === 'POST') {
+      const body = await readJsonBody(req);
+      const platform = stringField(body.platform);
+      let skillsRoot: string;
+      try {
+        skillsRoot = platformSkillsRoot(platform);
+      } catch {
+        sendError(res, 400, 'unknown-platform', 'platform must be one of: ' + supportedBundlePlatforms().join(', '));
+        return true;
+      }
+      // 分发前先编译一遍：清单里引用的 skill 读不出来时，宁可在这里失败，
+      // 也不要在「一半 skill 拷进去了」的状态下退出。
+      try {
+        await compileBundle(root);
+      } catch (caught) {
+        sendError(res, 400, 'bundle-not-compilable', caught instanceof Error ? caught.message : String(caught));
+        return true;
+      }
+      const manifest = await readBundleManifest(root);
+      // `platformSkillsRoot` 返回的是**项目相对**路径（如 `.opencode/skills`），
+      // 落盘判断必须拼上项目根，否则 pathExists 会去 cwd 上找（那是另一个目录）。
+      const absoluteSkillsRoot = path.join(root, skillsRoot);
+      const items = await Promise.all(
+        manifest.skills.map(async (skill) => {
+          const target = path.join(absoluteSkillsRoot, skill.name);
+          return {
+            name: skill.name,
+            source: skill.path,
+            target,
+            // 覆盖是常态（重复分发是幂等的），但执行前必须让人看见哪几个会被替换。
+            overwritten: await pathExists(target),
+          };
+        }),
+      );
+      if (body.dryRun !== false) {
+        sendOk(res, { platform, skillsRoot, items, written: [] });
+        return true;
+      }
+      const written = await distributeBundle(root, platform);
+      jobs.stateChanged(projectId, '/api/bundles');
+      sendOk(res, { platform, skillsRoot, items, written });
+      return true;
+    }
     if (segments[0] === 'hook' && segments[1] === 'check' && method === 'POST') {
       const body = await readJsonBody(req);
       const target = stringField(body.target);
@@ -1161,6 +1591,13 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
       // 相对路径按项目根解析：serve 的 cwd 不一定是项目目录。
       const decision = await evaluateHook(root, event, path.resolve(root, target));
       sendOk(res, { target, event, decision });
+      return true;
+    }
+    // 写保护（ADR 0023）的安装状态：装没装、条目与脚本是否漂移、守卫调用的 CLI 能否解析。
+    if (segments[0] === 'hook' && segments[1] === 'status' && method === 'GET') {
+      // 只支持 claude-code；另外两个平台会返回 supported: false，界面据此显示「暂不支持」而不是「未安装」。
+      const platforms = await Promise.all(HOOK_PLATFORMS.map((platform) => hookStatus(root, platform)));
+      sendOk(res, { platforms });
       return true;
     }
     if (segments[0] === 'classic' && method === 'GET') {

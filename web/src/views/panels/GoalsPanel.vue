@@ -25,9 +25,13 @@
             <td>{{ goal.scope.join(', ') }}</td>
             <td>{{ goal.success_criteria.join('；') }}</td>
             <td>{{ goal.non_goals.join('；') }}</td>
+            <td>
+              <button class="ghost" @click="startEdit(goal)">编辑</button>
+              <button class="ghost" @click="startRemove(goal)">删除</button>
+            </td>
           </tr>
           <tr v-if="goals.length === 0">
-            <td colspan="5" class="muted">暂无目标，点击「＋ 添加目标」或编辑 COMETFLOW.md 后同步</td>
+            <td colspan="6" class="muted">暂无目标，点击「＋ 添加目标」或编辑 COMETFLOW.md 后同步</td>
           </tr>
         </tbody>
       </table>
@@ -53,6 +57,37 @@
     <template #footer>
       <button @click="goalEditorOpen = false">取消</button>
       <button class="primary" @click="addGoal">添加到 COMETFLOW.md</button>
+    </template>
+  </ModalCard>
+
+  <!-- 单条目标的就地编辑：改的是 COMETFLOW.md 里对应的 `### Gn` 块，不碰其它段落。 -->
+  <ModalCard v-if="editingGoal !== null" :title="'编辑目标 ' + editingGoal.id" wide @close="editingGoal = null">
+    <div class="form-grid">
+      <label>标题<input v-model="goalEdit.title" /></label>
+      <label>范围<input v-model="goalEdit.scope" placeholder="capability" /></label>
+      <label>成功标准（每行一条）<textarea v-model="goalEdit.criteria" rows="3" /></label>
+      <label>非目标（每行一条）<textarea v-model="goalEdit.nonGoals" rows="3" /></label>
+    </div>
+    <template #footer>
+      <button @click="editingGoal = null">取消</button>
+      <button class="primary" :disabled="savingGoal" @click="saveEdit">
+        {{ savingGoal ? '保存中…' : '保存并同步' }}
+      </button>
+    </template>
+  </ModalCard>
+
+  <ModalCard v-if="removingGoal !== null" :title="'删除目标 ' + removingGoal.id" @close="removingGoal = null">
+    <p>将从 COMETFLOW.md 中删除下面这个目标块：</p>
+    <pre class="mdblock">{{ blockPreview }}</pre>
+    <p class="muted">
+      只删这一段 markdown，其它目标与段落不动；删除后自动 <code>goal sync</code>。
+      已经绑定该目标的计划与 change 不会被改动（它们各自有 spec 绑定）。
+    </p>
+    <template #footer>
+      <button @click="removingGoal = null">取消</button>
+      <button class="primary" :disabled="savingGoal" @click="confirmRemove">
+        {{ savingGoal ? '删除中…' : '删除并同步' }}
+      </button>
     </template>
   </ModalCard>
 </template>
@@ -195,6 +230,121 @@ async function sync(): Promise<void> {
     toasts.error('同步失败', errorMessage(error));
   } finally {
     syncing.value = false;
+  }
+}
+
+const editingGoal = ref<GoalRecord | null>(null);
+const removingGoal = ref<GoalRecord | null>(null);
+const savingGoal = ref(false);
+const goalEdit = reactive({ title: '', scope: '', criteria: '', nonGoals: '' });
+
+/**
+ * 目标块在 COMETFLOW.md 里的范围：从 `### Gn` 到下一个 `### G` / `## ` 标题（或文末）。
+ *
+ * 用 `\b` 收尾是必要的：否则 `G1` 会匹配到 `G10`。找不到就返回 null——宁可什么都不动，
+ * 也不要在定位失败时改错段落（markdown 是唯一事实源）。
+ */
+function goalBlockRange(markdown: string, id: string): { start: number; end: number } | null {
+  const match = new RegExp('^###\\s*' + id + '\\b', 'mu').exec(markdown);
+  if (match === null) return null;
+  const headingEnd = match.index + match[0].length;
+  const nextHeading = /^(?:###\s*G\d+|##\s)/mu.exec(markdown.slice(headingEnd));
+  const end = nextHeading === null ? markdown.length : headingEnd + nextHeading.index;
+  return { start: match.index, end };
+}
+
+function goalsToBullets(value: string, fallback: string): string {
+  const lines = value
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => '  - ' + line)
+    .join('\n');
+  return lines === '' ? '  - ' + fallback : lines;
+}
+
+function goalBlock(id: string, title: string, scope: string, criteria: string, nonGoals: string): string {
+  return (
+    '### ' + id + '：' + title + '\n' +
+    '- 目标：' + title + '\n' +
+    '- 范围：' + (scope.trim() || 'capability') + '\n' +
+    '- 成功标准：\n' + goalsToBullets(criteria, '待补充') + '\n' +
+    '- 非目标：\n' + goalsToBullets(nonGoals, '无') + '\n'
+  );
+}
+
+const blockPreview = computed(() => {
+  const goal = removingGoal.value;
+  if (goal === null) return '';
+  const range = goalBlockRange(mission.value, goal.id);
+  return range === null ? '(未在 COMETFLOW.md 里找到该目标块)' : mission.value.slice(range.start, range.end).trimEnd();
+});
+
+function startEdit(goal: GoalRecord): void {
+  editingGoal.value = goal;
+  goalEdit.title = goal.title;
+  goalEdit.scope = goal.scope.join(', ');
+  goalEdit.criteria = goal.success_criteria.join('\n');
+  goalEdit.nonGoals = goal.non_goals.join('\n');
+}
+
+function startRemove(goal: GoalRecord): void {
+  removingGoal.value = goal;
+}
+
+/** 就地替换目标块：写入后立刻 sync，让投影跟上（否则界面会显示旧目标）。 */
+async function saveEdit(): Promise<void> {
+  const goal = editingGoal.value;
+  if (goal === null) return;
+  if (goalEdit.title.trim() === '') {
+    toasts.error('标题不能为空');
+    return;
+  }
+  const range = goalBlockRange(mission.value, goal.id);
+  if (range === null) {
+    toasts.error('定位失败', 'COMETFLOW.md 里没有找到 ' + goal.id + ' 的目标块，未做任何修改');
+    return;
+  }
+  const next =
+    mission.value.slice(0, range.start) +
+    goalBlock(goal.id, goalEdit.title.trim(), goalEdit.scope, goalEdit.criteria, goalEdit.nonGoals) +
+    mission.value.slice(range.end);
+  savingGoal.value = true;
+  try {
+    await project.projectApi('/mission.md', { method: 'PUT', body: { content: next } });
+    await project.projectApi('/goals/sync', { method: 'POST' });
+    editingGoal.value = null;
+    await load();
+    toasts.success('已保存并同步', goal.id);
+  } catch (error) {
+    toasts.error('保存失败', errorMessage(error));
+  } finally {
+    savingGoal.value = false;
+  }
+}
+
+async function confirmRemove(): Promise<void> {
+  const goal = removingGoal.value;
+  if (goal === null) return;
+  const range = goalBlockRange(mission.value, goal.id);
+  if (range === null) {
+    toasts.error('定位失败', 'COMETFLOW.md 里没有找到 ' + goal.id + ' 的目标块，未做任何修改');
+    return;
+  }
+  // 连同块前的空行一起删掉，避免留下连续空行。
+  const start = mission.value.slice(0, range.start).replace(/\n+$/u, '\n');
+  const next = start + mission.value.slice(range.end).replace(/^\n+/u, '');
+  savingGoal.value = true;
+  try {
+    await project.projectApi('/mission.md', { method: 'PUT', body: { content: next } });
+    await project.projectApi('/goals/sync', { method: 'POST' });
+    removingGoal.value = null;
+    await load();
+    toasts.success('已删除并同步', goal.id);
+  } catch (error) {
+    toasts.error('删除失败', errorMessage(error));
+  } finally {
+    savingGoal.value = false;
   }
 }
 

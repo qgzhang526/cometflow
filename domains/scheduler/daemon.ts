@@ -14,6 +14,8 @@ import {
   reclaimExpiredLeases,
   writeQueue,
 } from './queue.js';
+import { countQueue, writeDaemonState, type DaemonLastTask } from './daemon-state.js';
+import type { SchedulerQueue } from './queue.js';
 
 export interface DaemonOptions {
   projectRoot: string;
@@ -101,12 +103,51 @@ export async function runDaemonLoop(options: DaemonLoopOptions): Promise<void> {
   const totalBudgetMs = options.budgetMs ?? 0;
   const usage = await readBudgetUsage(options.projectRoot);
   const remainingMs = totalBudgetMs > 0 ? Math.max(0, totalBudgetMs - usage.used_ms) : 0;
+
+  // 状态投影（C5）：面板读的就是这份文件。写失败不阻断调度——它只是给人看的投影。
+  let lastTask: DaemonLastTask | null = null;
+  const reportState = async (
+    currentQueue: SchedulerQueue,
+    iteration: number,
+    phase: 'started' | 'skipping' | 'ran' | 'stopped',
+    decision: { ran: boolean; reason: string; task: string | null } | null,
+    stoppedReason: string | null = null,
+  ): Promise<void> => {
+    try {
+      await writeDaemonState(options.projectRoot, {
+        pid: process.pid,
+        mode: options.mode,
+        agent: options.agentId,
+        iteration,
+        phase,
+        stopped_reason: stoppedReason,
+        last_decision: decision,
+        last_task: lastTask,
+        queue: countQueue(currentQueue),
+        budget: {
+          used_ms: (await readBudgetUsage(options.projectRoot)).used_ms,
+          total_ms: totalBudgetMs,
+          remaining_ms: totalBudgetMs > 0 ? budget.elapsedMs() : null,
+        },
+      });
+    } catch {
+      // 投影写不进去（磁盘满 / 权限）不该让无人值守停下。
+    }
+  };
+
   if (totalBudgetMs > 0) {
     console.log(
       ['daemon', 'budget', 'used=' + usage.used_ms + 'ms', 'remaining=' + remainingMs + 'ms'].join(' '),
     );
     if (remainingMs === 0) {
       console.log(['daemon', 'budget-exhausted', 'reset with cometflow daemon reset-budget'].join(' '));
+      await reportState(
+        (await readQueue(options.projectRoot)) ?? { schema: 'cometflow.queue.v1', tasks: [] },
+        0,
+        'stopped',
+        { ran: false, reason: 'budget-exhausted', task: null },
+        'budget-exhausted',
+      );
       return;
     }
   }
@@ -129,6 +170,7 @@ export async function runDaemonLoop(options: DaemonLoopOptions): Promise<void> {
 
   const snapshot = await captureGitSafetySnapshot(options.projectRoot, { bundle: options.safetyBundle === true });
   for (const line of buildRollbackGuidance(snapshot)) console.log(line);
+  await reportState(queue, 0, 'started', { ran: false, reason: 'started', task: null });
 
   let index = 0;
   while (!budget.isExhausted()) {
@@ -143,6 +185,7 @@ export async function runDaemonLoop(options: DaemonLoopOptions): Promise<void> {
     const task = nextQueuedTask(queue);
     if (!task) {
       console.log(['daemon', String(index), 'no-queued-task', 'stop'].join(' '));
+      await reportState(queue, index, 'stopped', { ran: false, reason: 'no-queued-task', task: null }, 'no-queued-task');
       break;
     }
 
@@ -155,6 +198,7 @@ export async function runDaemonLoop(options: DaemonLoopOptions): Promise<void> {
     });
     if (!decision.allowed) {
       console.log(['daemon', String(index), 'skip', decision.reason, task.id].join(' '));
+      await reportState(queue, index, 'skipping', { ran: false, reason: decision.reason, task: task.id });
       index += 1;
       if (budget.isExhausted()) break;
       await new Promise((resolve) => setTimeout(resolve, intervalMs));
@@ -179,6 +223,12 @@ export async function runDaemonLoop(options: DaemonLoopOptions): Promise<void> {
     queue = markQueueTask(queue, task.id, succeeded ? 'done' : gaveUp ? 'failed' : 'queued');
     await writeQueue(options.projectRoot, queue);
     await addBudgetUsage(options.projectRoot, elapsedMs);
+    lastTask = {
+      id: task.id,
+      result: succeeded ? 'done' : 'failed',
+      elapsedMs,
+      timedOut: outcome.result.timedOut === true,
+    };
     console.log(
       [
         'daemon',
@@ -191,8 +241,16 @@ export async function runDaemonLoop(options: DaemonLoopOptions): Promise<void> {
         .filter(Boolean)
         .join(' '),
     );
+    await reportState(queue, index, 'ran', {
+      ran: true,
+      reason: succeeded ? 'task-done' : gaveUp ? 'task-failed-final' : 'task-failed-retry',
+      task: task.id,
+    });
     index += 1;
-    if (budget.isExhausted()) break;
+    if (budget.isExhausted()) {
+      await reportState(queue, index, 'stopped', { ran: false, reason: 'budget-exhausted', task: null }, 'budget-exhausted');
+      break;
+    }
     // 失败后退避：连续失败的尝试间隔递增，避免立刻重跑同一个必然失败的任务。
     const backoff = succeeded ? intervalMs : Math.min(intervalMs * (task.attempts + 1), intervalMs * 4);
     await new Promise((resolve) => setTimeout(resolve, backoff));

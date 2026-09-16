@@ -76,11 +76,16 @@ tr:last-child td { border-bottom: none; }
 .section-title { display: flex; align-items: center; justify-content: space-between; margin: 6px 0 12px; }
 .section-title h2 { margin: 0; }
 .project-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
-.project-card { display: block; color: inherit; background: #fff; border: 1px solid var(--border); border-radius: 14px; padding: 16px; box-shadow: var(--shadow); transition: transform 0.12s ease, box-shadow 0.12s ease; cursor: pointer; }
+.project-card { display: block; position: relative; color: inherit; background: #fff; border: 1px solid var(--border); border-radius: 14px; padding: 16px; box-shadow: var(--shadow); transition: transform 0.12s ease, box-shadow 0.12s ease; cursor: pointer; }
 .project-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-lg); }
 .project-card .name { font-size: 16px; font-weight: 700; }
 .project-card .path { color: var(--muted); font-size: 12px; word-break: break-all; margin: 6px 0 10px; }
 .project-card .meta { display: flex; gap: 8px; flex-wrap: wrap; }
+/* 整卡可点：卡片根元素是 <div>（卡内还有「从工作区移除」按钮，按钮不能嵌进 <a>），
+   所以用「拉伸链接」把 .name 这个 RouterLink 的命中区铺满整张卡，而不是只让标题那行可点。
+   动作按钮必须抬到链接之上，否则点它会同时触发跳转。 */
+.project-card .name::after { content: ''; position: absolute; inset: 0; }
+.project-card .card-action { position: relative; z-index: 1; }
 
 /* wizard steps */
 .steps { display: flex; gap: 8px; margin-bottom: 16px; }

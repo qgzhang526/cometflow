@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/qgzhang526/cometflow/actions/workflows/ci.yml/badge.svg)](https://github.com/qgzhang526/cometflow/actions/workflows/ci.yml)
 
-> 全时运行的自主 Agent 开发平台。
+> 规格驱动开发（SDD）· 自主 Agent 执行 · 独立验证与门禁 · 可追溯变更与证据 · 全时无人值守调度 · 科学评估与门禁式进化 · CLI + Web 工作台
 
 CometFlow 融合 Nightshift 的持续调度/无人值守能力与 Comet 的可恢复工作流、Skill 生态、科学评估能力。
 
@@ -15,6 +15,7 @@ cometflow init [path] [--interactive]
 cometflow context sync [path]
 cometflow goal sync [path]
 cometflow spec validate|anchors|lock|diff|drift|scaffold|index [path]
+cometflow spec approve <spec-file> [path]               # 草案 → 定稿（plan freeze 的前置条件）
 cometflow spec diff [path] --impact [--change <name>]   # 锚点级影响分析与分级
 cometflow spec versions [path] [--spec <ref>]           # spec 版本历史
 cometflow spec show|restore <path>@<version>|<hash>     # 回放 / 恢复历史版本

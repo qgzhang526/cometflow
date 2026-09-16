@@ -121,4 +121,38 @@ describe('jobs API', () => {
     expect(after.data.jobs.some((entry) => entry.id === jobId)).toBe(false);
     expect(after.data.jobs.every((entry) => entry.status === 'queued' || entry.status === 'running')).toBe(true);
   }, 60000);
+
+  // 一次性试跑（C13）：等价 `cometflow run`，唯一不绑 change / task / acceptance 的 agent 会话。
+  it('起一个 flow-run 任务，并把「试跑不是交付」写进日志', async () => {
+    const started = await call<{ jobId: string; agent: string }>('POST', base + '/run', { agent: 'mock' });
+    expect(started.ok).toBe(true);
+    expect(started.data.agent).toBe('mock');
+
+    const job = await waitForJob(started.data.jobId);
+    expect(job.status).toBe('succeeded');
+
+    const detail = await call<{
+      job: { kind: string; change?: string; logTail: string[]; result?: { agent?: string; exitCode?: number } };
+    }>('GET', '/api/jobs/' + started.data.jobId);
+    expect(detail.data.job.kind).toBe('flow-run');
+    // 不绑 change：任务记录里不该有 change 字段（有的话界面会把它当成交付任务）。
+    expect(detail.data.job.change).toBeUndefined();
+    const log = detail.data.job.logTail.join('\n');
+    expect(log).toContain('不绑 change');
+    expect(log).toContain('mock agent ok');
+    expect(detail.data.job.result?.exitCode).toBe(0);
+  }, 60000);
+
+  it('未知 agent 直接 400，并列出可选值', async () => {
+    const res = await fetch(server.url + base + '/run', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + server.token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agent: 'nope' }),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { ok: boolean; error?: { code: string; message: string } };
+    expect(body.ok).toBe(false);
+    expect(body.error?.code).toBe('unknown-agent');
+    expect(body.error?.message).toContain('mock');
+  });
 });

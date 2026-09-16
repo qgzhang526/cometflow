@@ -129,3 +129,40 @@ export async function syncGoals(projectRoot: string): Promise<GoalSyncResult> {
 
   return { goals, written };
 }
+
+export function goalProjectionDir(projectRoot: string): string {
+  return path.join(projectRoot, '.cometflow', 'goals');
+}
+
+/**
+ * 读目标投影（`.cometflow/goals/*.yaml`）。
+ *
+ * 投影是 `goal sync` 的产物，读不到文件就不返回记录——调用方负责决定
+ * 「没有投影」意味着什么（例如 Builder 提示词里退化成只给 goal id）。
+ */
+export async function listGoalRecords(projectRoot: string): Promise<GoalRecord[]> {
+  const { promises: fs } = await import('node:fs');
+  const dir = goalProjectionDir(projectRoot);
+  let entries: string[];
+  try {
+    entries = await fs.readdir(dir);
+  } catch {
+    return [];
+  }
+  const { parse } = await import('yaml');
+  const goals: GoalRecord[] = [];
+  for (const entry of entries.sort()) {
+    if (!entry.endsWith('.yaml') && !entry.endsWith('.yml')) continue;
+    try {
+      goals.push(parse(await fs.readFile(path.join(dir, entry), 'utf8')) as GoalRecord);
+    } catch {
+      // 投影损坏不该让调用方失败：坏文件跳过，其余照常返回。
+    }
+  }
+  return goals;
+}
+
+export async function readGoalRecord(projectRoot: string, goalId: string): Promise<GoalRecord | null> {
+  const goals = await listGoalRecords(projectRoot);
+  return goals.find((goal) => goal.id === goalId) ?? null;
+}

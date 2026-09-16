@@ -1,4 +1,37 @@
 <template>
+  <!--
+    一次性 agent 试跑（C13，等价 `cometflow run`）。
+    它是唯一不绑 change / task / acceptance 的 agent 会话，所以这段文案是功能的一部分：
+    试跑 ≠ 交付，产物不进验收账本；写入又不受 change 约束，要二次确认。
+  -->
+  <div class="card">
+    <div class="row">
+      <h2>一次性试跑</h2>
+      <span class="grow" />
+      <button class="ghost" @click="jobs.drawerOpen = true">任务中心</button>
+    </div>
+    <p class="muted">
+      把项目使命（<code>COMETFLOW.md</code>）与 <code>specs/</code> 交给一个 agent 跑一轮，用来确认
+      「agent + 这个项目的上下文」能跑通。它<b>不绑 change / task / acceptance</b>：
+      产物不进验收账本，也不能当成交付。日志在任务中心实时可看。
+    </p>
+    <div class="toolbar">
+      <label>
+        Agent
+        <select v-model="trial.agent">
+          <option v-for="agent in project.agents" :key="agent.id" :value="agent.id">
+            {{ agent.id }}{{ agent.available ? '' : '（不可用）' }}
+          </option>
+        </select>
+      </label>
+      <label>
+        模型（留空用默认）
+        <input v-model="trial.model" placeholder="按 Agent 默认" style="width: 200px" />
+      </label>
+      <button class="primary" :disabled="trialBusy" @click="startTrial">试跑一次</button>
+    </div>
+  </div>
+
   <div class="card">
     <div class="row">
       <h2>Agent 与模型</h2>
@@ -130,11 +163,35 @@ import { errorMessage } from '../../api/client';
 import { refreshCounter } from '../../composables/useRefresh';
 import { useProjectStore } from '../../stores/project';
 import { useToastStore } from '../../stores/toasts';
+import { useJobsStore } from '../../stores/jobs';
 import type { ProjectConfig, ProjectConfigResponse } from '../../api/types';
 import { clockToMinutes, minutesToClock } from '../../utils/format';
 
 const project = useProjectStore();
 const toasts = useToastStore();
+const jobs = useJobsStore();
+
+/** 一次性试跑（C13）：默认取面板里配置的默认 Agent。 */
+const trial = reactive({ agent: 'opencode', model: '' });
+const trialBusy = ref(false);
+
+async function startTrial(): Promise<void> {
+  // 试跑会真的让 agent 改项目文件，而它不受 change 约束：先说清再执行。
+  if (!window.confirm('试跑会用「' + trial.agent + '」在当前项目里跑一轮 agent 会话。\n\n它不绑 change / task / acceptance，产物不进验收账本；写入也不受 change 约束（多个活跃变更时可能被写保护守卫拒绝）。继续？')) return;
+  trialBusy.value = true;
+  try {
+    const data = await project.projectApi<{ jobId: string; agent: string }>('/run', {
+      method: 'POST',
+      body: { agent: trial.agent, model: trial.model.trim() },
+    });
+    await jobs.track(data.jobId);
+    toasts.info('试跑已启动', 'agent=' + data.agent + '，日志在「任务中心」');
+  } catch (error) {
+    toasts.error('试跑启动失败', errorMessage(error));
+  } finally {
+    trialBusy.value = false;
+  }
+}
 
 const saving = ref(false);
 const policyBusy = ref(false);

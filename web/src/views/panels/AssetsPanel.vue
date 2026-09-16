@@ -64,42 +64,68 @@
             </tbody>
           </table>
         </template>
-        <p class="muted">支持的平台：{{ bundle.platforms.join(', ') }}（分发由 CLI 执行，界面只做预览）。</p>
+        <!--
+          C12：分发从「回 CLI」变成一次点击。仍然保留预告环节——分发是
+          `rm -rf 目标目录 + cp` 的覆盖式写入，先看清会替换什么再执行。
+        -->
+        <p class="muted">
+          分发到平台（把清单里的 skill 拷进该平台的 skill 目录，覆盖同名目录）：
+        </p>
+        <div class="toolbar">
+          <button
+            v-for="platform in bundle.platforms"
+            :key="platform"
+            :disabled="distributing !== '' || bundle.error !== null"
+            @click="distribute(platform)"
+          >
+            {{ distributing === platform ? '分发中…' : '分发到 ' + platform }}
+          </button>
+        </div>
+        <div v-if="lastDistributed !== null" class="muted">
+          已分发到 {{ lastDistributed.platform }}：写入 {{ lastDistributed.written.length }} 个目录
+          <template v-if="lastDistributed.written.length > 0">（{{ lastDistributed.written.join(', ') }}）</template>
+        </div>
       </template>
-    </div>
-
-    <!-- Classic -->
-    <div v-else-if="activeTab === 'classic'">
-      <div class="row">
-        <span class="muted">{{ classic.length }} 个 classic change</span>
-        <span class="grow" />
-        <button class="ghost" @click="loadClassic">刷新</button>
-      </div>
-      <p class="muted">
-        Classic 是与 native change 并存的另一条工作流（open → design → build → verify → archive）。
-        界面只读，推进仍走 <code>cometflow classic transition</code>。
-      </p>
-      <p v-if="classic.length === 0" class="empty">
-        没有 classic change。用 <code>cometflow classic new &lt;name&gt; --goal G1 --task T1</code> 创建。
-      </p>
-      <table v-else>
-        <thead><tr><th>名称</th><th>goal / task</th><th>profile</th><th>phase</th><th>状态</th></tr></thead>
-        <tbody>
-          <tr v-for="change in classic" :key="change.name">
-            <td><b>{{ change.name }}</b></td>
-            <td>{{ change.goal }} / {{ change.task }}</td>
-            <td>{{ change.profile }}</td>
-            <td><StatusBadge :tone="change.archived ? 'gray' : 'ok'" :text="change.phase" /></td>
-            <td><StatusBadge :tone="change.archived ? 'gray' : 'brand'" :text="change.archived ? 'archived' : 'active'" /></td>
-          </tr>
-        </tbody>
-      </table>
     </div>
 
     <!-- Hook 预览 -->
     <div v-else>
+      <h3>写保护状态（ADR 0023）</h3>
       <p class="muted">
-        预览「这次写入会不会被守卫拦下」。判定与 <code>cometflow hook check</code> 完全同源：
+        与 <code>cometflow hook status</code> 同源：装没装、条目与守卫脚本是否漂移、守卫要调用的 CLI 能否解析。
+        只有 claude-code 支持安装，另外两个平台是「暂不支持」，不是「未安装」。
+      </p>
+      <p v-if="hookStatus === null" class="muted">加载中…</p>
+      <table v-else>
+        <thead><tr><th>平台</th><th>状态</th><th>条目</th><th>守卫脚本</th><th>守卫调用的 CLI</th></tr></thead>
+        <tbody>
+          <tr v-for="entry in hookStatus" :key="entry.platform">
+            <td><b>{{ entry.platform }}</b></td>
+            <td>
+              <StatusBadge v-if="!entry.supported" tone="gray" text="暂不支持安装" />
+              <StatusBadge v-else-if="entry.installed && entry.guardOutdated" tone="warn" text="已安装 · 需更新" />
+              <StatusBadge v-else-if="entry.installed" tone="ok" text="已安装" />
+              <StatusBadge v-else tone="gray" text="未安装（可选）" />
+            </td>
+            <td>{{ entry.entries }}</td>
+            <td class="muted">
+              {{ entry.guardExists ? '存在' : '缺失' }}<template v-if="entry.drift"> · {{ entry.drift }}</template>
+            </td>
+            <td class="muted">
+              {{ entry.cli.command }}
+              <template v-if="!entry.cli.resolved"> · 解析不到（{{ entry.cli.detail ?? '未知原因' }}）</template>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <p class="muted">
+        安装或更新走 <code>cometflow hook install . --platform claude-code</code>，卸载走
+        <code>hook uninstall</code>——装配动作会改机器上的配置，界面只做状态与判定预览。
+      </p>
+
+      <h3>写入判定预览</h3>
+      <p class="muted">
+       预览「这次写入会不会被守卫拦下」。判定与 <code>cometflow hook check</code> 完全同源：
         <code>.cometflow</code> 一律不可写；多个活跃 change 且没有 current-change 指针时 fail closed；
         build 阶段写模块外文件会被拒绝。路径按项目根解析。
       </p>
@@ -115,6 +141,20 @@
         <StatusBadge :tone="hookResult.decision.allowed ? 'ok' : 'err'" :text="hookResult.decision.allowed ? 'allowed' : 'denied'" />
         <span> {{ hookResult.decision.reason }}</span>
         <p v-if="hookResult.decision.hint" class="muted">{{ hookResult.decision.hint }}</p>
+      </div>
+
+      <!-- 被 current-change 挡住时，就地给出恢复路径：否则用户只能回 CLI 敲 change select。 -->
+      <div v-if="needsPointer" class="toolbar" style="margin-top: 10px">
+        <span class="muted">设为当前 change 后再检查：</span>
+        <select v-model="pointerDraft">
+          <option value="">选择 change…</option>
+          <option v-for="change in activeChanges" :key="change.name" :value="change.name">
+            {{ change.name }}（{{ change.phase }}）
+          </option>
+        </select>
+        <button class="primary" :disabled="pointerDraft === '' || pointerBusy" @click="selectCurrentAndRecheck">
+          {{ pointerBusy ? '处理中…' : '设为当前并重新检查' }}
+        </button>
       </div>
     </div>
   </div>
@@ -134,7 +174,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import ModalCard from '../../components/ModalCard.vue';
 import StatusBadge from '../../components/StatusBadge.vue';
 import { errorMessage } from '../../api/client';
@@ -142,9 +182,10 @@ import { useProjectStore } from '../../stores/project';
 import { useToastStore } from '../../stores/toasts';
 import type {
   BundleResponse,
-  ClassicResponse,
-  ClassicState,
+  ChangeState,
   HookCheckResponse,
+  HookStatus,
+  HookStatusResponse,
   SkillDetail,
   SkillsResponse,
   SkillSummary,
@@ -153,7 +194,6 @@ import type {
 const TABS = [
   { id: 'skills', label: 'Skills' },
   { id: 'bundle', label: 'Bundle' },
-  { id: 'classic', label: 'Classic' },
   { id: 'hook', label: 'Hook 预览' },
 ] as const;
 
@@ -164,11 +204,49 @@ const activeTab = ref<(typeof TABS)[number]['id']>('skills');
 const skills = ref<SkillSummary[]>([]);
 const skillDetail = ref<SkillDetail | null>(null);
 const bundle = ref<BundleResponse | null>(null);
-const classic = ref<ClassicState[]>([]);
+/** 正在分发的平台（空串表示空闲）；同一时刻只允许一个分发，避免并发覆盖同一目录。 */
+const distributing = ref('');
+const lastDistributed = ref<{ platform: string; written: string[] } | null>(null);
 const hookTarget = ref('src/core/index.ts');
 const hookEvent = ref<'write' | 'edit'>('write');
 const hookResult = ref<HookCheckResponse | null>(null);
 const hookBusy = ref(false);
+const hookStatus = ref<HookStatus[] | null>(null);
+const pointerDraft = ref('');
+const pointerBusy = ref(false);
+const activeChanges = ref<ChangeState[]>([]);
+
+/**
+ * 这两种拒绝不是「这个改动违规」，而是「守卫不知道这次写入属于谁」——
+ * 它们有确定的恢复路径（设 current-change 指针），所以界面必须就地给出，而不是只报个 reason。
+ */
+const needsPointer = computed(() => {
+  const reason = hookResult.value?.decision.reason ?? '';
+  return reason === 'multiple-active-changes' || reason === 'stale-current-change';
+});
+
+async function loadActiveChanges(): Promise<void> {
+  try {
+    const data = await project.projectApi<{ changes: ChangeState[] }>('/changes');
+    activeChanges.value = data.changes.filter((change) => !change.archived);
+  } catch (error) {
+    toasts.error('读取 change 列表失败', errorMessage(error));
+  }
+}
+
+async function selectCurrentAndRecheck(): Promise<void> {
+  if (pointerDraft.value === '') return;
+  pointerBusy.value = true;
+  try {
+    await project.projectApi('/current-change', { method: 'POST', body: { name: pointerDraft.value } });
+    toasts.success('已设为当前 change', pointerDraft.value);
+    await checkHook();
+  } catch (error) {
+    toasts.error('设置失败', errorMessage(error));
+  } finally {
+    pointerBusy.value = false;
+  }
+}
 
 async function loadSkills(): Promise<void> {
   try {
@@ -195,12 +273,52 @@ async function loadBundle(): Promise<void> {
   }
 }
 
-async function loadClassic(): Promise<void> {
+interface DistributePreview {
+  platform: string;
+  skillsRoot: string;
+  items: Array<{ name: string; source: string; target: string; overwritten: boolean }>;
+}
+
+/**
+ * bundle 分发（C12）：预告 → 确认 → 执行。
+ *
+ * 两步都打同一个端点，靠 `dryRun` 区分——预告必须与执行同源，否则「给你看的」
+ * 和「实际做的」会分叉。覆盖语义（`rm -rf 目标 + cp`）在确认框里说清。
+ */
+async function distribute(platform: string): Promise<void> {
+  distributing.value = platform;
   try {
-    const data = await project.projectApi<ClassicResponse>('/classic');
-    classic.value = data.changes;
+    const preview = await project.projectApi<DistributePreview>('/bundles/distribute', {
+      method: 'POST',
+      body: { platform, dryRun: true },
+    });
+    const overwrites = preview.items.filter((item) => item.overwritten);
+    const lines = preview.items.map((item) => '  ' + item.name + ' → ' + item.target).join('\n');
+    const ok = window.confirm(
+      '分发到 ' + platform + '？\n\n' + preview.skillsRoot + '\n' + lines +
+        (overwrites.length > 0 ? '\n\n其中 ' + overwrites.length + ' 个已存在，会被整个替换。' : ''),
+    );
+    if (!ok) return;
+
+    const done = await project.projectApi<{ written: string[] }>('/bundles/distribute', {
+      method: 'POST',
+      body: { platform, dryRun: false },
+    });
+    lastDistributed.value = { platform, written: done.written };
+    toasts.success('已分发到 ' + platform, '写入 ' + done.written.length + ' 个目录');
   } catch (error) {
-    toasts.error('读取 classic 失败', errorMessage(error));
+    toasts.error('分发失败', errorMessage(error));
+  } finally {
+    distributing.value = '';
+  }
+}
+
+async function loadHookStatus(): Promise<void> {
+  try {
+    const data = await project.projectApi<HookStatusResponse>('/hook/status');
+    hookStatus.value = data.platforms;
+  } catch (error) {
+    toasts.error('读取写保护状态失败', errorMessage(error));
   }
 }
 
@@ -226,6 +344,11 @@ async function checkHook(): Promise<void> {
 onMounted(() => {
   void loadSkills();
   void loadBundle();
-  void loadClassic();
+  void loadHookStatus();
+});
+
+// 只有真的被 current-change 挡住时才去拉 change 列表：这个页签平时是只读预览，不多打一次请求。
+watch(needsPointer, (blocked) => {
+  if (blocked && activeChanges.value.length === 0) void loadActiveChanges();
 });
 </script>

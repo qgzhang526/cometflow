@@ -1,42 +1,18 @@
-import { promises as fs } from 'node:fs';
-import path from 'node:path';
-import { parse } from 'yaml';
 import { listSpecEntries, listSpecFiles } from '../spec/spec-index.js';
 import { parseSpecFile } from '../spec/spec-parse.js';
 import { collectSpecDrift } from '../spec/spec-drift.js';
 import { readSpecHistory } from '../spec/spec-version.js';
-import type { TaskPlan } from '../task-plan/types.js';
+import { collectBoundAnchorBindings } from '../spec/spec-anchors.js';
 import { rate, type SpecHealthEntry, type SpecHealthMetrics } from './types.js';
 
-async function listPlanFiles(projectRoot: string): Promise<string[]> {
-  const dir = path.join(projectRoot, '.cometflow', 'plans');
-  try {
-    const entries = await fs.readdir(dir);
-    return entries.filter((entry) => entry.endsWith('.task-plan.yaml')).sort();
-  } catch {
-    return [];
-  }
-}
-
-/** 被冻结或已批准任务绑定的 anchor（键为 `spec_ref#anchor`）。 */
+/**
+ * 被冻结或已批准任务绑定的 anchor（键为 `spec_ref#anchor`）。
+ *
+ * 判定只有一份实现（`collectBoundAnchorBindings`）——指标侧的 `anchor_coverage_rate`
+ * 与界面上的锚点平铺视图（`collectSpecAnchors`）必须对同一条绑定给出同样的结论。
+ */
 async function collectBoundAnchors(projectRoot: string): Promise<Set<string>> {
-  const bound = new Set<string>();
-  for (const file of await listPlanFiles(projectRoot)) {
-    let plan: TaskPlan;
-    try {
-      plan = parse(
-        await fs.readFile(path.join(projectRoot, '.cometflow', 'plans', file), 'utf8'),
-      ) as TaskPlan;
-    } catch {
-      continue;
-    }
-    for (const task of plan.tasks) {
-      if (task.status !== 'frozen' && task.status !== 'approved') continue;
-      if (!task.spec_ref || !task.spec_anchor) continue;
-      bound.add(task.spec_ref + '#' + task.spec_anchor);
-    }
-  }
-  return bound;
+  return new Set((await collectBoundAnchorBindings(projectRoot)).keys());
 }
 
 /**

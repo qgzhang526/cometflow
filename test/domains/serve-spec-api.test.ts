@@ -4,6 +4,7 @@ import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startServe } from '../../domains/server/serve.js';
 import type { ServeHandle } from '../../domains/server/serve.js';
+import { refreshSpecBaseline } from '../../domains/spec/spec-version.js';
 
 /**
  * Spec 内核在 Web 端的投影：验收覆盖 / 一致性门禁 / 版本回放 / 影响分析。
@@ -259,5 +260,101 @@ describe('spec kernel API', () => {
     expect(unknown.status).toBe(404);
     const outside = await post('/spec/proposal', { change: 'shape-change', path: '../evil.md', content: 'x' });
     expect(outside.status).toBe(400);
+  });
+
+  it('scaffolds capability stubs from an explicit name list, idempotently', async () => {
+    // capability 不由项目类型推导：只能点名（goal 的 scope 或外部标准）。
+    // 探针用完即删——新增 spec 文件会让后续用例的 spec-lock 基线（specFileCount）失真。
+    const probeDir = path.join(projectRoot, 'specs', 'api-probe');
+    const probe = path.join(probeDir, 'spec.md');
+    const created = await post<{ capabilities: { created: string[]; skipped: string[]; invalid: string[] } }>(
+      '/spec/scaffold',
+      { capabilities: ['api-probe'] },
+    );
+    expect(created.status).toBe(200);
+    expect(created.body.data.capabilities.created).toEqual(['specs/api-probe/spec.md']);
+    const stub = await fs.readFile(probe, 'utf8');
+    expect(stub).toContain('module: internal/api-probe');
+    expect(stub).toContain('## Acceptance');
+
+    // 幂等：第二次不新建、也不覆盖已存在的内容。
+    const second = await post<{ capabilities: { created: string[]; skipped: string[] } }>('/spec/scaffold', {
+      capabilities: ['api-probe'],
+    });
+    expect(second.body.data.capabilities.created).toEqual([]);
+    expect(second.body.data.capabilities.skipped).toEqual(['specs/api-probe/spec.md']);
+    expect(await fs.readFile(probe, 'utf8')).toBe(stub);
+
+    // 非法名字只报不写：既不落盘，也不影响同一请求里的合法项。
+    const mixed = await post<{ capabilities: { created: string[]; invalid: string[] } }>('/spec/scaffold', {
+      capabilities: ['../escape', '.hidden', 'api-probe-2'],
+    });
+    expect(mixed.status).toBe(200);
+    expect(mixed.body.data.capabilities.invalid).toEqual(['../escape', '.hidden']);
+    expect(mixed.body.data.capabilities.created).toEqual(['specs/api-probe-2/spec.md']);
+    expect(await fs.access(path.join(projectRoot, 'escape')).then(() => true, () => false)).toBe(false);
+
+    await fs.rm(probeDir, { recursive: true, force: true });
+    await fs.rm(path.join(projectRoot, 'specs', 'api-probe-2'), { recursive: true, force: true });
+    expect(await fs.access(probe).then(() => true, () => false)).toBe(false);
+  });
+
+  it('derives root kinds from the project context when the caller omits stack hints', async () => {
+    // 缺 stack 时退回项目上下文（与 CLI 同源）：否则空串会被判成 absent，
+    // 点一次「生成 / 补全」就把 models 写成「本项目不需要」。
+    const contextPath = path.join(projectRoot, '.cometflow', 'project-context.yaml');
+    const manifestPath = path.join(projectRoot, '.cometflow', 'init-manifest.yaml');
+    const contextBefore = await fs.readFile(contextPath, 'utf8');
+    const manifestBefore = await fs.readFile(manifestPath, 'utf8');
+    await fs.writeFile(
+      contextPath,
+      'schema: cometflow.project-context.v1\ntech_stack:\n  frontend: 无\n  backend: TypeScript\n  database: PostgreSQL\nruntime: {}\nshared_paths: []\n',
+    );
+    try {
+      const asked = await post<{ kinds: Record<string, { status: string }> }>('/spec/scaffold', {});
+      expect(asked.status).toBe(200);
+      // database != none → models present；frontend == none → pages absent。
+      expect(asked.body.data.kinds.models.status).toBe('present');
+      expect(asked.body.data.kinds.pages.status).toBe('absent');
+    } finally {
+      await fs.writeFile(contextPath, contextBefore);
+      await fs.writeFile(manifestPath, manifestBefore);
+    }
+  });
+
+  it('approves a draft spec, and refuses paths outside specs/', async () => {
+    const probeDir = path.join(projectRoot, 'specs', 'api-draft-probe');
+    const probe = path.join(probeDir, 'spec.md');
+    await fs.mkdir(probeDir, { recursive: true });
+    await fs.writeFile(
+      probe,
+      '---\ncapability: api-draft-probe\nstatus: draft\n---\n\n# api-draft-probe\n\n## H1\n\n需求。\n\n## 验收\n\n- A001：第一条\n',
+    );
+
+    // 列表带状态：界面据此显示「草案 / 已定稿」与「批准定稿」按钮。
+    const listed = await get<{ entries: Array<{ path: string; status: string }> }>('/specs');
+    expect(listed.body.data.entries.find((entry) => entry.path === 'specs/api-draft-probe/spec.md')?.status).toBe('draft');
+
+    const approved = await post<{ changed: boolean; previous: string; status: string }>('/spec/approve', {
+      path: 'specs/api-draft-probe/spec.md',
+    });
+    expect(approved.status).toBe(200);
+    expect(approved.body.data.changed).toBe(true);
+    expect(approved.body.data.previous).toBe('draft');
+    expect(await fs.readFile(probe, 'utf8')).toContain('status: approved');
+
+    // 已经是 approved：不重写文件，也不记新版本。
+    const again = await post<{ changed: boolean }>('/spec/approve', { path: 'specs/api-draft-probe/spec.md' });
+    expect(again.body.data.changed).toBe(false);
+
+    const outside = await post('/spec/approve', { path: '../evil.md' });
+    expect(outside.status).toBe(400);
+    expect(outside.body.error?.code).toBe('invalid-spec-path');
+    const missing = await post('/spec/approve', {});
+    expect(missing.status).toBe(400);
+
+    // 探针删掉并把基线刷回去，避免给后续用例留下 stale-spec-lock。
+    await fs.rm(probeDir, { recursive: true, force: true });
+    await refreshSpecBaseline(projectRoot, { note: 'test cleanup' });
   });
 });

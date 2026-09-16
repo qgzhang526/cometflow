@@ -50,6 +50,8 @@ export interface GoalRecord {
 export interface SpecEntry {
   path: string;
   kind: string;
+  /** 定稿状态（G1）：draft 的 spec 不能参与 plan freeze，需要先批准。 */
+  status: 'draft' | 'approved';
 }
 
 export interface KindEntry {
@@ -565,6 +567,25 @@ export interface SchedulerResponse {
   derived: SchedulerQueue;
   next: QueueTask | null;
   scheduler: ProjectConfig['scheduler'] | null;
+  /** 已用预算（跨重启累计，`.cometflow/runtime/budget.json`）：只读，重置走 CLI `daemon budget --reset`。 */
+  budget: { schema: string; used_ms: number; updated_at: string };
+  /**
+   * 调度器状态投影（`.cometflow/runtime/daemon-state.json`，C5）：
+   * 最近一次决策、上一次任务结果、队列计数与预算快照。从未跑过 daemon 时为 null。
+   */
+  daemon: {
+    pid: number;
+    mode: string;
+    agent: string;
+    iteration: number;
+    phase: 'started' | 'skipping' | 'ran' | 'stopped';
+    stopped_reason: string | null;
+    updated_at: string;
+    last_decision: { ran: boolean; reason: string; task: string | null } | null;
+    last_task: { id: string; result: 'done' | 'failed'; elapsedMs: number; timedOut: boolean } | null;
+    queue: { queued: number; running: number; done: number; failed: number };
+    budget: { used_ms: number; total_ms: number; remaining_ms: number | null };
+  } | null;
 }
 
 export interface SkillSummary {
@@ -696,4 +717,261 @@ export interface SpecProposal {
 
 export interface SpecProposalsResponse {
   proposals: SpecProposal[];
+}
+
+// ---- V1 可见性批次：把「后端算出来了、但只能敲命令」的结论搬到界面 ----
+
+/** 统一 findings 投影（`GET /findings`，与 `cometflow gate check --findings` 同源）。 */
+export type FindingSource = 'spec-verify' | 'doctor';
+export type FindingSeverity = 'error' | 'warning' | 'info';
+
+export interface Finding {
+  source: FindingSource;
+  code: string;
+  severity: FindingSeverity;
+  /** 出问题的对象（spec 路径、change 名）；doctor 来源为空串。 */
+  subject: string;
+  message: string;
+}
+
+export interface FindingsResponse {
+  findings: Finding[];
+}
+
+export interface RebuildBucket {
+  key: string;
+  sample_size: number;
+  first_pass_rate: number | null;
+  mean_attempts_to_pass: number | null;
+  blocked_rate: number | null;
+}
+
+/** 度量报告（`GET /metrics`）：字段与 `domains/metrics/types.ts` 对齐，只做展示。 */
+export interface MetricsReport {
+  schema: string;
+  generated_at: string;
+  project: {
+    changes: number;
+    active_changes: number;
+    archived_changes: number;
+    specs: number;
+    capabilities: number;
+  };
+  rebuild: {
+    sample_size: number;
+    verified_changes: number;
+    total_changes: number;
+    archived_changes: number;
+    first_pass_rate: number | null;
+    mean_attempts_to_pass: number | null;
+    pass_rate: number | null;
+    blocked_rate: number | null;
+    verdict_sources: Record<string, number>;
+    check_coverage_rate: number | null;
+    verifier: { runs: number; total_ms: number; mean_ms: number | null };
+    per_capability: RebuildBucket[];
+    per_module: RebuildBucket[];
+  };
+  spec_health: {
+    specs: number;
+    capabilities: number;
+    acceptance_total: number;
+    acceptance_with_check: number;
+    acceptance_checkable_rate: number | null;
+    anchor_total: number;
+    anchor_bound: number;
+    anchor_coverage_rate: number | null;
+    drift: {
+      count: number;
+      by_kind: Record<string, number>;
+      by_severity: Record<string, number>;
+      unresolvable: number;
+      oldest_spec_change_age_days: number | null;
+    };
+    versions: {
+      specs_tracked: number;
+      total_versions: number;
+      specs_with_multiple_versions: number;
+    };
+  };
+  notes: string[];
+}
+
+/** 生效的门禁阈值：`lines` 始终有值（未配置时是内置方向表），避免出现看不见的约束。 */
+export interface MetricsGateInfo {
+  thresholds: Record<string, unknown>;
+  errors: string[];
+  lines: string[];
+}
+
+export interface MetricsResponse {
+  report: MetricsReport;
+  gates: MetricsGateInfo;
+}
+
+/** 维护预告（`GET /maintenance`）：三个动作各自「将要删什么」。 */
+export interface EvidenceUsageEntry {
+  change: string;
+  archived: boolean;
+  bytes: number;
+  files: number;
+}
+
+export interface EvidenceReclaimCandidate {
+  change: string;
+  path: string;
+  reason: string;
+  bytes: number;
+}
+
+export interface MaintenancePlan {
+  temp: {
+    count: number;
+    totalBytes: number;
+    sample: Array<{ path: string; size: number }>;
+  };
+  jobs: {
+    files: number;
+    bytes: number;
+    finished: number;
+    running: number;
+    candidates: number;
+    reclaimableBytes: number;
+  };
+  lock: {
+    held: boolean;
+    stale: boolean;
+    reason: string | null;
+    /** `pid@host@startedAt`：确认时原样回传，服务端据此拒绝「看到的锁」与「要清的锁」不一致。 */
+    holder: string | null;
+    record: { pid: number; host: string; startedAt: string; action: string; ttlMs: number } | null;
+  };
+  /** change 运行时证据（`change gc` 的对象）：只回收「可重新推导」的部分。 */
+  evidence: {
+    totalBytes: number;
+    changes: EvidenceUsageEntry[];
+    reclaimableBytes: number;
+    candidates: EvidenceReclaimCandidate[];
+  };
+}
+
+/** 写保护（ADR 0023）的安装状态：装没装、条目与脚本是否漂移、守卫调用的 CLI 能否解析。 */
+export interface HookCommandResolution {
+  command: string;
+  executable: string;
+  path: string | null;
+  resolved: boolean;
+  detail: string | null;
+}
+
+export interface HookStatus {
+  platform: 'claude-code' | 'opencode' | 'codex';
+  supported: boolean;
+  installed: boolean;
+  guardExists: boolean;
+  settingsPath: string | null;
+  entries: number;
+  drift: string | null;
+  guardOutdated: boolean;
+  cli: HookCommandResolution;
+}
+
+export interface HookStatusResponse {
+  platforms: HookStatus[];
+}
+
+/** `evolve rollback` 的指引（纯投影，不改状态）。 */
+export interface EvolveRollbackResponse {
+  name: string;
+  lines: string[];
+}
+
+/** 门禁：判定结果（`gate check`）+ 安装状态（`gate status`）。 */
+export interface GateStep {
+  name: string;
+  ok: boolean;
+  detail: string;
+}
+
+export interface GitHookStatus {
+  isRepository: boolean;
+  host: string;
+  hooksDir: string | null;
+  hooksPathOverride: string | null;
+  hookPath: string | null;
+  installed: boolean;
+  chained: boolean;
+  drifted: boolean;
+  note: string | null;
+}
+
+export interface GateResponse {
+  check: { ok: boolean; steps: GateStep[] };
+  install: GitHookStatus;
+}
+
+/** 锚点平铺（`spec anchors` 的投影）。 */
+export interface SpecAnchorEntry {
+  path: string;
+  kind: string;
+  anchor: string;
+  acceptance: number;
+  checked: number;
+  bound_tasks: string[];
+}
+
+export interface SpecAnchorsProjection {
+  entries: SpecAnchorEntry[];
+  totals: { anchors: number; bound: number; unbound: number; acceptance: number; checked: number };
+}
+
+/** 任务 → spec 追溯（`plan trace` 的投影 + 同一份数据的结构化视图）。 */
+export interface PlanTraceTask {
+  id: string;
+  title: string;
+  capability: string;
+  spec_ref: string | null;
+  spec_anchor: string | null;
+  spec_version: number | null;
+  acceptance_ids: string[];
+  status: string;
+}
+
+export interface PlanTraceResponse {
+  goal: string;
+  status: string;
+  lines: string[];
+  tasks: PlanTraceTask[];
+}
+
+/** 表格导入：预览（只读）与写入结果。 */
+export interface SpecImportPreview {
+  source: string;
+  rows: number;
+  issues: Array<{ line: number; reason: string }>;
+  invalid: string[];
+  existing: string[];
+  writable: string[];
+}
+
+export interface SpecImportResult {
+  source: string;
+  capabilities: string[];
+  written: string[];
+  skipped: string[];
+  issues: Array<{ line: number; reason: string }>;
+}
+
+/** current-change 指针（`GET /current-change`）：多活跃 change 时唯一能解除 hook fail closed 的入口。 */
+export interface CurrentChangePointer {
+  schema: string;
+  change: string;
+  selected_at: string;
+  source: 'auto' | 'manual';
+}
+
+export interface CurrentChangeResponse {
+  pointer: CurrentChangePointer | null;
+  change: ChangeState | null;
+  resolved: boolean;
 }

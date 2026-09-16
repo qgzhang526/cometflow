@@ -74,6 +74,17 @@ export const useProjectStore = defineStore('project', () => {
     }
   }
 
+  /**
+   * 维护动作（clean-temp / clean-jobs / force-unlock）的响应里带回了执行后的 doctor 报告，
+   * 直接采用：界面既得到新结论，又少一次往返回读。
+   */
+  function applyDoctorReport(report: unknown): void {
+    if (report === null || typeof report !== 'object') return;
+    const candidate = report as Partial<DoctorReport>;
+    if (typeof candidate.healthy !== 'boolean' || !Array.isArray(candidate.findings)) return;
+    doctor.value = candidate as DoctorReport;
+  }
+
   function reset(): void {
     currentId.value = null;
     current.value = null;
@@ -100,5 +111,6 @@ export const useProjectStore = defineStore('project', () => {
     refreshDoctor,
     loadConfig,
     loadAgents,
+    applyDoctorReport,
   };
 });

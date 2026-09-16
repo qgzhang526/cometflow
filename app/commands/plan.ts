@@ -4,6 +4,7 @@ import { validateTaskPlan } from '../../domains/task-plan/task-plan-validate.js'
 import { freezeTaskPlan } from '../../domains/task-plan/task-plan-freeze.js';
 import { traceTaskPlan } from '../../domains/task-plan/task-plan-trace.js';
 import { regenerateTaskPlan } from '../../domains/task-plan/task-plan-regenerate.js';
+import { applyPlanReviewPolicy } from '../../domains/task-plan/plan-review-policy.js';
 import {
   markTaskPlanApproved,
   markTaskPlanReviewed,
@@ -17,9 +18,12 @@ function projectRoot(targetPath: string): string {
 
 export async function planGenerateCommand(goalId: string, targetPath: string): Promise<void> {
   const root = projectRoot(targetPath);
-  const plan = await generateTaskPlan(root, goalId);
-  const filePath = await writeTaskPlan(root, plan);
+  const generated = await generateTaskPlan(root, goalId);
+  // 拆解审核策略（ADR 0003）：auto 时校验通过就自动 review + approve，其余停在 draft。
+  const review = await applyPlanReviewPolicy(root, generated);
+  const filePath = await writeTaskPlan(root, review.plan);
   console.log('wrote ' + filePath);
+  console.log('plan review: ' + review.note);
 }
 
 export async function planRegenerateCommand(
@@ -29,11 +33,13 @@ export async function planRegenerateCommand(
 ): Promise<void> {
   const root = projectRoot(targetPath);
   const previous = await readTaskPlan(root, goalId);
-  const plan = await regenerateTaskPlan(root, goalId, previous, {
+  const regenerated = await regenerateTaskPlan(root, goalId, previous, {
     preserveApproved: options.preserveApproved === true,
   });
-  const filePath = await writeTaskPlan(root, plan);
+  const review = await applyPlanReviewPolicy(root, regenerated);
+  const filePath = await writeTaskPlan(root, review.plan);
   console.log('wrote ' + filePath);
+  console.log('plan review: ' + review.note);
 }
 
 export async function planReviewCommand(goalId: string, targetPath: string): Promise<void> {
