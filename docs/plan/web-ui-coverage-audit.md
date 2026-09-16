@@ -15,9 +15,9 @@ gate findings 统一呈现）+ 本分支的审计文档
 
 | 口径 | 结果 | 说明 |
 |---|---|---|
-| HTTP 端点接线率 | **90 / 92 ≈ 98%** | V1–V3 新增 15 个端点且全部接线；仍只有 `/config/project`、`/spec-index` 两个端点无人调用（都是冗余投影，非用户可见缺口） |
-| CLI 能力完整可见率 | **58 / 78 ≈ 74%** | 另有 2 条「部分可见」、18 条「无 UI 入口」（其中 14 条属安装/运维/长驻进程，见 §5.2） |
-| 核心流水线可见率（扣除 14 条安装/运维/长驻进程命令） | **58 / 64 ≈ 91%** 完整，**94%** 至少部分可见 | 剩余 4 条产品缺口全部集中在「另一条工作流」与调度预算（Classic 推进 2 条、daemon budget、spec index，见 §5.1） |
+| HTTP 端点接线率 | **90 / 92 ≈ 98%** | `/config/project` 与 `/spec-index` 按 V4-5 的决策**保留给 CLI/脚本**（有文档与测试的对外投影，不是缺口） |
+| CLI 能力完整可见率 | **59 / 78 ≈ 76%** | 另有 1 条「部分可见」、18 条「无 UI 入口」，且**产品缺口已清零**：18 条里 14 条是安装/运维/长驻进程（§5.2），4 条是按决策退出界面（Classic 弃用 3 条 + spec index 保留 1 条，§5.1） |
+| 核心流水线可见率（扣除 18 条安装/运维/弃用/保留命令） | **59 / 60 ≈ 98%** 完整，**100%** 至少部分可见 | 剩下的「部分可见」只有 `bundle compile`（编译产物已在资产面板预览，仅装配动作留 CLI） |
 
 一句话结论：**008 的 S1–S5 与 W1–W5 / N1–N6 声称的产物都在代码里，主流水线（goal → plan → spec →
 change → evolve → eval）已经端到端可用**；剩余缺口不再分布在主链路上，而是四类「边缘但真实」的地方——
@@ -64,14 +64,14 @@ gate findings 统一呈现）已合入 `main` 并逐条验证落地；本报告�
 
 | 面板 | 已接线端点 | 深度 | 缺口（对应 §5–§7） |
 |---|---|---|---|
-| 总览 Overview | `/project/status`、`/project/doctor`、`/findings`、`/metrics`、`/maintenance`、`/gate`、`/project/doctor/{clean-temp,clean-jobs,force-unlock}`、`/project/evidence/clean` | 计数卡 + 计划/变更表 + **问题清单** + **门禁**（判定项 + 提交门禁安装状态）+ **质量与健康度** + **维护动作**（四类清理，全部「预告→确认→执行」） | V1–V3 已交付 C1/C2/C4/C17 与门禁可见性；仅剩 TopBar 健康徽章（C14，V4-2） |
-| 目标 Goals | `/mission.md` GET/PUT、`/goals`、`/context/sync`、`/goals/sync` | 5 页签（使命 / 技术栈 / 运行环境 / 任务目标 / 投影）+ 整文 Markdown 编辑 | 只能追加 `### Gn`，无单目标就地编辑/删除（C16） |
+| 总览 Overview | `/project/status`、`/project/doctor`、`/findings`、`/metrics`、`/maintenance`、`/gate`、`/project/doctor/{clean-temp,clean-jobs,force-unlock}`、`/project/evidence/clean` | 计数卡 + 计划/变更表 + **问题清单** + **门禁** + **质量与健康度** + **维护动作**（四类清理，全部「预告→确认→执行」）；findings 同时驱动**顶栏健康徽章** | V1–V4 已交付 C1/C2/C4/C14/C17 与门禁可见性 |
+| 目标 Goals | `/mission.md` GET/PUT、`/goals`、`/context/sync`、`/goals/sync` | 5 页签 + 整文 Markdown 编辑 + **单条目标就地编辑/删除**（按 `### Gn` 块边界，删除前显示原块） | V4 已交付 C16 |
 | 规格 Specs | 上述 + `/spec/anchors`、`/spec/import` | **8 页签**（新增「导入」）、编辑器引用 chip + 镜像层、版本回放、影响预演、提案存取、「验收覆盖」内含**全部锚点**（kind / 验收项 / 绑定任务） | V3 已交付 C8/C9；`/spec-index` 端点冗余（B1，V4-5 清理） |
 | 计划 Plans | 上述 + `/plans/{goal}/trace` | 状态驱动按钮 + 任务表 + **追溯**（任务 → spec 绑定 → 验收项 → 状态，附文本清单） | V3 已交付 C7 |
 | 变更 Changes | `/changes`、`/changes/{name}`、`resume/transition/run/verify/archive/scope/journal/evidence/rebase/unblock`、`/plans/{goal}` | 4 页签、步骤条、验收结论、冲突双路径、job 日志 | `change select` 无端点（C3）；`change gc` 无端点（C4） |
 | 进化 Evolve | `/evolutions`、`propose/verify/submit/approve/reject`、`/evolutions/{name}/rollback` | 提案卡 + 门禁 + 评审表单 + **回滚指引弹窗** | V2 已交付 C6 |
-| 评估 Eval | `/eval/run` | Pass@k / Pass^k / 每轮输出 / rubric / judge 全量渲染 | 只认最近一次 eval job，无历史对比（C15） |
-| 调度 Scheduler | `/scheduler/queue` | 队列 + 推导待办 + 下一个任务 + 参数只读 | 无 daemon 启停/预算/日志（C5） |
+| 评估 Eval | `/eval/run` | Pass@k / Pass^k / 每轮输出 / rubric / judge 全量渲染 + **历史与两轮对比**（差值 + 结论翻转清单） | V4 已交付 C15 |
+| 调度 Scheduler | `/scheduler/queue` | 队列 + 推导待办 + 下一个任务 + 参数只读 + **已用预算**（跨重启累计） | V4 已交付预算可见；daemon 启停与日志仍属 CLI（C5 的有意只读） |
 | 资产 Assets | `/skills`、`/skills/{name}`、`/bundles`、`/classic`、`/hook/check`、`/hook/status` | Skills / Bundle / Classic / Hook 预览 4 页签；Hook 页签顶部新增**写保护状态表**（支持性 / 条目 / 守卫脚本 / CLI 解析） | V2 已交付 C11；skill/bundle 写操作仍无入口（C12）；classic 只读（C10） |
 | 设置 Settings | `/config` GET/PUT、`/agents` | agent/模型、verification、scope、scheduler、并发策略（含切换 fail 与延长） | `/config/project` 冗余（B2） |
 | 任务中心（抽屉） | `/jobs`、`/jobs/{id}`、`DELETE /jobs` + SSE | 持久化任务、日志、结果、深链 | — |
@@ -80,7 +80,7 @@ gate findings 统一呈现）已合入 `main` 并逐条验证落地；本报告�
 
 ### 5.1 产品缺口（13 行中 9 行已交付：V1/V2 五条 + V3 四条；余 4 行进 V4）
 
-> 标 ✅ 的九项已完成（见 [web-ui-visibility-plan.md](./web-ui-visibility-plan.md) §3.1–§3.3）；
+> 标 ✅ 的十一项已完成（见 [web-ui-visibility-plan.md](./web-ui-visibility-plan.md) §3.1–§3.4）；
 > 保留在表中是为了让差异盘点可追溯——「当时差在哪里」和「现在补上了」都能对上。
 
 | 能力 | CLI | 领域函数 | 缺什么 | 对 UI 的价值 |
@@ -92,8 +92,8 @@ gate findings 统一呈现）已合入 `main` 并逐条验证落地；本报告�
 | ✅ 冻结任务追溯 | `plan trace` | `task-plan-trace.ts` | ~~无端点、无入口~~ → `GET /plans/{goal}/trace` + Plans 面板追溯 | 任务 → spec 绑定 → 验收项一次看全，未绑定 / 无验收项显式标注 |
 | ✅ 表格导入 | `spec import` | `spec-import.ts` | ~~无端点、无入口~~ → `POST /spec/import` + Specs「导入」页签 | 粘贴 → 预览（会新写 / 已存在跳过 / 非法能力名）→ 写入，规则与 CLI 同源 |
 | ✅ spec 锚点清单 | `spec anchors` | `spec-anchors.ts`（新） | ~~无端点~~ → `GET /spec/anchors` + 「验收覆盖」内的全部锚点段 | 「锚点 → 绑定任务 → 可执行验收」平铺；未绑定者就是覆盖率分母里的缺口 |
-| Classic 推进（2 条） | `classic new` / `classic transition` | `domains/classic/*` | 只有 `GET /classic` | 另一条工作流在界面里只读，与 native change 并存的定位仍然模糊 |
-| 预算用量投影 | `daemon budget` | `scheduler/budget.ts` | 无端点 | 调度面板有意只读（见 C5），但连「累计预算用了多少」的只读投影也还没有，用户无法判断调度器是否在正常工作 |
+| ⊘ Classic 推进（2 条） | `classic new` / `classic transition` | `domains/classic/*` | **按决策退出界面**（2026-09-16：只保留 native，Classic 后续版本一并移除） | 不再需要界面入口；USAGE §7.4 已标注弃用 |
+| ✅ 预算用量投影 | `daemon budget` | `scheduler/budget.ts` | ~~无端点~~ → `GET /scheduler/queue` 的 `budget` 字段 + 调度面板「已用预算」 | 跨重启累计的用量可见；重置仍走 CLI（`daemon budget . --reset`） |
 | ✅ 统一 findings 投影（P5 新增，非命令） | —（经 `gate check --findings` / `spec verify --with-doctor` 暴露） | `domains/gates/findings.ts` | ~~无端点、无入口~~ → `GET /findings` + 总览「问题清单」卡 | 界面上看到的条目与 `gate check . --findings` 逐条相等（测试钉住） |
 | ✅ 门禁判定投影 | `gate check` | `domains/gates/spec-gates.ts` | ~~无端点、无入口~~ → `GET /gate` + 总览「门禁」卡 | 「现在能不能提交」在界面上有结论（逐项 PASS/FAIL） |
 | ✅ 门禁安装状态 | `gate status` | `domains/gates/git-hook.ts` | ~~无端点、无入口~~ → 同上（响应里的 `install`） | 装没装、是否链式、内容是否漂移、`core.hooksPath` 指向哪里，一眼可见 |
@@ -105,11 +105,11 @@ gate findings 统一呈现）已合入 `main` 并逐条验证落地；本报告�
 
 判断依据是「是否需要常驻进程 / 是否改变机器的安装状态」：这类命令给 UI 入口的收益低、风险高
 （例如 `uninstall` 会删项目状态），保持 CLI 专属是有意选择，不算覆盖缺口。它们目前都由面板空状态文案
-明确导回 CLI（Assets 的 Skills/Bundle/Classic 三个页签都写了对应命令）。
+明确导回 CLI（Assets 的 Skills / Bundle 两个页签都写了对应命令；Classic 页签已按 V4-4 移除）。
 
-按这个口径（V1–V3 之后）：78 条叶子命令 = 58 条完整可见 + 2 条部分可见 + 14 条 CLI 专属 + 4 条产品缺口
-（Classic 推进 2 条、`daemon budget`、`spec index`）；
-「核心流水线可见率」的 64 条分母就是 78 − 14。
+按这个口径（V1–V4 之后）：78 条叶子命令 = 59 条完整可见 + 1 条部分可见 + 14 条 CLI 专属 +
+4 条按决策退出界面（Classic 3 条：new / transition / status；spec index 1 条）；**产品缺口清零**。
+「核心流水线可见率」的 60 条分母就是 78 − 18（14 条 CLI 专属 + 4 条弃用/保留）。
 
 ## 6. B 类：有端点、前端未接线（2 条，均为冗余）
 
@@ -134,13 +134,13 @@ gate findings 统一呈现）已合入 `main` 并逐条验证落地；本报告�
 | ✅ C7 | 任务追溯不完整 | 任务表没有验收项，也没有「未绑定」的显式表达 | **V3-2 已交付**：追溯表（含 acceptance ids 与未绑定 / 无验收标注）+ 文本清单 |
 | ✅ C8 | 无表格导入入口 | `spec-import.ts` 有实现；Specs 页签都没有导入 | **V3-3 已交付**：「导入」页签（粘贴 → 预览 → 写入） |
 | ✅ C9 | 无锚点平铺视图 | `spec anchors` 未接线 | **V3-4 已交付**：「验收覆盖」内的全部锚点段（kind / 验收项 / 绑定任务） |
-| C10 | Classic 只读 | `AssetsPanel.vue` Classic 页签文案「界面只读，推进仍走 `cometflow classic transition`」 | 「两条工作流并存」在 UI 上表现为一条可写、一条只读，用户会问哪条才是正路 |
+| ⊘ C10 | Classic 只读 | `AssetsPanel.vue` 曾有 Classic 页签（只读） | **V4-4 按决策处理**：界面移除该页签，USAGE 标注弃用（只保留 native，Classic 后续版本一并移除）——不是「补上写入闭环」 |
 | ✅ C11 | Hook 状态只能间接看 | `hook install/uninstall` 无端点；P1 已落地，`doctor.ts` 汇总六种 hook finding | **V2-3 已交付**：资产面板 Hook 页签的写保护状态表（支持性 / 条目 / 守卫脚本 / CLI 解析），与 doctor findings 互为表里 |
 | C12 | Skill/Bundle 只读 | Assets 面板用空状态文案把用户导回 `skill add` / `bundle create` / `bundle distribute` | 属有意的「只读优先」，但 `bundle distribute` 的平台选择（`opencode` / `claude-code`）已由 `GET /bundles` 返回，界面完全可以做成一次点击 |
 | C13 | 无一次性 agent 会话入口 | `run` 未接线 | 试跑/临时会话必须先建 change，或者回 CLI |
-| C14 | TopBar 缺项目健康徽章 | `ProjectView.vue` TopBar 只有项目名/path + agent 徽章 + 任务计数；doctor 状态只在总览 | 008 §5.1 明确要求「项目健康徽章（doctor: OK / NEEDS ATTENTION）」 |
-| C15 | Eval 无历史对比 | `EvalPanel.vue` 的 `adoptLatestJob()` 只找回**最近一次** `eval-run` | 报告本身渲染很完整，但无法并排对比两轮评估（这正是「科学评估」最有价值的地方） |
-| C16 | 目标只能追加 | `GoalsPanel.vue` 的 `addGoal()` 从 `### G(\d+)` 推算最大编号 + 1（P1-10 已修编号推断） | 单个目标的编辑/删除仍要打开整文 Markdown 编辑器 |
+| ✅ C14 | TopBar 缺项目健康徽章 | TopBar 只有项目名/path + agent 徽章 + 任务计数 | **V4-2 已交付**：findings 提升为共享 store，顶栏徽章与总览清单同源同数 |
+| ✅ C15 | Eval 无历史对比 | `adoptLatestJob()` 只找回最近一次 `eval-run` | **V4-1 已交付**：历史表 + 「对比轮」+ 指标差值与结论翻转清单 |
+| ✅ C16 | 目标只能追加 | `addGoal()` 只能追加新块 | **V4-3 已交付**：按 `### Gn` 块就地编辑/删除（删除前显示原块），写回后自动 sync |
 | ✅ C17 | 总览的问题清单只有一个来源 | Doctor 卡只渲染 `doctor.findings`；P5 的 `collectFindings`（两源、去重、带 `subject`）没有端点 | **V1-1 已交付**：问题清单与 `gate check . --findings` 同源，可跳转到对应面板 |
 
 ## 8. 与 008 阶段设计的对照
@@ -164,7 +164,7 @@ gate findings 统一呈现）已合入 `main` 并逐条验证落地；本报告�
 | ✅ V1（已完成） | 统一 findings 端点 + 总览问题清单卡；`metrics` 端点 + 质量与健康度卡；current-change 指针端点 + 两处入口；doctor 三个维护动作端点 + 按钮 | C17、C2、C3、C1 |
 | ✅ V2（已完成） | `change gc` 端点 + 维护卡证据行；`evolve rollback` 指引；写保护状态表 | C4、C6、C11 |
 | ✅ V3（已完成） | `gate check` / `gate status` 可见性；`plan trace`；`spec import`；`spec anchors` 平铺 | §5.1 的门禁两行、C7、C8、C9 |
-| V4 | Eval 历史对比；TopBar 健康徽章；目标单条编辑；Classic 定位；端点冗余清理 | C15、C14、C16、C10、C12、§6 |
+| ✅ V4（已完成） | Eval 历史对比；TopBar 健康徽章；目标单条编辑/删除；Classic 界面移除；冗余端点标注保留；调度预算可见 | C15、C14、C16、C10、§6、§5.1 的预算行 |
 
 两处对 §9 原稿的修正（写进计划时才发现）：
 

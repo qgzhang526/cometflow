@@ -4,8 +4,8 @@
       <h2>项目状态</h2>
       <span class="grow" />
       <StatusBadge
-        :tone="errorCount > 0 ? 'err' : warningCount > 0 ? 'warn' : 'ok'"
-        :text="errorCount + ' error / ' + warningCount + ' warning'"
+        :tone="findingsStore.errorCount > 0 ? 'err' : findingsStore.warningCount > 0 ? 'warn' : 'ok'"
+        :text="findingsStore.errorCount + ' error / ' + findingsStore.warningCount + ' warning'"
       />
       <button :disabled="loading" @click="reload">{{ loading ? '刷新中…' : '刷新' }}</button>
     </div>
@@ -76,35 +76,33 @@ import { errorMessage } from '../../api/client';
 import { refreshCounter } from '../../composables/useRefresh';
 import type { PanelId } from '../../router';
 import { useProjectStore } from '../../stores/project';
+import { useFindingsStore } from '../../stores/findings';
 import { useToastStore } from '../../stores/toasts';
-import type { Finding, FindingsResponse, GateResponse, MaintenancePlan, MetricsResponse } from '../../api/types';
+import type { GateResponse, MaintenancePlan, MetricsResponse } from '../../api/types';
 
 const project = useProjectStore();
+// findings 放在 store：顶栏健康徽章与这张卡必须看同一份数据（见 stores/findings.ts 的注释）。
+const findingsStore = useFindingsStore();
 const toasts = useToastStore();
 const router = useRouter();
 
 const status = computed(() => project.status);
 const activeChanges = computed(() => (status.value?.changes ?? []).filter((change) => !change.archived).length);
 
-const findings = ref<Finding[]>([]);
+const findings = computed(() => findingsStore.items);
 const metrics = ref<MetricsResponse | null>(null);
 const maintenance = ref<MaintenancePlan | null>(null);
 const gate = ref<GateResponse | null>(null);
 const loading = ref(false);
 
-const errorCount = computed(() => findings.value.filter((finding) => finding.severity === 'error').length);
-const warningCount = computed(() => findings.value.filter((finding) => finding.severity === 'warning').length);
-
 // 三个只读投影一次取齐：放在一起取而不是各卡片自己取，是为了让「问题数」「指标」「待清理量」
 // 来自同一次快照——否则会出现「问题清单说没有残留文件、维护卡说还有 3 个」这种自相矛盾的画面。
 async function loadVisibility(): Promise<void> {
-  const [findingsData, metricsData, maintenanceData, gateData] = await Promise.all([
-    project.projectApi<FindingsResponse>('/findings'),
+  const [metricsData, maintenanceData, gateData] = await Promise.all([
     project.projectApi<MetricsResponse>('/metrics'),
     project.projectApi<MaintenancePlan>('/maintenance'),
     project.projectApi<GateResponse>('/gate'),
   ]);
-  findings.value = findingsData.findings;
   metrics.value = metricsData;
   maintenance.value = maintenanceData;
   gate.value = gateData;
@@ -113,7 +111,13 @@ async function loadVisibility(): Promise<void> {
 async function reload(): Promise<void> {
   loading.value = true;
   try {
-    await Promise.all([project.refreshStatus(), project.refreshDoctor(), loadVisibility()]);
+    await Promise.all([
+      project.refreshStatus(),
+      project.refreshDoctor(),
+      loadVisibility(),
+      // 徽章与清单共用 store：刷新时一并更新，避免「卡片刷新了、顶栏还是旧数字」。
+      project.currentId === null ? Promise.resolve() : findingsStore.load(project.currentId),
+    ]);
   } catch (error) {
     toasts.error('刷新失败', errorMessage(error));
   } finally {

@@ -379,3 +379,29 @@ describe('V2：evolve 回滚指引与写保护状态', () => {
     }
   });
 });
+
+describe('V4：调度预算可见 + 冗余端点清理', () => {
+  it('调度响应带跨重启累计的预算用量', async () => {
+    const { status, body } = await get<{
+      budget: { schema: string; used_ms: number; updated_at: string };
+      scheduler: unknown;
+    }>('/scheduler/queue');
+    expect(status).toBe(200);
+    expect(body.data.budget.schema).toBe('cometflow.budget.v1');
+    // 没跑过 daemon 的项目是 0，但字段必须在——否则界面分不清「没有预算」和「还没读」。
+    expect(body.data.budget.used_ms).toBeGreaterThanOrEqual(0);
+    expect(typeof body.data.budget.updated_at).toBe('string');
+  });
+
+  it('/spec-index 与 /config/project 保留（CLI/脚本投影，界面不消费）', async () => {
+    // V4 的决策是「标注保留」而不是删除：两者都有 USAGE 文档与既有测试覆盖（serve-api.test.ts），
+    // 删掉它们是移除对外表面，不是清理噪音。这里钉住它们仍然可用，避免哪天被顺手删掉。
+    const specIndex = await get<{ apis: unknown[] }>('/spec-index');
+    expect(specIndex.status).toBe(200);
+    expect(Array.isArray(specIndex.body.data.apis)).toBe(true);
+
+    const configProject = await get<{ override: Record<string, unknown> }>('/config/project');
+    expect(configProject.status).toBe(200);
+    expect(typeof configProject.body.data.override).toBe('object');
+  });
+});

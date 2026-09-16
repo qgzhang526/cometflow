@@ -26,7 +26,6 @@ import type { ProjectConfig } from '../project/config.js';
 import { builtInAgentRunners, getBuiltInAgentRunner } from '../../platform/agents/registry.js';
 import { readTextFile } from '../../platform/fs/read-file.js';
 import { listSpecEntries } from '../spec/spec-index.js';
-import { buildSpecIndex } from '../spec/spec-project.js';
 import { validateSpecs } from '../spec/spec-validate.js';
 import {
   readSpecBlob,
@@ -86,6 +85,7 @@ import { listInstalledSkills } from '../skill/skill-list.js';
 import { compileBundle, readBundleManifest, supportedBundlePlatforms } from '../bundle/bundle-service.js';
 import { evaluateHook, type HookEvent } from '../guard/hook-guard.js';
 import { buildQueueFromPlans, nextQueuedTask, readQueue } from '../scheduler/queue.js';
+import { readBudgetUsage } from '../scheduler/budget.js';
 import { runLocalEval } from '../eval/eval-service.js';
 import { collectFindings } from '../gates/findings.js';
 import { readMetricsGate } from '../gates/metrics-gate.js';
@@ -95,6 +95,7 @@ import { describeMetricsGate } from '../metrics/metric-gates.js';
 import { collectMetrics } from '../metrics/metrics-service.js';
 import { collectSpecAnchors } from '../spec/spec-anchors.js';
 import { importSpecsFromContent, previewSpecImport } from '../spec/spec-import.js';
+import { buildSpecIndex } from '../spec/spec-project.js';
 import { traceTaskPlan } from '../task-plan/task-plan-trace.js';
 import {
   applyEvidenceCleanup,
@@ -546,6 +547,8 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
     }
 
     // ---- config / agents ----
+    // 保留：项目层覆盖集合（CLI 与脚本用）。界面不需要它——`GET /config` 已经同时返回
+    // 合并视图与 `projectOverride`，设置页用的是后者（见审计 §6 与 V4-5 的决策记录）。
     if (segments[0] === 'config' && segments[1] === 'project' && method === 'GET') {
       sendOk(res, { override: await readProjectConfigOverride(root) });
       return true;
@@ -860,6 +863,8 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
       sendOk(res, { result });
       return true;
     }
+    // 保留：spec 投影（等价 `cometflow spec index` 的产物视图），CLI 与脚本用。
+    // 界面走 `/spec/graph`（带解析状态与边）与 `/spec/anchors`，不再消费这一份。
     if (segments[0] === 'spec-index' && method === 'GET') {
       sendOk(res, await buildSpecIndex(root));
       return true;
@@ -1371,11 +1376,14 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
       // 而不是让用户对着空页面猜。
       const derived = await buildQueueFromPlans(root);
       const config = await readProjectConfig(root);
+      // 预算用量是跨重启累计的：只读展示它，「改/重置」仍走 CLI `daemon budget --reset`。
+      const budget = await readBudgetUsage(root);
       sendOk(res, {
         queue,
         derived,
         next: nextQueuedTask(queue ?? derived),
         scheduler: config.scheduler ?? null,
+        budget,
       });
       return true;
     }

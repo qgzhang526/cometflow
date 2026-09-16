@@ -68,34 +68,6 @@
       </template>
     </div>
 
-    <!-- Classic -->
-    <div v-else-if="activeTab === 'classic'">
-      <div class="row">
-        <span class="muted">{{ classic.length }} 个 classic change</span>
-        <span class="grow" />
-        <button class="ghost" @click="loadClassic">刷新</button>
-      </div>
-      <p class="muted">
-        Classic 是与 native change 并存的另一条工作流（open → design → build → verify → archive）。
-        界面只读，推进仍走 <code>cometflow classic transition</code>。
-      </p>
-      <p v-if="classic.length === 0" class="empty">
-        没有 classic change。用 <code>cometflow classic new &lt;name&gt; --goal G1 --task T1</code> 创建。
-      </p>
-      <table v-else>
-        <thead><tr><th>名称</th><th>goal / task</th><th>profile</th><th>phase</th><th>状态</th></tr></thead>
-        <tbody>
-          <tr v-for="change in classic" :key="change.name">
-            <td><b>{{ change.name }}</b></td>
-            <td>{{ change.goal }} / {{ change.task }}</td>
-            <td>{{ change.profile }}</td>
-            <td><StatusBadge :tone="change.archived ? 'gray' : 'ok'" :text="change.phase" /></td>
-            <td><StatusBadge :tone="change.archived ? 'gray' : 'brand'" :text="change.archived ? 'archived' : 'active'" /></td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-
     <!-- Hook 预览 -->
     <div v-else>
       <h3>写保护状态（ADR 0023）</h3>
@@ -190,8 +162,6 @@ import { useProjectStore } from '../../stores/project';
 import { useToastStore } from '../../stores/toasts';
 import type {
   BundleResponse,
-  ClassicResponse,
-  ClassicState,
   ChangeState,
   HookCheckResponse,
   HookStatus,
@@ -204,7 +174,6 @@ import type {
 const TABS = [
   { id: 'skills', label: 'Skills' },
   { id: 'bundle', label: 'Bundle' },
-  { id: 'classic', label: 'Classic' },
   { id: 'hook', label: 'Hook 预览' },
 ] as const;
 
@@ -215,7 +184,6 @@ const activeTab = ref<(typeof TABS)[number]['id']>('skills');
 const skills = ref<SkillSummary[]>([]);
 const skillDetail = ref<SkillDetail | null>(null);
 const bundle = ref<BundleResponse | null>(null);
-const classic = ref<ClassicState[]>([]);
 const hookTarget = ref('src/core/index.ts');
 const hookEvent = ref<'write' | 'edit'>('write');
 const hookResult = ref<HookCheckResponse | null>(null);
@@ -282,15 +250,6 @@ async function loadBundle(): Promise<void> {
   }
 }
 
-async function loadClassic(): Promise<void> {
-  try {
-    const data = await project.projectApi<ClassicResponse>('/classic');
-    classic.value = data.changes;
-  } catch (error) {
-    toasts.error('读取 classic 失败', errorMessage(error));
-  }
-}
-
 async function loadHookStatus(): Promise<void> {
   try {
     const data = await project.projectApi<HookStatusResponse>('/hook/status');
@@ -322,7 +281,6 @@ async function checkHook(): Promise<void> {
 onMounted(() => {
   void loadSkills();
   void loadBundle();
-  void loadClassic();
   void loadHookStatus();
 });
 

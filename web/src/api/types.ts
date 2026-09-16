@@ -565,6 +565,8 @@ export interface SchedulerResponse {
   derived: SchedulerQueue;
   next: QueueTask | null;
   scheduler: ProjectConfig['scheduler'] | null;
+  /** 已用预算（跨重启累计，`.cometflow/runtime/budget.json`）：只读，重置走 CLI `daemon budget --reset`。 */
+  budget: { schema: string; used_ms: number; updated_at: string };
 }
 
 export interface SkillSummary {

@@ -17,6 +17,23 @@
         空闲阈值 {{ data.scheduler.idleCpuThreshold ?? '—' }}
       </span>
     </div>
+    <table v-if="data" style="margin-top: 8px">
+      <tbody>
+        <tr>
+          <th>已用预算</th>
+          <td>
+            {{ data.budget.used_ms }} ms
+            <span v-if="data.scheduler?.budgetMs" class="muted">
+              （上限 {{ data.scheduler.budgetMs }} ms）
+            </span>
+            <div class="muted">
+              跨重启累计，最近更新 {{ relativeTime(data.budget.updated_at) }}；重置走
+              <code>cometflow daemon budget . --reset</code>。
+            </div>
+          </td>
+        </tr>
+      </tbody>
+    </table>
   </div>
 
   <div class="card">
