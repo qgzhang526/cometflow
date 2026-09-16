@@ -61,6 +61,12 @@ interface MaintenanceBody {
   temp: { count: number; totalBytes: number; sample: Array<{ path: string; size: number }> };
   jobs: { files: number; bytes: number; finished: number; running: number; candidates: number; reclaimableBytes: number };
   lock: { held: boolean; stale: boolean; reason: string | null; holder: string | null };
+  evidence: {
+    totalBytes: number;
+    changes: Array<{ change: string; archived: boolean; bytes: number; files: number }>;
+    reclaimableBytes: number;
+    candidates: Array<{ change: string; path: string; reason: string; bytes: number }>;
+  };
 }
 
 interface CurrentChangeBody {
@@ -269,5 +275,107 @@ describe('current-change 指针：把 fail closed 变成可解除', () => {
     const archived = await post<unknown>('/current-change', { name: 'archived-change' });
     expect(archived.status).toBe(409);
     expect(archived.body.error?.code).toBe('change-not-selectable');
+  });
+});
+
+describe('V2：change 证据回收', () => {
+  /** 造一份归档 change 的实现范围基线：这是 planEvidenceGc 认可的「可重新推导」证据。 */
+  async function putArchivedEvidence(): Promise<string> {
+    const dir = path.join(projectRoot, '.cometflow', 'runtime', 'changes', 'archived-change');
+    await fs.mkdir(dir, { recursive: true });
+    const file = path.join(dir, 'impl-baseline.json');
+    await fs.writeFile(file, JSON.stringify({ files: ['src/core/index.ts'] }));
+    return file;
+  }
+
+  it('预告里能看到按 change 的占用与可回收量', async () => {
+    const file = await putArchivedEvidence();
+    const { body } = await get<MaintenanceBody>('/maintenance');
+    expect(body.data.evidence.reclaimableBytes).toBeGreaterThan(0);
+    expect(body.data.evidence.changes.map((entry) => entry.change)).toContain('archived-change');
+    expect(body.data.evidence.candidates.map((candidate) => candidate.path)).toContain(file);
+    // 候选只包含「可重新推导」的路径，所以必须落在 runtime 之下。
+    for (const candidate of body.data.evidence.candidates) {
+      expect(candidate.path).toContain(path.join('.cometflow', 'runtime'));
+    }
+  });
+
+  it('预告值不匹配 → 409 且证据文件仍在；缺预告值 → 400', async () => {
+    const file = await putArchivedEvidence();
+    const stale = await post<unknown>('/project/evidence/clean', { expectedReclaimableBytes: 999999 });
+    expect(stale.status).toBe(409);
+    expect(stale.body.error?.code).toBe('stale-maintenance-preview');
+    await expect(fs.access(file)).resolves.toBeUndefined();
+
+    const missing = await post<unknown>('/project/evidence/clean', {});
+    expect(missing.status).toBe(400);
+    expect(missing.body.error?.code).toBe('missing-expected');
+  });
+
+  it('预告值匹配 → 回收并回带新的预告', async () => {
+    const file = await putArchivedEvidence();
+    const { body: before } = await get<MaintenanceBody>('/maintenance');
+    const cleaned = await post<{
+      cleaned: { removed: number; freedBytes: number };
+      plan: MaintenanceBody;
+    }>('/project/evidence/clean', { expectedReclaimableBytes: before.data.evidence.reclaimableBytes });
+    expect(cleaned.status).toBe(200);
+    expect(cleaned.body.data.cleaned.removed).toBeGreaterThan(0);
+    expect(cleaned.body.data.cleaned.freedBytes).toBeGreaterThan(0);
+    await expect(fs.access(file)).rejects.toThrow();
+    // 响应里直接带执行后的新预告，卡片不用再 GET 一次。
+    expect(cleaned.body.data.plan.evidence.reclaimableBytes).toBe(0);
+  });
+});
+
+describe('V2：evolve 回滚指引与写保护状态', () => {
+  it('回滚指引与 CLI evolve rollback 同源（纯投影，不改状态）', async () => {
+    const { status, body } = await get<{ name: string; lines: string[] }>('/evolutions/draft-proposal/rollback');
+    expect(status).toBe(200);
+    expect(body.data.name).toBe('draft-proposal');
+    expect(body.data.lines.length).toBeGreaterThan(0);
+    expect(body.data.lines.join('\n')).toContain('git revert');
+    // 投影不该改动提案：再读一次仍是 draft。
+    const proposals = await get<{ evolutions: Array<{ name: string; status: string }> }>('/evolutions');
+    const draft = proposals.body.data.evolutions.find((proposal) => proposal.name === 'draft-proposal');
+    expect(draft?.status).toBe('draft');
+  });
+
+  it('未知提案 → 404', async () => {
+    const missing = await get<unknown>('/evolutions/no-such-proposal/rollback');
+    expect(missing.status).toBe(404);
+    expect(missing.body.error?.code).toBe('unknown-evolution');
+  });
+
+  it('写保护状态：支持的平台报安装状态，不支持的平台明确标记 supported=false', async () => {
+    const { status, body } = await get<{
+      platforms: Array<{
+        platform: string;
+        supported: boolean;
+        installed: boolean;
+        guardExists: boolean;
+        entries: number;
+        guardOutdated: boolean;
+        drift: string | null;
+        cli: { command: string; resolved: boolean; detail: string | null };
+      }>;
+    }>('/hook/status');
+    expect(status).toBe(200);
+    const byPlatform = new Map(body.data.platforms.map((entry) => [entry.platform, entry]));
+    expect([...byPlatform.keys()].sort()).toEqual(['claude-code', 'codex', 'opencode']);
+
+    // fixture 里没有 .claude/settings.json：支持但未安装。
+    const claude = byPlatform.get('claude-code');
+    expect(claude?.supported).toBe(true);
+    expect(claude?.installed).toBe(false);
+    expect(claude?.entries).toBe(0);
+    expect(claude?.guardOutdated).toBe(false);
+    expect(typeof claude?.cli.command).toBe('string');
+    expect(typeof claude?.cli.resolved).toBe('boolean');
+
+    // 另外两个平台是「暂不支持」，不是「未安装」——界面必须能区分这两件事。
+    for (const platform of ['opencode', 'codex']) {
+      expect(byPlatform.get(platform)?.supported).toBe(false);
+    }
   });
 });

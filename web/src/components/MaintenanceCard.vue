@@ -67,6 +67,26 @@
               >强制解锁</button>
             </td>
           </tr>
+          <tr>
+            <th>change 运行证据</th>
+            <td>
+              {{ plan.evidence.changes.length }} 个 change · {{ formatBytes(plan.evidence.totalBytes) }}
+              <div v-for="entry in plan.evidence.changes.slice(0, 3)" :key="entry.change" class="muted">
+                {{ entry.change }}{{ entry.archived ? '（已归档）' : '' }} · {{ formatBytes(entry.bytes) }}
+              </div>
+              <div class="muted">
+                可回收 {{ plan.evidence.candidates.length }} 项（{{ formatBytes(plan.evidence.reclaimableBytes) }}）——
+                只含「可重新推导」的部分（归档事务中间产物、已归档 change 的实现范围基线）；
+                超过阈值的 journal 只轮转不删除。
+              </div>
+            </td>
+            <td>
+              <button
+                :disabled="busy !== null || plan.evidence.reclaimableBytes === 0"
+                @click="pending = 'clean-evidence'"
+              >回收运行证据</button>
+            </td>
+          </tr>
         </tbody>
       </table>
 
@@ -108,7 +128,7 @@ const emit = defineEmits<{ refresh: []; changed: [report: unknown] }>();
 const project = useProjectStore();
 const toasts = useToastStore();
 
-type Action = 'clean-temp' | 'clean-jobs' | 'force-unlock';
+type Action = 'clean-temp' | 'clean-jobs' | 'force-unlock' | 'clean-evidence';
 
 const pending = ref<Action | null>(null);
 const busy = ref<Action | null>(null);
@@ -118,6 +138,7 @@ const nothingToDo = computed(
     props.plan !== null &&
     props.plan.temp.count === 0 &&
     props.plan.jobs.candidates === 0 &&
+    props.plan.evidence.reclaimableBytes === 0 &&
     !props.plan.lock.held,
 );
 
@@ -147,6 +168,19 @@ const confirmation = computed(() => {
       warning: '回收后这些任务的日志与结果无法再查看。',
     };
   }
+  if (pending.value === 'clean-evidence') {
+    return {
+      title: '回收 change 运行证据',
+      action: '回收 ' + formatBytes(plan?.evidence.reclaimableBytes ?? 0),
+      summary:
+        '将回收 ' + (plan?.evidence.candidates.length ?? 0) + ' 项可重新推导的证据，' +
+        '释放约 ' + formatBytes(plan?.evidence.reclaimableBytes ?? 0) + '：',
+      details: (plan?.evidence.candidates ?? []).slice(0, 5).map((candidate) => candidate.path),
+      warning:
+        '只删 .cometflow/runtime 下的中间产物（归档事务的 staged/backup、已归档 change 的实现范围基线）；' +
+        'changes/、specs/、.cometflow-history/ 一律不动。',
+    };
+  }
   return {
     title: '强制解锁（确认持有进程已退出）',
     action: '清除滞留锁',
@@ -173,9 +207,13 @@ async function confirm(): Promise<void> {
         ? { expectedFiles: plan.temp.count }
         : action === 'clean-jobs'
           ? { expectedCandidates: plan.jobs.candidates }
-          : { expectedHolder: plan.lock.holder };
+          : action === 'clean-evidence'
+            ? { expectedReclaimableBytes: plan.evidence.reclaimableBytes }
+            : { expectedHolder: plan.lock.holder };
+    // 证据回收走 `change gc` 的入口，另外三个走 doctor。
+    const path = action === 'clean-evidence' ? '/project/evidence/clean' : '/project/doctor/' + action;
     const result = await project.projectApi<{ cleaned: unknown; report: unknown }>(
-      '/project/doctor/' + action,
+      path,
       { method: 'POST', body },
     );
     // 服务端返回的是执行后的新 doctor 结论：直接交给总览刷新，不用再点一次。

@@ -15,9 +15,9 @@ gate findings 统一呈现）+ 本分支的审计文档
 
 | 口径 | 结果 | 说明 |
 |---|---|---|
-| HTTP 端点接线率 | **83 / 85 ≈ 98%** | V1 新增 8 个端点且全部接线；仍只有 `/config/project`、`/spec-index` 两个端点无人调用（都是冗余投影，非用户可见缺口） |
-| CLI 能力完整可见率 | **50 / 78 ≈ 64%** | 另有 3 条「部分可见」、25 条「无 UI 入口」（其中 14 条属安装/运维/长驻进程，见 §5.2） |
-| 核心流水线可见率（扣除 14 条安装/运维/长驻进程命令） | **50 / 64 ≈ 78%** 完整，**83%** 至少部分可见 | V1 已交付 findings / metrics / current-change / doctor 维护动作；剩余缺口集中在证据回收、回滚指引、写保护卡片与门禁可见性 |
+| HTTP 端点接线率 | **86 / 88 ≈ 98%** | V1/V2 新增 11 个端点且全部接线；仍只有 `/config/project`、`/spec-index` 两个端点无人调用（都是冗余投影，非用户可见缺口） |
+| CLI 能力完整可见率 | **53 / 78 ≈ 68%** | 另有 2 条「部分可见」、23 条「无 UI 入口」（其中 14 条属安装/运维/长驻进程，见 §5.2） |
+| 核心流水线可见率（扣除 14 条安装/运维/长驻进程命令） | **53 / 64 ≈ 83%** 完整，**86%** 至少部分可见 | V1/V2 已交付 findings / metrics / current-change / doctor 维护动作 / 证据回收 / 回滚指引 / 写保护状态；剩余缺口集中在门禁可见性、任务追溯与「另一条工作流」 |
 
 一句话结论：**008 的 S1–S5 与 W1–W5 / N1–N6 声称的产物都在代码里，主流水线（goal → plan → spec →
 change → evolve → eval）已经端到端可用**；剩余缺口不再分布在主链路上，而是四类「边缘但真实」的地方——
@@ -56,7 +56,7 @@ gate findings 统一呈现）已合入 `main` 并逐条验证落地；本报告�
 | 维度 | W1 调研时 | 现在 | 本报告关注点 |
 |---|---|---|---|
 | CLI 叶子命令 | 65 | **78** | 新增 spec graph、hook install/status/uninstall、change select/gc/rebase、plan trace、gate check/install/status/uninstall 等 |
-| HTTP 端点 | 49 | **85** | 新增 spec 内核 9、change 审计 5、提案 2、资产与门禁 6、ticket 1、V1 可见性 8 等 |
+| HTTP 端点 | 49 | **88** | 新增 spec 内核 9、change 审计 5、提案 2、资产与门禁 6、ticket 1、V1 可见性 8、V2 可见性 3 等 |
 | 前端面板 | 8 | **10 + 任务中心** | Specs 7 页签、Changes 4 页签、Assets 4 页签、Goals 5 页签 |
 | 前端源码规模 | 单文件 ≈800 行 | `web/src` 5.4k 行 / 45 个文件（31 个 `.vue`） | 分层为 view / store / component / util |
 
@@ -64,31 +64,31 @@ gate findings 统一呈现）已合入 `main` 并逐条验证落地；本报告�
 
 | 面板 | 已接线端点 | 深度 | 缺口（对应 §5–§7） |
 |---|---|---|---|
-| 总览 Overview | `/project/status`、`/project/doctor`、`/findings`、`/metrics`、`/maintenance`、`/project/doctor/{clean-temp,clean-jobs,force-unlock}` | 计数卡 + 计划/变更表 + **问题清单**（两源去重、可跳转）+ **质量与健康度**（含生效阈值）+ **维护动作**（预告→确认→执行） | V1 已交付 C1/C2/C17；仅剩 TopBar 健康徽章（C14，V4-2） |
+| 总览 Overview | `/project/status`、`/project/doctor`、`/findings`、`/metrics`、`/maintenance`、`/project/doctor/{clean-temp,clean-jobs,force-unlock}`、`/project/evidence/clean` | 计数卡 + 计划/变更表 + **问题清单**（两源去重、可跳转）+ **质量与健康度**（含生效阈值）+ **维护动作**（临时文件 / 任务证据 / change 运行证据 / 事务锁，全部「预告→确认→执行」） | V1/V2 已交付 C1/C2/C4/C17；仅剩 TopBar 健康徽章（C14，V4-2） |
 | 目标 Goals | `/mission.md` GET/PUT、`/goals`、`/context/sync`、`/goals/sync` | 5 页签（使命 / 技术栈 / 运行环境 / 任务目标 / 投影）+ 整文 Markdown 编辑 | 只能追加 `### Gn`，无单目标就地编辑/删除（C16） |
 | 规格 Specs | `/init-manifest`、`/spec/scaffold`、`/specs`、`/specs/content`、`/spec/checks`、`/spec/graph`、`/spec/references`、`/spec/versions`、`/spec/version`、`/spec/restore`、`/spec/lock`、`/spec/diff`、`/spec/drift`、`/spec/impact`、`/spec/verify`、`/spec/validate`、`/spec/proposals`、`/spec/proposal` | 7 页签、编辑器引用 chip + 镜像层、版本回放、影响预演、提案存取 | `spec import` 无端点（C8）；`spec anchors` 无端点（C9，图/文件页签部分等价）；`/spec-index` 端点冗余（B1） |
 | 计划 Plans | `/goals`、`/plans`、`/plans/{goal}`、`generate/regenerate/validate/review/approve/freeze` | 状态驱动按钮 + 任务表（kind/capability/spec 绑定/depends_on）+ findings | `plan trace` 无端点（C7） |
 | 变更 Changes | `/changes`、`/changes/{name}`、`resume/transition/run/verify/archive/scope/journal/evidence/rebase/unblock`、`/plans/{goal}` | 4 页签、步骤条、验收结论、冲突双路径、job 日志 | `change select` 无端点（C3）；`change gc` 无端点（C4） |
-| 进化 Evolve | `/evolutions`、`propose/verify/submit/approve/reject` | 提案卡 + 门禁 + 评审表单 | `evolve rollback` 无入口（C6） |
+| 进化 Evolve | `/evolutions`、`propose/verify/submit/approve/reject`、`/evolutions/{name}/rollback` | 提案卡 + 门禁 + 评审表单 + **回滚指引弹窗** | V2 已交付 C6 |
 | 评估 Eval | `/eval/run` | Pass@k / Pass^k / 每轮输出 / rubric / judge 全量渲染 | 只认最近一次 eval job，无历史对比（C15） |
 | 调度 Scheduler | `/scheduler/queue` | 队列 + 推导待办 + 下一个任务 + 参数只读 | 无 daemon 启停/预算/日志（C5） |
-| 资产 Assets | `/skills`、`/skills/{name}`、`/bundles`、`/classic`、`/hook/check` | Skills / Bundle / Classic / Hook 预览 4 页签（只读为主） | skill/bundle 写操作无入口（C12）；classic 只读（C10）；hook 安装无入口（C11） |
+| 资产 Assets | `/skills`、`/skills/{name}`、`/bundles`、`/classic`、`/hook/check`、`/hook/status` | Skills / Bundle / Classic / Hook 预览 4 页签；Hook 页签顶部新增**写保护状态表**（支持性 / 条目 / 守卫脚本 / CLI 解析） | V2 已交付 C11；skill/bundle 写操作仍无入口（C12）；classic 只读（C10） |
 | 设置 Settings | `/config` GET/PUT、`/agents` | agent/模型、verification、scope、scheduler、并发策略（含切换 fail 与延长） | `/config/project` 冗余（B2） |
 | 任务中心（抽屉） | `/jobs`、`/jobs/{id}`、`DELETE /jobs` + SSE | 持久化任务、日志、结果、深链 | — |
 
 ## 5. A 类：后端有能力、HTTP 无端点（23 条）
 
-### 5.1 产品缺口（13 行中 3 行已由 V1 交付；余 10 行进下一批）
+### 5.1 产品缺口（13 行中 5 行已交付：V1 三条 + V2 两条；余 8 行进下一批）
 
-> 标 ✅ 的三行已完成（见 [web-ui-visibility-plan.md](./web-ui-visibility-plan.md) §3.1）；
+> 标 ✅ 的五项已完成（见 [web-ui-visibility-plan.md](./web-ui-visibility-plan.md) §3.1 / §3.2）；
 > 保留在表中是为了让差异盘点可追溯——「当时差在哪里」和「现在补上了」都能对上。
 
 | 能力 | CLI | 领域函数 | 缺什么 | 对 UI 的价值 |
 |---|---|---|---|---|
 | ✅ 度量投影 | `metrics` | `metrics-service.ts` / `spec-health.ts` | ~~无端点、无面板~~ → `GET /metrics` + 总览卡片 | 重建质量与 spec 健康度已可见，并显示当前生效的门禁阈值 |
 | ✅ 当前 change 指针 | `change select` | `current-change.ts` | ~~无端点、无入口~~ → `GET/POST /current-change` + Changes 面板与 Hook 预览两处入口 | 多活跃 change 的 fail closed 现在可以在界面上解除 |
-| 证据回收 | `change gc` | `evidence-retention.ts` | 无端点、无入口 | doctor 报出可回收量，但「确认回收」只能在 CLI 敲 `--apply` |
-| Evolve 回滚指引 | `evolve rollback` | `evolution-service.ts` | 无端点、无入口 | approve 之后没有任何界面出口能取回滚步骤 |
+| ✅ 证据回收 | `change gc` | `evidence-retention.ts` | ~~无端点、无入口~~ → `POST /project/evidence/clean` + 维护卡证据行 | 预告（按 change 的占用 + 候选路径）→ 确认 → 回收；不匹配时连 journal 轮转都不做 |
+| ✅ Evolve 回滚指引 | `evolve rollback` | `evolution-service.ts` | ~~无端点、无入口~~ → `GET /evolutions/{name}/rollback` + Evolve 面板弹窗 | approve 之后想撤销，界面上就能拿到步骤 |
 | 冻结任务追溯 | `plan trace` | `task-plan-trace.ts` | 无端点、无入口 | PlansPanel 展示了 `spec_ref/spec_anchor/spec_version/spec_hash`，但「冻结任务 ↔ 当前 spec 是否仍命中」的专门投影没有 |
 | 表格导入 | `spec import` | `spec-import.ts` | 无端点、无入口 | 工标/接口清单从 CSV/TSV/Markdown 导入，W1 的 A 类名单里列过但没实现 |
 | spec 锚点清单 | `spec anchors` | `buildSpecIndex` | 无端点 | 引用图与文件页签部分等价，缺一份「锚点 → 绑定任务」的平铺视图 |
@@ -107,7 +107,7 @@ gate findings 统一呈现）已合入 `main` 并逐条验证落地；本报告�
 （例如 `uninstall` 会删项目状态），保持 CLI 专属是有意选择，不算覆盖缺口。它们目前都由面板空状态文案
 明确导回 CLI（Assets 的 Skills/Bundle/Classic 三个页签都写了对应命令）。
 
-按这个口径（V1 之后）：78 条叶子命令 = 50 条完整可见 + 3 条部分可见 + 14 条 CLI 专属 + 11 条产品缺口；
+按这个口径（V1/V2 之后）：78 条叶子命令 = 53 条完整可见 + 2 条部分可见 + 14 条 CLI 专属 + 9 条产品缺口；
 「核心流水线可见率」的 64 条分母就是 78 − 14。
 
 ## 6. B 类：有端点、前端未接线（2 条，均为冗余）
@@ -127,14 +127,14 @@ gate findings 统一呈现）已合入 `main` 并逐条验证落地；本报告�
 | ✅ C1 | doctor 维护动作无入口 | 三个开关 `cleanTemp/cleanJobs/forceUnlock` 只接受 CLI 参数，findings 文案把用户推回终端 | **V1-4 已交付**：三个端点 + 维护卡（预告 → 二次确认 → 执行，预览不匹配 409 且不删） |
 | ✅ C2 | 度量投影零可见 | `collectMetrics` 有 `rebuild` + `spec_health` 两组指标，`web/src` 无任何调用 | **V1-2 已交付**：总览「质量与健康度」卡 + 生效阈值 |
 | ✅ C3 | current-change 指针无入口 | `change select` 只在 CLI；Hook 预览文案写着 fail closed 却无法设置指针 | **V1-3 已交付**：Changes 面板与 Hook 预览两处入口 |
-| C4 | 证据回收无入口 | `change gc` 只在 CLI；doctor 报告可回收量 | 长跑项目的任务/日志回收必须离开界面 |
+| ✅ C4 | 证据回收无入口 | `change gc` 只在 CLI；doctor 报告可回收量 | **V2-1 已交付**：维护卡证据行（预告 → 确认 → 回收），与 doctor 动作同一套护栏 |
 | C5 | 调度面板只读 | `SchedulerPanel.vue` 顶部文案明确「只读展示，不在界面上改队列状态」；无 daemon 启停、无 budget、无日志尾 | 这是**有意的设计选择**，但「预算用量」和「daemon 最近一次决策」连只读投影都没有，用户无法判断调度器是否在正常工作 |
-| C6 | Evolve 回滚无入口 | `EvolvePanel.vue` 只有 propose/verify/submit/approve/reject；`evolve rollback` 未接线 | approve 之后想撤销，只能查 CLI 输出 |
+| ✅ C6 | Evolve 回滚无入口 | `EvolvePanel.vue` 只有 propose/verify/submit/approve/reject；`evolve rollback` 未接线 | **V2-2 已交付**：提案卡新增「回滚指引」弹窗（纯投影） |
 | C7 | 任务追溯不完整 | `PlansPanel.vue` 任务表有 `spec_ref/spec_anchor/spec_version/spec_hash`；`plan trace` 未接线 | 计划错误要回溯到 spec anchor 时，缺一层「冻结任务 ↔ 当前 spec 命中/漂移」的专门视图 |
 | C8 | 无表格导入入口 | `spec-import.ts` 有实现；Specs 7 个页签都没有导入 | 大批量接口清单只能走 CLI |
 | C9 | 无锚点平铺视图 | `spec anchors` 未接线 | 引用图按 kind 分层下钻，缺「所有锚点 + 覆盖率」的一览 |
 | C10 | Classic 只读 | `AssetsPanel.vue` Classic 页签文案「界面只读，推进仍走 `cometflow classic transition`」 | 「两条工作流并存」在 UI 上表现为一条可写、一条只读，用户会问哪条才是正路 |
-| C11 | Hook 状态只能间接看 | `hook install/uninstall` 无端点；P1 已落地，`doctor.ts` 汇总六种 hook finding | V1-1 之后这些 finding 会出现在总览「问题清单」卡里（带级别与来源），但**仍没有独立的写保护卡片**（装在哪、是否漂移、CLI 能否解析一次看全）——留给 V2-3 |
+| ✅ C11 | Hook 状态只能间接看 | `hook install/uninstall` 无端点；P1 已落地，`doctor.ts` 汇总六种 hook finding | **V2-3 已交付**：资产面板 Hook 页签的写保护状态表（支持性 / 条目 / 守卫脚本 / CLI 解析），与 doctor findings 互为表里 |
 | C12 | Skill/Bundle 只读 | Assets 面板用空状态文案把用户导回 `skill add` / `bundle create` / `bundle distribute` | 属有意的「只读优先」，但 `bundle distribute` 的平台选择（`opencode` / `claude-code`）已由 `GET /bundles` 返回，界面完全可以做成一次点击 |
 | C13 | 无一次性 agent 会话入口 | `run` 未接线 | 试跑/临时会话必须先建 change，或者回 CLI |
 | C14 | TopBar 缺项目健康徽章 | `ProjectView.vue` TopBar 只有项目名/path + agent 徽章 + 任务计数；doctor 状态只在总览 | 008 §5.1 明确要求「项目健康徽章（doctor: OK / NEEDS ATTENTION）」 |
@@ -161,7 +161,7 @@ gate findings 统一呈现）已合入 `main` 并逐条验证落地；本报告�
 | 批次 | 内容 | 对应本报告条目 |
 |---|---|---|
 | ✅ V1（已完成） | 统一 findings 端点 + 总览问题清单卡；`metrics` 端点 + 质量与健康度卡；current-change 指针端点 + 两处入口；doctor 三个维护动作端点 + 按钮 | C17、C2、C3、C1 |
-| V2 | `change gc` 端点 + 证据占用卡；`evolve rollback` 指引；写保护卡片 | C4、C6、C11 |
+| ✅ V2（已完成） | `change gc` 端点 + 维护卡证据行；`evolve rollback` 指引；写保护状态表 | C4、C6、C11 |
 | V3 | `gate check` / `gate status` 可见性；`plan trace`；`spec import`；`spec anchors` 平铺 | §5.1 的门禁两行、C7、C8、C9 |
 | V4 | Eval 历史对比；TopBar 健康徽章；目标单条编辑；Classic 定位；端点冗余清理 | C15、C14、C16、C10、C12、§6 |
 
@@ -181,8 +181,8 @@ gate findings 统一呈现）已合入 `main` 并逐条验证落地；本报告�
 # 1. CLI 叶子命令数（91 处 .command( − 13 个命令组 = 78）
 rg -o "\.command\('[a-z-]+" app/cli/index.ts | wc -l
 
-# 2. HTTP 端点（api.ts 的 78 处方法判定；其中 plan 动作与 evolve 动作各是 1 处判定对应 4 条路径，
-#    因此 method+path 组合为 84 条，再加 serve.ts 的 /api/events = 85）
+# 2. HTTP 端点（api.ts 的 81 处方法判定；其中 plan 动作与 evolve 动作各是 1 处判定对应 4 条路径，
+#    因此 method+path 组合为 87 条，再加 serve.ts 的 /api/events = 88）
 rg -o "method === '[A-Z]+'" domains/server/api.ts | sort | uniq -c
 
 # 3. 前端实际接线（逐条比对 projectApi / api 调用的路径前缀）

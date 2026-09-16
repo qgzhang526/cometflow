@@ -789,6 +789,20 @@ export interface MetricsResponse {
 }
 
 /** 维护预告（`GET /maintenance`）：三个动作各自「将要删什么」。 */
+export interface EvidenceUsageEntry {
+  change: string;
+  archived: boolean;
+  bytes: number;
+  files: number;
+}
+
+export interface EvidenceReclaimCandidate {
+  change: string;
+  path: string;
+  reason: string;
+  bytes: number;
+}
+
 export interface MaintenancePlan {
   temp: {
     count: number;
@@ -811,6 +825,44 @@ export interface MaintenancePlan {
     holder: string | null;
     record: { pid: number; host: string; startedAt: string; action: string; ttlMs: number } | null;
   };
+  /** change 运行时证据（`change gc` 的对象）：只回收「可重新推导」的部分。 */
+  evidence: {
+    totalBytes: number;
+    changes: EvidenceUsageEntry[];
+    reclaimableBytes: number;
+    candidates: EvidenceReclaimCandidate[];
+  };
+}
+
+/** 写保护（ADR 0023）的安装状态：装没装、条目与脚本是否漂移、守卫调用的 CLI 能否解析。 */
+export interface HookCommandResolution {
+  command: string;
+  executable: string;
+  path: string | null;
+  resolved: boolean;
+  detail: string | null;
+}
+
+export interface HookStatus {
+  platform: 'claude-code' | 'opencode' | 'codex';
+  supported: boolean;
+  installed: boolean;
+  guardExists: boolean;
+  settingsPath: string | null;
+  entries: number;
+  drift: string | null;
+  guardOutdated: boolean;
+  cli: HookCommandResolution;
+}
+
+export interface HookStatusResponse {
+  platforms: HookStatus[];
+}
+
+/** `evolve rollback` 的指引（纯投影，不改状态）。 */
+export interface EvolveRollbackResponse {
+  name: string;
+  lines: string[];
 }
 
 /** current-change 指针（`GET /current-change`）：多活跃 change 时唯一能解除 hook fail closed 的入口。 */

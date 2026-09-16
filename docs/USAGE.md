@@ -1155,10 +1155,19 @@ token: <random>
     「预告 → 二次确认 → 执行」：确认框显示将删除的文件/任务数量与锁的持有者（pid / host / action / 起始时间），
     并把该数字原样回传，服务端在执行前**重新核对**——不一致返回 **409 `stale-maintenance-preview`**，
     且**一个字节都不删**；执行成功后返回新的 doctor 结论，界面直接采用。
+    同一张卡还带 **change 运行证据**行（等价 `change gc --apply`）：按 change 列出占用（前 3）、可回收项数与体积、
+    候选路径，确认后只回收 `.cometflow/runtime` 下**可重新推导**的中间产物（归档事务的 staged/backup、
+    已归档 change 的实现范围基线）；超过阈值的 journal 只轮转不删除。同样有预告值护栏——不匹配时
+    连轮转都不做。
 - **current-change 指针**：多个活跃 change 时写入门禁会 `fail closed`（reason `multiple-active-changes`）。
   Changes 面板顶部显示当前指针，每行可「设为当前」、指针本身可「清除」（等价 `cometflow change select`）；
   资产面板的 Hook 预览在这两种拒绝原因（`multiple-active-changes` / `stale-current-change`）下就地给出
   change 下拉与「设为当前并重新检查」，把「被拒」变成一步可操作的动作。
+- **Evolve 回滚指引**：每个提案卡有「回滚指引」按钮，弹窗内容与 `cometflow evolve rollback <name>` 同源
+  （git tag / git show / git revert 步骤 + 当前状态），是纯投影、不改任何状态。
+- **写保护状态（ADR 0023）**：资产面板的 Hook 页签顶部列出各平台的支持性、条目数、守卫脚本是否存在/漂移、
+  以及守卫实际会调用的 CLI 能否解析。`claude-code` 是唯一支持安装的平台，另外两个显示「暂不支持安装」
+  而不是「未安装」；安装与卸载仍走 CLI（会改机器配置，界面只做状态与判定预览）。
 - **Specs 面板 6 个页签**：12-kind 状态、脚手架、Spec 文件、验收覆盖、版本、影响与门禁。
 - **引用图页签**（W1 之后新增，共 7 个）：按 009 的引用方向表聚合 kind 之间的引用，
   点击可下钻 kind → 文件 → anchor 并列出该文件的逐条引用与位置；未解析引用红色标注，
@@ -1253,8 +1262,11 @@ pnpm build                   # tsc（CLI）+ vite build（Web）
 | GET | `/api/projects/<id>/findings` | 统一 findings 投影（verify + doctor 两源、去重；与 `gate check --findings` 同源） |
 | GET | `/api/projects/<id>/metrics` | 度量报告 + 当前生效的门禁阈值（与 `metrics --json` 同源） |
 | GET | `/api/projects/<id>/maintenance` | 维护动作的只读预告：残留临时文件 / 任务证据 / 事务锁 |
+| POST | `/api/projects/<id>/project/evidence/clean` | 回收 change 运行证据（等价 `change gc --apply`；须回传预告值，不匹配 → 409 且什么都不做） |
 | POST | `/api/projects/<id>/project/doctor/clean-temp` \| `/clean-jobs` \| `/force-unlock` | 执行维护动作（须回传预告值；不匹配 → 409 且不删任何文件） |
 | GET/POST | `/api/projects/<id>/current-change` | 读写 current-change 指针（POST `{name}` 设定、`{name:null}` 清除；改指针 route 到 changes 面板刷新） |
+| GET | `/api/projects/<id>/evolutions/<name>/rollback` | 回滚指引（等价 `evolve rollback`，纯投影） |
+| GET | `/api/projects/<id>/hook/status` | 写保护安装状态（等价 `hook status`：条目、脚本漂移、守卫调用的 CLI 解析） |
 | GET | `/api/projects/<id>/classic` | Classic change 只读列表 |
 | GET/POST | `/api/projects/<id>/plans`、`/plans/generate`、`/plans/regenerate` | 计划列表 / 生成 / 重生成 |
 | GET/POST | `/api/projects/<id>/plans/<goal>`、`/plans/<goal>/{validate,review,approve,freeze}` | 计划读写与状态推进 |

@@ -6,11 +6,20 @@ import {
 } from '../../platform/fs/atomic-write.js';
 import { forceUnlock, inspectLock, type LockRecord } from '../../platform/fs/file-lock.js';
 import { applyJobGc, collectJobUsage, planJobGc } from '../server/job-store.js';
+import {
+  applyEvidenceGc,
+  planEvidenceGc,
+  type EvidenceUsageEntry,
+  type ReclaimCandidate,
+} from '../workflow/evidence-retention.js';
 
 /**
  * 维护动作的「预告 → 确认 → 执行」三段式。
  *
- * 三个动作都会删东西（残留的原子写临时文件 / 已结束任务的证据 / 滞留的事务锁），而且删除不可逆。
+ * 这里覆盖两类来源、四个动作，它们都会删东西，而且删除不可逆：
+ * `doctor --clean-temp` / `--clean-jobs` / `--force-unlock`（清理的落点是 doctor 报出来的），
+ * 以及 `change gc --apply`（回收 change 运行时证据）。
+ *
  * 所以流程被固定成：`collectMaintenancePlan` 只读地算出「将要删什么」→ 界面把这份预告显示给人看，
  * 并把其中的**可比较量**回传 → `apply*` 在执行前重新算一次，与回传值不一致就拒绝。
  *
@@ -68,10 +77,24 @@ export interface MaintenanceLockPlan {
   record: LockRecord | null;
 }
 
+export interface MaintenanceEvidencePlan {
+  totalBytes: number;
+  /** 每个 change 的运行时证据占用（新→旧按体积排序）。 */
+  changes: EvidenceUsageEntry[];
+  /** 可回收字节数：它就是回传给 clean-evidence 的 expectedReclaimableBytes。 */
+  reclaimableBytes: number;
+  /**
+   * 回收候选：只包含「可重新推导」的东西（归档事务的中间产物、归档 change 的实现范围基线）。
+   * 注意 `change gc --apply` 还会顺带轮转超大 journal，那一步不减少占用、也不在候选里。
+   */
+  candidates: ReclaimCandidate[];
+}
+
 export interface MaintenancePlan {
   temp: MaintenanceTempPlan;
   jobs: MaintenanceJobPlan;
   lock: MaintenanceLockPlan;
+  evidence: MaintenanceEvidencePlan;
 }
 
 /** 持有者身份：pid + host + 起始时间——单文件锁，这三者合起来唯一。 */
@@ -85,11 +108,12 @@ async function scanTempFiles(projectRoot: string): Promise<OrphanTempFile[]> {
 
 /** 只读预告：三个维护动作各自「将要删什么」。界面据此渲染确认弹窗。 */
 export async function collectMaintenancePlan(projectRoot: string): Promise<MaintenancePlan> {
-  const [orphans, jobUsage, jobPlan, lock] = await Promise.all([
+  const [orphans, jobUsage, jobPlan, lock, evidence] = await Promise.all([
     scanTempFiles(projectRoot),
     collectJobUsage(projectRoot),
     planJobGc(projectRoot),
     inspectLock(projectRoot),
+    planEvidenceGc(projectRoot),
   ]);
 
   return {
@@ -112,6 +136,12 @@ export async function collectMaintenancePlan(projectRoot: string): Promise<Maint
       reason: lock.reason,
       holder: lock.record === null ? null : lockHolderKey(lock.record),
       record: lock.record,
+    },
+    evidence: {
+      totalBytes: evidence.totalBytes,
+      changes: evidence.entries,
+      reclaimableBytes: evidence.reclaimableBytes,
+      candidates: evidence.candidates,
     },
   };
 }
@@ -209,4 +239,41 @@ export async function applyForceUnlock(
   }
   const removed = await forceUnlock(projectRoot);
   return { removed, holder };
+}
+
+export interface EvidenceCleanupResult {
+  removed: number;
+  freedBytes: number;
+  /** 被轮转的 journal（轮转不减少总量，只是把大文件挪进 `.1.jsonl` 历史档）。 */
+  rotatedJournals: string[];
+}
+
+/**
+ * 回收 change 运行时证据（等价 `change gc --apply`）。
+ *
+ * 与另外三个动作同款护栏：可回收字节数与预告不一致就拒绝，且**什么都不做**——
+ * 包括不做 journal 轮转（那一步虽然不删东西，但它也是「执行的一部分」）。
+ */
+export async function applyEvidenceCleanup(
+  projectRoot: string,
+  expectedReclaimableBytes: number,
+): Promise<EvidenceCleanupResult> {
+  const plan = await planEvidenceGc(projectRoot);
+  if (plan.reclaimableBytes !== expectedReclaimableBytes) {
+    throw new StaleMaintenancePreviewError(
+      expectedReclaimableBytes,
+      plan.reclaimableBytes,
+      '可回收证据量已变化（预告 ' +
+        expectedReclaimableBytes +
+        ' B → 实际 ' +
+        plan.reclaimableBytes +
+        ' B），未回收任何证据；请刷新后重新确认',
+    );
+  }
+  const result = await applyEvidenceGc(projectRoot, plan);
+  return {
+    removed: result.removed.length,
+    freedBytes: result.freedBytes,
+    rotatedJournals: result.rotatedJournals,
+  };
 }

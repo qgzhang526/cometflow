@@ -1,6 +1,6 @@
 # Web 前端可见性计划（把「后端算出来了但只能敲命令」清零）
 
-状态：**V1 已完成**（V1-1 ~ V1-4 落地，含测试与浏览器走查，见 §3.1）；V2–V4 只排序、未细化
+状态：**V1 / V2 已完成**（见 §3.1、§3.2，均含测试与浏览器走查）；V3–V4 只排序、未细化
 分支：`codex/enrich-ui`（本计划的所有改动与提交都在该分支，完成后再合并回 `main`）
 基线：`main @ 2a4d54f`（含平台侧 P1–P5）+ 本分支的审计文档 `94795ca` 起
 来源：[web-ui-coverage-audit.md](./web-ui-coverage-audit.md) 的 §9 候选清单（本计划把 §9 变成可开工的批次）
@@ -25,9 +25,9 @@ metrics 阈值可配、findings 有统一投影。本计划做的是**可见性�
 | **V1-2** | `metrics` 端点 + 总览「质量与健康度」卡 | 审计 C2 | `collectMetrics` / `MetricsReport` / P3 的阈值回显 | M | 无 |
 | **V1-3** | current-change 指针端点 + Changes 面板与 Hook 预览入口 | 审计 C3 | `readCurrentChange` / `selectCurrentChange` / `clearCurrentChange` | S | 无 |
 | **V1-4** | doctor 三个维护动作端点 + 总览按钮 | 审计 C1 | `removeOrphanTempFiles` / `applyJobGc` / `forceUnlock`，且 dry-run 数字已在 `runDoctor` 里算好 | M | V1-1（同一张卡承载 findings 与动作） |
-| V2-1 | `change gc` 端点 + 证据占用卡 | 审计 C4 | `planEvidenceGc` / `applyEvidenceGc` | S | 无 |
-| V2-2 | `evolve rollback` 投影 + Evolve 面板回滚指引 | 审计 C6 | `evolution-service.ts` | S | 无 |
-| V2-3 | 写保护卡片（hook 安装/版本/CLI 解析状态） | 审计 C11 | `hookStatus`（P1 已补齐 `guardOutdated` / `cli`） | M | V1-4（同为总览/资产面板的维护面） |
+| ✅ V2-1 | `change gc` 端点 + 证据占用 | 审计 C4 | `planEvidenceGc` / `applyEvidenceGc` | S | 无 |
+| ✅ V2-2 | `evolve rollback` 投影 + Evolve 面板回滚指引 | 审计 C6 | `evolution-service.ts` | S | 无 |
+| ✅ V2-3 | 写保护状态表（hook 安装/版本/CLI 解析） | 审计 C11 | `hookStatus`（P1 已补齐 `guardOutdated` / `cli`） | M | V1-4（同一套「维护/守卫」面板语言） |
 | V3-1 | `gate check` / `gate status` 可见性 | 审计 §5.1 新增 | `domains/gates/spec-gates.ts`、`git-hook.ts` | M | V1-1（findings 已统一） |
 | V3-2 | `plan trace` 端点 + Plans 面板追溯视图 | 审计 C7 | `task-plan-trace.ts` | S | 无 |
 | V3-3 | `spec import` 端点 + Specs 面板导入页签 | 审计 C8 | `spec-import.ts` | M | 无 |
@@ -168,12 +168,31 @@ metrics 阈值可配、findings 有统一投影。本计划做的是**可见性�
 - 浏览器走查（`pnpm web:dev` + 真实 serve）：在真实项目 2048 上看三块卡片，控制台无 error/warning；
   在临时 demo 项目上跑通「设指针 → Hook 放行」与「清残留文件 → 文件真的消失」两条写路径。
 
+## 3.2 实施结果（V2 已完成，2026-09-16）
+
+| 项 | 后端落点 | 前端落点 | 验证 |
+|---|---|---|---|
+| V2-1 | `POST /project/evidence/clean` + `MaintenancePlan.evidence`（`planEvidenceGc` 的只读预告） | 维护卡新增「change 运行证据」行：按 change 的占用（前 3）+ 可回收项数与体积 + 候选路径 | 预告值不匹配 → 409 且**证据文件仍在**；匹配 → 回收并回带新预告（测试）；浏览器实测 72 B 证据被回收、该行归零 |
+| V2-2 | `GET /evolutions/{name}/rollback`（薄封装 `rollbackEvolution`） | Evolve 面板每个提案的「回滚指引」按钮 + 弹窗（只读投影） | 与 `evolve rollback` 输出同源（含 `git revert` 步骤）；未知提案 404（测试）；浏览器实测弹窗显示提案步骤与状态 |
+| V2-3 | `GET /hook/status`（三个平台各一次 `hookStatus`） | 资产面板 Hook 页签顶部的「写保护状态」表：支持性 / 条目数 / 守卫脚本 / 守卫调用的 CLI | 支持与不支持、装没装、是否漂移、CLI 能否解析一次看全；测试断言 claude-code `supported=true, installed=false`，另两个平台 `supported=false`（区分「不支持」与「未安装」） |
+
+设计取舍（登记，不静默改需求）：
+
+1. **证据回收并进同一张维护卡**，没有另开一张「证据占用卡」：对用户来说「会删东西的动作」只有一个入口更不容易漏点；
+   按 change 的占用明细直接挂在该行下面（取前 3 条），需要看全的走 CLI `change gc`。
+2. **`change gc --apply` 的 journal 轮转也算「执行的一部分」**：它不减少占用，只是把超大 journal 挪成 `.1.jsonl`；
+   但预告值不匹配时我们**连轮转也不做**——「拒绝」必须是什么都不动，而不是「少动一点」。
+3. **写保护状态放在资产面板**（它本来就是守卫与资产的落点），总览的位置留给 findings / metrics / 维护。
+
+测试与验证：新增 6 例（证据回收 3、回滚投影 2、写保护状态 1），`serve-visibility-api` 合计 **16 例**；
+全量 `npx vitest run` → **76 文件 / 454 例全绿**；两个 typecheck 通过；浏览器走查覆盖证据回收的真实删除与另两个只读投影。
+
 ## 4. 里程碑
 
 | 里程碑 | 内容 | 完成标志 |
 |---|---|---|
 | V1 可见性清零 ✅ | V1-1 ~ V1-4 | 总览一屏能回答「现在有哪些问题、质量指标如何、谁在阻塞写入、要不要清理」；审计里 C1/C2/C3/C17 全部转 ✓（见 §3.1） |
-| V2 收尾动作 | V2-1 ~ V2-3 | 证据占用、回滚指引、写保护状态都有界面出口；C4/C6/C11 变 ✓ |
+| V2 收尾动作 ✅ | V2-1 ~ V2-3 | 证据占用、回滚指引、写保护状态都有界面出口；C4/C6/C11 全部转 ✓（见 §3.2） |
 | V3 投影补齐 | V3-1 ~ V3-4 | 门禁状态、任务追溯、表格导入、锚点平铺可见；核心可见率回到 85%+ |
 | V4 余项 | V4-1 ~ V4-5 | 审计 §1 的「无 UI 入口」只剩安装/运维类命令 |
 

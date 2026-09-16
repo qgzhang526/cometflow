@@ -98,8 +98,42 @@
 
     <!-- Hook 预览 -->
     <div v-else>
+      <h3>写保护状态（ADR 0023）</h3>
       <p class="muted">
-        预览「这次写入会不会被守卫拦下」。判定与 <code>cometflow hook check</code> 完全同源：
+        与 <code>cometflow hook status</code> 同源：装没装、条目与守卫脚本是否漂移、守卫要调用的 CLI 能否解析。
+        只有 claude-code 支持安装，另外两个平台是「暂不支持」，不是「未安装」。
+      </p>
+      <p v-if="hookStatus === null" class="muted">加载中…</p>
+      <table v-else>
+        <thead><tr><th>平台</th><th>状态</th><th>条目</th><th>守卫脚本</th><th>守卫调用的 CLI</th></tr></thead>
+        <tbody>
+          <tr v-for="entry in hookStatus" :key="entry.platform">
+            <td><b>{{ entry.platform }}</b></td>
+            <td>
+              <StatusBadge v-if="!entry.supported" tone="gray" text="暂不支持安装" />
+              <StatusBadge v-else-if="entry.installed && entry.guardOutdated" tone="warn" text="已安装 · 需更新" />
+              <StatusBadge v-else-if="entry.installed" tone="ok" text="已安装" />
+              <StatusBadge v-else tone="gray" text="未安装（可选）" />
+            </td>
+            <td>{{ entry.entries }}</td>
+            <td class="muted">
+              {{ entry.guardExists ? '存在' : '缺失' }}<template v-if="entry.drift"> · {{ entry.drift }}</template>
+            </td>
+            <td class="muted">
+              {{ entry.cli.command }}
+              <template v-if="!entry.cli.resolved"> · 解析不到（{{ entry.cli.detail ?? '未知原因' }}）</template>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <p class="muted">
+        安装或更新走 <code>cometflow hook install . --platform claude-code</code>，卸载走
+        <code>hook uninstall</code>——装配动作会改机器上的配置，界面只做状态与判定预览。
+      </p>
+
+      <h3>写入判定预览</h3>
+      <p class="muted">
+       预览「这次写入会不会被守卫拦下」。判定与 <code>cometflow hook check</code> 完全同源：
         <code>.cometflow</code> 一律不可写；多个活跃 change 且没有 current-change 指针时 fail closed；
         build 阶段写模块外文件会被拒绝。路径按项目根解析。
       </p>
@@ -160,6 +194,8 @@ import type {
   ClassicState,
   ChangeState,
   HookCheckResponse,
+  HookStatus,
+  HookStatusResponse,
   SkillDetail,
   SkillsResponse,
   SkillSummary,
@@ -184,6 +220,7 @@ const hookTarget = ref('src/core/index.ts');
 const hookEvent = ref<'write' | 'edit'>('write');
 const hookResult = ref<HookCheckResponse | null>(null);
 const hookBusy = ref(false);
+const hookStatus = ref<HookStatus[] | null>(null);
 const pointerDraft = ref('');
 const pointerBusy = ref(false);
 const activeChanges = ref<ChangeState[]>([]);
@@ -254,6 +291,15 @@ async function loadClassic(): Promise<void> {
   }
 }
 
+async function loadHookStatus(): Promise<void> {
+  try {
+    const data = await project.projectApi<HookStatusResponse>('/hook/status');
+    hookStatus.value = data.platforms;
+  } catch (error) {
+    toasts.error('读取写保护状态失败', errorMessage(error));
+  }
+}
+
 async function checkHook(): Promise<void> {
   if (hookTarget.value.trim() === '') {
     toasts.error('请填写目标路径');
@@ -277,6 +323,7 @@ onMounted(() => {
   void loadSkills();
   void loadBundle();
   void loadClassic();
+  void loadHookStatus();
 });
 
 // 只有真的被 current-change 挡住时才去拉 change 列表：这个页签平时是只读预览，不多打一次请求。

@@ -92,12 +92,15 @@ import { readMetricsGate } from '../gates/metrics-gate.js';
 import { describeMetricsGate } from '../metrics/metric-gates.js';
 import { collectMetrics } from '../metrics/metrics-service.js';
 import {
+  applyEvidenceCleanup,
   applyForceUnlock,
   applyJobCleanup,
   applyTempCleanup,
   collectMaintenancePlan,
   StaleMaintenancePreviewError,
 } from '../dashboard/maintenance.js';
+import { HOOK_PLATFORMS, hookStatus } from '../guard/hook-install.js';
+import { rollbackEvolution } from '../evolution/evolution-service.js';
 import {
   clearCurrentChange,
   readCurrentChange,
@@ -460,6 +463,36 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
         const cleaned = await applyForceUnlock(root, expectedHolder);
         jobs.stateChanged(projectId, '/api/project/doctor');
         sendOk(res, { cleaned, report: await runDoctor(root) });
+      } catch (error) {
+        if (error instanceof StaleMaintenancePreviewError) {
+          sendError(res, 409, 'stale-maintenance-preview', error.message, {
+            expected: error.expected,
+            actual: error.actual,
+          });
+          return true;
+        }
+        throw error;
+      }
+      return true;
+    }
+    // `change gc --apply` 的界面入口：与 doctor 三个动作同一套「预告 → 确认 → 执行」护栏。
+    if (segments[0] === 'project' && segments[1] === 'evidence' && segments[2] === 'clean' && method === 'POST') {
+      const body = await readJsonBody(req);
+      const expectedReclaimableBytes = numberField(body.expectedReclaimableBytes);
+      if (expectedReclaimableBytes === null) {
+        sendError(
+          res,
+          400,
+          'missing-expected',
+          'expectedReclaimableBytes 必填：先读 GET /maintenance 的 evidence.reclaimableBytes 再回传',
+        );
+        return true;
+      }
+      try {
+        const cleaned = await applyEvidenceCleanup(root, expectedReclaimableBytes);
+        jobs.stateChanged(projectId, '/api/project/doctor');
+        // 回带执行后的新预告：卡片据此刷新，不用再打一次 GET。
+        sendOk(res, { cleaned, plan: await collectMaintenancePlan(root) });
       } catch (error) {
         if (error instanceof StaleMaintenancePreviewError) {
           sendError(res, 409, 'stale-maintenance-preview', error.message, {
@@ -1234,6 +1267,21 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
       sendError(res, 404, 'unknown-evolution-action', action);
       return true;
     }
+    // 回滚指引：纯投影（`evolve rollback` 的输出），不改任何状态。
+    if (segments[0] === 'evolutions' && segments.length === 3 && segments[2] === 'rollback' && method === 'GET') {
+      const name = safePathSegment(segments[1]);
+      if (name === null) {
+        sendError(res, 400, 'invalid-evolution-name', 'evolution name must not contain path separators');
+        return true;
+      }
+      try {
+        const lines = await rollbackEvolution(root, name);
+        sendOk(res, { name, lines });
+      } catch (error) {
+        sendError(res, 404, 'unknown-evolution', error instanceof Error ? error.message : String(error));
+      }
+      return true;
+    }
 
     // ---- eval ----
     if (segments[0] === 'eval' && segments[1] === 'run' && method === 'POST') {
@@ -1333,6 +1381,13 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
       // 相对路径按项目根解析：serve 的 cwd 不一定是项目目录。
       const decision = await evaluateHook(root, event, path.resolve(root, target));
       sendOk(res, { target, event, decision });
+      return true;
+    }
+    // 写保护（ADR 0023）的安装状态：装没装、条目与脚本是否漂移、守卫调用的 CLI 能否解析。
+    if (segments[0] === 'hook' && segments[1] === 'status' && method === 'GET') {
+      // 只支持 claude-code；另外两个平台会返回 supported: false，界面据此显示「暂不支持」而不是「未安装」。
+      const platforms = await Promise.all(HOOK_PLATFORMS.map((platform) => hookStatus(root, platform)));
+      sendOk(res, { platforms });
       return true;
     }
     if (segments[0] === 'classic' && method === 'GET') {
