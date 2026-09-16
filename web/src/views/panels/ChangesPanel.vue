@@ -7,6 +7,19 @@
       <button @click="reload">刷新</button>
     </div>
 
+    <!-- 当前 change 指针：多个活跃 change 时，写入门禁靠它判断「这次写入属于谁」。 -->
+    <p class="muted">
+      当前 change 指针：
+      <template v-if="pointer !== null">
+        <b>{{ pointer.change }}</b>
+        <span v-if="!pointerResolved" class="badge err">已失效（指向已归档或不存在的 change）</span>
+        <button class="ghost" :disabled="busy" @click="clearCurrent">清除</button>
+      </template>
+      <template v-else>
+        未设置<span v-if="activeCount > 1">（当前有 {{ activeCount }} 个活跃 change，写入门禁会 fail closed）</span>
+      </template>
+    </p>
+
     <div class="toolbar">
       <input v-model="draft.name" placeholder="change 名称（如 auth-login）" />
       <select v-model="draft.goal" @change="onGoalChange">
@@ -21,15 +34,25 @@
     </div>
 
     <table>
-      <thead><tr><th>名称</th><th>phase</th><th>status</th><th /></tr></thead>
+      <thead><tr><th>名称</th><th>phase</th><th>status</th><th /><th /></tr></thead>
       <tbody>
         <tr v-for="change in visibleChanges" :key="change.name" :class="{ selected: change.name === selectedName }">
           <td><b>{{ change.name }}</b></td>
           <td><StatusBadge :tone="change.archived ? 'gray' : 'ok'" :text="change.phase + (change.archived ? ' · archived' : '')" /></td>
           <td><StatusBadge :tone="statusTone(change.status)" :text="change.status" /></td>
           <td><button class="ghost" @click="select(change.name)">打开</button></td>
+          <td>
+            <button
+              v-if="!change.archived"
+              class="ghost"
+              :disabled="busy || pointer?.change === change.name"
+              @click="setCurrent(change.name)"
+            >
+              {{ pointer?.change === change.name ? '当前' : '设为当前' }}
+            </button>
+          </td>
         </tr>
-        <tr v-if="visibleChanges.length === 0"><td colspan="4" class="muted">{{ emptyHint }}</td></tr>
+        <tr v-if="visibleChanges.length === 0"><td colspan="5" class="muted">{{ emptyHint }}</td></tr>
       </tbody>
     </table>
   </div>
@@ -253,6 +276,8 @@ import type {
   ChangeState,
   ChangeUnblockOutcome,
   ChangeVerifyOutcome,
+  CurrentChangePointer,
+  CurrentChangeResponse,
   GoalRecord,
   SpecConflictDetail,
   TaskPlan,
@@ -276,6 +301,8 @@ const goals = ref<GoalRecord[]>([]);
 const tasks = ref<Array<{ id: string; title: string }>>([]);
 const selectedName = ref('');
 const selected = ref<ChangeState | null>(null);
+const pointer = ref<CurrentChangePointer | null>(null);
+const pointerResolved = ref(false);
 const resume = ref<ChangeResume | null>(null);
 const verifyOutcome = ref<ChangeVerifyOutcome | null>(null);
 const archiveOutcome = ref<ChangeArchiveOutcome | null>(null);
@@ -294,6 +321,7 @@ const draft = reactive({ name: '', goal: '', task: '' });
 const visibleChanges = computed(() =>
   showArchived.value ? changes.value : changes.value.filter((change) => !change.archived),
 );
+const activeCount = computed(() => changes.value.filter((change) => !change.archived).length);
 const archivedCount = computed(() => changes.value.filter((change) => change.archived).length);
 /** 只有已归档 change 时不要报「暂无变更」，否则用户会以为记录丢了。 */
 const emptyHint = computed(() =>
@@ -340,18 +368,48 @@ function statusTone(status: ChangeState['status']): 'ok' | 'warn' | 'err' | 'gra
 
 async function reload(): Promise<void> {
   try {
-    const [changeData, goalData, configData] = await Promise.all([
+    const [changeData, goalData, configData, pointerData] = await Promise.all([
       project.projectApi<{ changes: ChangeState[] }>('/changes'),
       project.projectApi<{ goals: GoalRecord[] }>('/goals'),
       project.config === null ? project.loadConfig() : Promise.resolve(project.config),
+      project.projectApi<CurrentChangeResponse>('/current-change'),
     ]);
     changes.value = changeData.changes;
     goals.value = goalData.goals;
+    pointer.value = pointerData.pointer;
+    pointerResolved.value = pointerData.resolved;
     const configured = configData.config.agent;
     if (configured) runAgent.value = configured;
     if (selectedName.value !== '') await loadDetail();
   } catch (error) {
     toasts.error('加载变更失败', errorMessage(error));
+  }
+}
+
+/** 设定当前 change：这是多活跃 change 时唯一能解除写入门禁 fail closed 的动作。 */
+async function setCurrent(name: string): Promise<void> {
+  busy.value = true;
+  try {
+    await project.projectApi('/current-change', { method: 'POST', body: { name } });
+    await reload();
+    toasts.success('已设为当前 change', name + '：写入门禁将按它的模块边界判定');
+  } catch (error) {
+    toasts.error('设置失败', errorMessage(error));
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function clearCurrent(): Promise<void> {
+  busy.value = true;
+  try {
+    await project.projectApi('/current-change', { method: 'POST', body: { name: null } });
+    await reload();
+    toasts.success('已清除当前 change', '之后多个活跃 change 的写入会被 fail closed');
+  } catch (error) {
+    toasts.error('清除失败', errorMessage(error));
+  } finally {
+    busy.value = false;
   }
 }
 

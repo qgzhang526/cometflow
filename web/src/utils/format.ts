@@ -43,3 +43,21 @@ export function jsonPreview(value: unknown): string {
     return String(value);
   }
 }
+
+/** 字节数：维护动作的预告与结果都用它显示，避免界面出现 `1048576` 这种读数。 */
+export function formatBytes(bytes: number | null | undefined): string {
+  if (bytes === null || bytes === undefined || !Number.isFinite(bytes) || bytes <= 0) return '0 B';
+  const units = ['B', 'KiB', 'MiB', 'GiB'];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return (unit === 0 ? String(Math.round(value)) : value.toFixed(1)) + ' ' + units[unit];
+}
+
+/** 比率：域层用 `null` 表示「样本不足/无分母」，界面必须显示成 `—` 而不是 0%。 */
+export function formatRate(value: number | null | undefined): string {
+  return value === null || value === undefined ? '—' : (value * 100).toFixed(1) + '%';
+}

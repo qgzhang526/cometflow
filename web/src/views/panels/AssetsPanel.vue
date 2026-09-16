@@ -116,6 +116,20 @@
         <span> {{ hookResult.decision.reason }}</span>
         <p v-if="hookResult.decision.hint" class="muted">{{ hookResult.decision.hint }}</p>
       </div>
+
+      <!-- 被 current-change 挡住时，就地给出恢复路径：否则用户只能回 CLI 敲 change select。 -->
+      <div v-if="needsPointer" class="toolbar" style="margin-top: 10px">
+        <span class="muted">设为当前 change 后再检查：</span>
+        <select v-model="pointerDraft">
+          <option value="">选择 change…</option>
+          <option v-for="change in activeChanges" :key="change.name" :value="change.name">
+            {{ change.name }}（{{ change.phase }}）
+          </option>
+        </select>
+        <button class="primary" :disabled="pointerDraft === '' || pointerBusy" @click="selectCurrentAndRecheck">
+          {{ pointerBusy ? '处理中…' : '设为当前并重新检查' }}
+        </button>
+      </div>
     </div>
   </div>
 
@@ -134,7 +148,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import ModalCard from '../../components/ModalCard.vue';
 import StatusBadge from '../../components/StatusBadge.vue';
 import { errorMessage } from '../../api/client';
@@ -144,6 +158,7 @@ import type {
   BundleResponse,
   ClassicResponse,
   ClassicState,
+  ChangeState,
   HookCheckResponse,
   SkillDetail,
   SkillsResponse,
@@ -169,6 +184,41 @@ const hookTarget = ref('src/core/index.ts');
 const hookEvent = ref<'write' | 'edit'>('write');
 const hookResult = ref<HookCheckResponse | null>(null);
 const hookBusy = ref(false);
+const pointerDraft = ref('');
+const pointerBusy = ref(false);
+const activeChanges = ref<ChangeState[]>([]);
+
+/**
+ * 这两种拒绝不是「这个改动违规」，而是「守卫不知道这次写入属于谁」——
+ * 它们有确定的恢复路径（设 current-change 指针），所以界面必须就地给出，而不是只报个 reason。
+ */
+const needsPointer = computed(() => {
+  const reason = hookResult.value?.decision.reason ?? '';
+  return reason === 'multiple-active-changes' || reason === 'stale-current-change';
+});
+
+async function loadActiveChanges(): Promise<void> {
+  try {
+    const data = await project.projectApi<{ changes: ChangeState[] }>('/changes');
+    activeChanges.value = data.changes.filter((change) => !change.archived);
+  } catch (error) {
+    toasts.error('读取 change 列表失败', errorMessage(error));
+  }
+}
+
+async function selectCurrentAndRecheck(): Promise<void> {
+  if (pointerDraft.value === '') return;
+  pointerBusy.value = true;
+  try {
+    await project.projectApi('/current-change', { method: 'POST', body: { name: pointerDraft.value } });
+    toasts.success('已设为当前 change', pointerDraft.value);
+    await checkHook();
+  } catch (error) {
+    toasts.error('设置失败', errorMessage(error));
+  } finally {
+    pointerBusy.value = false;
+  }
+}
 
 async function loadSkills(): Promise<void> {
   try {
@@ -227,5 +277,10 @@ onMounted(() => {
   void loadSkills();
   void loadBundle();
   void loadClassic();
+});
+
+// 只有真的被 current-change 挡住时才去拉 change 列表：这个页签平时是只读预览，不多打一次请求。
+watch(needsPointer, (blocked) => {
+  if (blocked && activeChanges.value.length === 0) void loadActiveChanges();
 });
 </script>

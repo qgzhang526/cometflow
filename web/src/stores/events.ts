@@ -19,6 +19,8 @@ function areaForPath(path: string | undefined): string {
   if (path.startsWith('/api/plans')) return 'plans';
   if (path.startsWith('/api/changes')) return 'changes';
   if (path.startsWith('/api/evolutions')) return 'evolve';
+  // current-change 指针在 Changes 面板展示（也能从资产页的 Hook 预览里改），所以归到 changes。
+  if (path.startsWith('/api/current-change')) return 'changes';
   return 'overview';
 }
 

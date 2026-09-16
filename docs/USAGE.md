@@ -1144,6 +1144,21 @@ token: <random>
   （warn 必须带未来到期日、fail 不许留到期日），界面不是第二条写入通路。
   多文件事务（归档应用提案 spec、计划冻结、恢复历史版本）整段持 `.cometflow/runtime/lock`：
   取不到即 **409 `lock-held`**（说明持有者），`doctor` 报告锁状态，`doctor --force-unlock` 才清理。
+- **总览（Overview）的三块投影**：界面不再有「后端算出来了、但只能敲命令」的空白。
+  - **问题清单**：与 `cometflow gate check . --findings` **同一份投影**（spec verify + doctor 两个来源，
+    按 `code + subject` 去重，同一个判定不会显示两次），按级别分组并给出「去处理」跳转；
+    顶部徽章由 error 数驱动（不再是只看 doctor 一个来源）。
+  - **质量与健康度**：与 `cometflow metrics . --json` 同源的指标（首次通过率、check 覆盖、
+    验收可执行率、anchor 覆盖率、漂移、版本链），并**把当前生效的门禁阈值一起显示**——
+    未配置时显示内置方向表，避免出现「看不见的约束」。
+  - **维护动作**：`doctor --clean-temp` / `--clean-jobs` / `--force-unlock` 的界面入口。流程固定为
+    「预告 → 二次确认 → 执行」：确认框显示将删除的文件/任务数量与锁的持有者（pid / host / action / 起始时间），
+    并把该数字原样回传，服务端在执行前**重新核对**——不一致返回 **409 `stale-maintenance-preview`**，
+    且**一个字节都不删**；执行成功后返回新的 doctor 结论，界面直接采用。
+- **current-change 指针**：多个活跃 change 时写入门禁会 `fail closed`（reason `multiple-active-changes`）。
+  Changes 面板顶部显示当前指针，每行可「设为当前」、指针本身可「清除」（等价 `cometflow change select`）；
+  资产面板的 Hook 预览在这两种拒绝原因（`multiple-active-changes` / `stale-current-change`）下就地给出
+  change 下拉与「设为当前并重新检查」，把「被拒」变成一步可操作的动作。
 - **Specs 面板 6 个页签**：12-kind 状态、脚手架、Spec 文件、验收覆盖、版本、影响与门禁。
 - **引用图页签**（W1 之后新增，共 7 个）：按 009 的引用方向表聚合 kind 之间的引用，
   点击可下钻 kind → 文件 → anchor 并列出该文件的逐条引用与位置；未解析引用红色标注，
@@ -1235,6 +1250,11 @@ pnpm build                   # tsc（CLI）+ vite build（Web）
 | GET | `/api/projects/<id>/skills`、`/skills/<name>` | 已安装 skill 列表 / 单个 skill 详情（含 SKILL.md） |
 | GET | `/api/projects/<id>/bundles` | bundle manifest + 编译产物预览 + 支持平台 |
 | POST | `/api/projects/<id>/hook/check` | 写入门禁预览（与 `hook check` 同源） |
+| GET | `/api/projects/<id>/findings` | 统一 findings 投影（verify + doctor 两源、去重；与 `gate check --findings` 同源） |
+| GET | `/api/projects/<id>/metrics` | 度量报告 + 当前生效的门禁阈值（与 `metrics --json` 同源） |
+| GET | `/api/projects/<id>/maintenance` | 维护动作的只读预告：残留临时文件 / 任务证据 / 事务锁 |
+| POST | `/api/projects/<id>/project/doctor/clean-temp` \| `/clean-jobs` \| `/force-unlock` | 执行维护动作（须回传预告值；不匹配 → 409 且不删任何文件） |
+| GET/POST | `/api/projects/<id>/current-change` | 读写 current-change 指针（POST `{name}` 设定、`{name:null}` 清除；改指针 route 到 changes 面板刷新） |
 | GET | `/api/projects/<id>/classic` | Classic change 只读列表 |
 | GET/POST | `/api/projects/<id>/plans`、`/plans/generate`、`/plans/regenerate` | 计划列表 / 生成 / 重生成 |
 | GET/POST | `/api/projects/<id>/plans/<goal>`、`/plans/<goal>/{validate,review,approve,freeze}` | 计划读写与状态推进 |

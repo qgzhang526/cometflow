@@ -87,12 +87,33 @@ import { compileBundle, readBundleManifest, supportedBundlePlatforms } from '../
 import { evaluateHook, type HookEvent } from '../guard/hook-guard.js';
 import { buildQueueFromPlans, nextQueuedTask, readQueue } from '../scheduler/queue.js';
 import { runLocalEval } from '../eval/eval-service.js';
+import { collectFindings } from '../gates/findings.js';
+import { readMetricsGate } from '../gates/metrics-gate.js';
+import { describeMetricsGate } from '../metrics/metric-gates.js';
+import { collectMetrics } from '../metrics/metrics-service.js';
+import {
+  applyForceUnlock,
+  applyJobCleanup,
+  applyTempCleanup,
+  collectMaintenancePlan,
+  StaleMaintenancePreviewError,
+} from '../dashboard/maintenance.js';
+import {
+  clearCurrentChange,
+  readCurrentChange,
+  selectCurrentChange,
+} from '../workflow/current-change.js';
 import type { ApiContext } from './http.js';
 import { readJsonBody, requestUrl, sendError, sendJson, sendOk } from './http.js';
 import { getProject, listProjects, registerProject, removeProject, touchProject } from './workspace.js';
 
 function stringField(value: unknown, fallback = ''): string {
   return typeof value === 'string' ? value : fallback;
+}
+
+/** 预告值回传校验用：只接受有限数字，`null` 表示「调用方没给」。 */
+function numberField(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
 /**
@@ -380,6 +401,78 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
       return true;
     }
 
+    // ---- 维护动作（V1-4）：预告 → 确认 → 执行，回传值不匹配就拒绝且不删任何东西 ----
+    if (segments[0] === 'project' && segments[1] === 'doctor' && segments[2] === 'clean-temp' && method === 'POST') {
+      const body = await readJsonBody(req);
+      const expectedFiles = numberField(body.expectedFiles);
+      if (expectedFiles === null) {
+        sendError(res, 400, 'missing-expected', 'expectedFiles 必填：先读 GET /maintenance 的预告值再回传');
+        return true;
+      }
+      try {
+        const cleaned = await applyTempCleanup(root, expectedFiles);
+        jobs.stateChanged(projectId, '/api/project/doctor');
+        sendOk(res, { cleaned, report: await runDoctor(root) });
+      } catch (error) {
+        if (error instanceof StaleMaintenancePreviewError) {
+          sendError(res, 409, 'stale-maintenance-preview', error.message, {
+            expected: error.expected,
+            actual: error.actual,
+          });
+          return true;
+        }
+        throw error;
+      }
+      return true;
+    }
+    if (segments[0] === 'project' && segments[1] === 'doctor' && segments[2] === 'clean-jobs' && method === 'POST') {
+      const body = await readJsonBody(req);
+      const expectedCandidates = numberField(body.expectedCandidates);
+      if (expectedCandidates === null) {
+        sendError(res, 400, 'missing-expected', 'expectedCandidates 必填：先读 GET /maintenance 的预告值再回传');
+        return true;
+      }
+      try {
+        const cleaned = await applyJobCleanup(root, expectedCandidates);
+        jobs.stateChanged(projectId, '/api/project/doctor');
+        jobs.stateChanged(projectId, '/api/jobs');
+        sendOk(res, { cleaned, report: await runDoctor(root) });
+      } catch (error) {
+        if (error instanceof StaleMaintenancePreviewError) {
+          sendError(res, 409, 'stale-maintenance-preview', error.message, {
+            expected: error.expected,
+            actual: error.actual,
+          });
+          return true;
+        }
+        throw error;
+      }
+      return true;
+    }
+    if (segments[0] === 'project' && segments[1] === 'doctor' && segments[2] === 'force-unlock' && method === 'POST') {
+      const body = await readJsonBody(req);
+      const expectedHolder = stringField(body.expectedHolder).trim();
+      if (expectedHolder === '') {
+        sendError(res, 400, 'missing-expected', 'expectedHolder 必填：先读 GET /maintenance 的 lock.holder 再回传');
+        return true;
+      }
+      try {
+        const cleaned = await applyForceUnlock(root, expectedHolder);
+        jobs.stateChanged(projectId, '/api/project/doctor');
+        sendOk(res, { cleaned, report: await runDoctor(root) });
+      } catch (error) {
+        if (error instanceof StaleMaintenancePreviewError) {
+          sendError(res, 409, 'stale-maintenance-preview', error.message, {
+            expected: error.expected,
+            actual: error.actual,
+          });
+          return true;
+        }
+        throw error;
+      }
+      return true;
+    }
+
     // ---- mission.md ----
     if (segments[0] === 'mission.md') {
       const missionPath = path.join(root, 'COMETFLOW.md');
@@ -462,6 +555,33 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
         })),
       );
       sendOk(res, { agents });
+      return true;
+    }
+
+    // ---- 只读投影：把「已经算出来、但只能敲命令」的结论搬到界面（V1-1 / V1-2）----
+    if (segments[0] === 'findings' && segments.length === 1 && method === 'GET') {
+      // 与 `cometflow gate check . --findings` 同源：verify + doctor 两源、已去重、已排序。
+      sendOk(res, { findings: await collectFindings(root) });
+      return true;
+    }
+    if (segments[0] === 'metrics' && segments.length === 1 && method === 'GET') {
+      const report = await collectMetrics(root);
+      const gate = await readMetricsGate(root);
+      // 阈值只影响门禁结论、不参与指标本身。lines 始终给出（未配置时是内置方向表），
+      // 否则界面上就会出现一条看不见的约束。与 `metrics --json` 的 gates 字段同形。
+      sendOk(res, {
+        report,
+        gates: {
+          thresholds: gate.thresholds,
+          errors: gate.errors,
+          lines: describeMetricsGate(gate.thresholds),
+        },
+      });
+      return true;
+    }
+    if (segments[0] === 'maintenance' && segments.length === 1 && method === 'GET') {
+      // 只读预告：三个维护动作各自「将要删什么」。界面据此渲染确认弹窗。
+      sendOk(res, await collectMaintenancePlan(root));
       return true;
     }
 
@@ -838,6 +958,58 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
       // 用解码后的名字参与后续的路径拼接与状态读取（客户端用 encodeURIComponent 传名字）。
       segments = [segments[0], decoded, ...segments.slice(2)];
     }
+
+    // ---- current-change 指针（ADR 0018 / V1-3）----
+    // 路径刻意**不**取 `/changes/current`：那会把一个真叫 `current` 的 change 永久遮蔽掉
+    // （change 名本可以是任意不含分隔符的字符串）。所以用项目级路径 `/current-change`。
+    if (segments[0] === 'current-change' && method === 'GET') {
+      const pointer = await readCurrentChange(root);
+      // 指针存在 ≠ 指针可用：指向已归档/已删除的 change 时，hook 会以 stale-current-change fail closed。
+      const change = pointer === null ? null : await readChangeState(root, pointer.change).catch(() => null);
+      sendOk(res, {
+        pointer,
+        change,
+        resolved: pointer !== null && change !== null && !change.archived,
+      });
+      return true;
+    }
+    if (segments[0] === 'current-change' && method === 'POST') {
+      const body = await readJsonBody(req);
+      // `{ name: null }` 表示清除指针；缺字段与 null 等价，避免前端还要区分两种「没有」。
+      if (body.name === null || body.name === undefined) {
+        const pointer = await readCurrentChange(root);
+        if (pointer === null) {
+          sendOk(res, { cleared: false, removed: null, pointer: null });
+          return true;
+        }
+        // force：清除动作本身就是「我要清掉现在这个」，不需要再比对名字。
+        const cleared = await clearCurrentChange(root, pointer.change, { force: true });
+        jobs.stateChanged(projectId, '/api/current-change');
+        sendOk(res, { cleared, removed: pointer, pointer: null });
+        return true;
+      }
+      const name = stringField(body.name).trim();
+      const safeName = safePathSegment(name);
+      if (name === '' || safeName === null) {
+        sendError(res, 400, 'invalid-change-name', 'change name must not contain path separators');
+        return true;
+      }
+      const state = await readChangeState(root, safeName).catch(() => null);
+      if (state === null) {
+        sendError(res, 404, 'unknown-change', 'change not found: ' + safeName);
+        return true;
+      }
+      // 与 CLI `change select` 同源：归档的 change 不能被选为当前（它已经不会再被写入）。
+      if (state.archived) {
+        sendError(res, 409, 'change-not-selectable', 'change ' + safeName + ' 已归档，不能设为当前 change');
+        return true;
+      }
+      const pointer = await selectCurrentChange(root, safeName, { source: 'manual' });
+      jobs.stateChanged(projectId, '/api/current-change');
+      sendOk(res, { pointer, change: state });
+      return true;
+    }
+
     if (segments[0] === 'changes' && segments.length === 1 && method === 'GET') {
       sendOk(res, { changes: await listChangeStates(root) });
       return true;

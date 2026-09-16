@@ -697,3 +697,132 @@ export interface SpecProposal {
 export interface SpecProposalsResponse {
   proposals: SpecProposal[];
 }
+
+// ---- V1 可见性批次：把「后端算出来了、但只能敲命令」的结论搬到界面 ----
+
+/** 统一 findings 投影（`GET /findings`，与 `cometflow gate check --findings` 同源）。 */
+export type FindingSource = 'spec-verify' | 'doctor';
+export type FindingSeverity = 'error' | 'warning' | 'info';
+
+export interface Finding {
+  source: FindingSource;
+  code: string;
+  severity: FindingSeverity;
+  /** 出问题的对象（spec 路径、change 名）；doctor 来源为空串。 */
+  subject: string;
+  message: string;
+}
+
+export interface FindingsResponse {
+  findings: Finding[];
+}
+
+export interface RebuildBucket {
+  key: string;
+  sample_size: number;
+  first_pass_rate: number | null;
+  mean_attempts_to_pass: number | null;
+  blocked_rate: number | null;
+}
+
+/** 度量报告（`GET /metrics`）：字段与 `domains/metrics/types.ts` 对齐，只做展示。 */
+export interface MetricsReport {
+  schema: string;
+  generated_at: string;
+  project: {
+    changes: number;
+    active_changes: number;
+    archived_changes: number;
+    specs: number;
+    capabilities: number;
+  };
+  rebuild: {
+    sample_size: number;
+    verified_changes: number;
+    total_changes: number;
+    archived_changes: number;
+    first_pass_rate: number | null;
+    mean_attempts_to_pass: number | null;
+    pass_rate: number | null;
+    blocked_rate: number | null;
+    verdict_sources: Record<string, number>;
+    check_coverage_rate: number | null;
+    verifier: { runs: number; total_ms: number; mean_ms: number | null };
+    per_capability: RebuildBucket[];
+    per_module: RebuildBucket[];
+  };
+  spec_health: {
+    specs: number;
+    capabilities: number;
+    acceptance_total: number;
+    acceptance_with_check: number;
+    acceptance_checkable_rate: number | null;
+    anchor_total: number;
+    anchor_bound: number;
+    anchor_coverage_rate: number | null;
+    drift: {
+      count: number;
+      by_kind: Record<string, number>;
+      by_severity: Record<string, number>;
+      unresolvable: number;
+      oldest_spec_change_age_days: number | null;
+    };
+    versions: {
+      specs_tracked: number;
+      total_versions: number;
+      specs_with_multiple_versions: number;
+    };
+  };
+  notes: string[];
+}
+
+/** 生效的门禁阈值：`lines` 始终有值（未配置时是内置方向表），避免出现看不见的约束。 */
+export interface MetricsGateInfo {
+  thresholds: Record<string, unknown>;
+  errors: string[];
+  lines: string[];
+}
+
+export interface MetricsResponse {
+  report: MetricsReport;
+  gates: MetricsGateInfo;
+}
+
+/** 维护预告（`GET /maintenance`）：三个动作各自「将要删什么」。 */
+export interface MaintenancePlan {
+  temp: {
+    count: number;
+    totalBytes: number;
+    sample: Array<{ path: string; size: number }>;
+  };
+  jobs: {
+    files: number;
+    bytes: number;
+    finished: number;
+    running: number;
+    candidates: number;
+    reclaimableBytes: number;
+  };
+  lock: {
+    held: boolean;
+    stale: boolean;
+    reason: string | null;
+    /** `pid@host@startedAt`：确认时原样回传，服务端据此拒绝「看到的锁」与「要清的锁」不一致。 */
+    holder: string | null;
+    record: { pid: number; host: string; startedAt: string; action: string; ttlMs: number } | null;
+  };
+}
+
+/** current-change 指针（`GET /current-change`）：多活跃 change 时唯一能解除 hook fail closed 的入口。 */
+export interface CurrentChangePointer {
+  schema: string;
+  change: string;
+  selected_at: string;
+  source: 'auto' | 'manual';
+}
+
+export interface CurrentChangeResponse {
+  pointer: CurrentChangePointer | null;
+  change: ChangeState | null;
+  resolved: boolean;
+}

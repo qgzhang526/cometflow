@@ -32,7 +32,9 @@
     <main class="content">
       <div v-if="project.error" class="card finding">[error] {{ project.error }}</div>
       <PanelBoundary @retry="panelEpoch += 1">
-        <component :is="activeComponent" :key="activePanel + ':' + panelEpoch" />
+        <!-- key 里带 projectId：切换项目时面板必须重新挂载，否则面板自己取的数据（findings/metrics/
+             维护预告、变更列表……）会停在上一个项目的快照上，而 store 里的 status/doctor 已经换了。 -->
+        <component :is="activeComponent" :key="projectId + ':' + activePanel + ':' + panelEpoch" />
       </PanelBoundary>
     </main>
   </div>

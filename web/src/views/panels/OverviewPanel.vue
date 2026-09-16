@@ -3,8 +3,11 @@
     <div class="row">
       <h2>项目状态</h2>
       <span class="grow" />
-      <StatusBadge :tone="doctor?.healthy ? 'ok' : doctor ? 'err' : 'gray'" :text="doctor ? (doctor.healthy ? 'doctor OK' : 'needs attention') : 'doctor …'" />
-      <button @click="reload">刷新</button>
+      <StatusBadge
+        :tone="errorCount > 0 ? 'err' : warningCount > 0 ? 'warn' : 'ok'"
+        :text="errorCount + ' error / ' + warningCount + ' warning'"
+      />
+      <button :disabled="loading" @click="reload">{{ loading ? '刷新中…' : '刷新' }}</button>
     </div>
     <div class="stat-grid">
       <div class="stat">
@@ -55,44 +58,71 @@
     </table>
   </div>
 
-  <div class="card">
-    <h2>Doctor</h2>
-    <p v-if="doctor === null" class="muted">加载中…</p>
-    <template v-else>
-      <div
-        v-for="(finding, index) in doctor.findings"
-        :key="index"
-        class="finding"
-        :class="{ warning: finding.severity === 'warning', info: finding.severity === 'info' }"
-      >
-        [{{ finding.severity }}] {{ finding.code }} {{ finding.message }}
-      </div>
-      <p v-if="doctor.findings.length === 0" class="badge ok">0 finding</p>
-    </template>
-  </div>
+  <FindingsCard :findings="findings" @refresh="reload" @jump="jump" />
+  <MetricsCard :report="metrics?.report ?? null" :gates="metrics?.gates ?? null" />
+  <MaintenanceCard :plan="maintenance" @refresh="reload" @changed="onMaintenanceChanged" />
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
+import { useRouter } from 'vue-router';
+import FindingsCard from '../../components/FindingsCard.vue';
+import MaintenanceCard from '../../components/MaintenanceCard.vue';
+import MetricsCard from '../../components/MetricsCard.vue';
 import StatusBadge from '../../components/StatusBadge.vue';
+import { errorMessage } from '../../api/client';
 import { refreshCounter } from '../../composables/useRefresh';
+import type { PanelId } from '../../router';
 import { useProjectStore } from '../../stores/project';
 import { useToastStore } from '../../stores/toasts';
-import { errorMessage } from '../../api/client';
+import type { Finding, FindingsResponse, MaintenancePlan, MetricsResponse } from '../../api/types';
 
 const project = useProjectStore();
 const toasts = useToastStore();
+const router = useRouter();
 
 const status = computed(() => project.status);
-const doctor = computed(() => project.doctor);
 const activeChanges = computed(() => (status.value?.changes ?? []).filter((change) => !change.archived).length);
 
+const findings = ref<Finding[]>([]);
+const metrics = ref<MetricsResponse | null>(null);
+const maintenance = ref<MaintenancePlan | null>(null);
+const loading = ref(false);
+
+const errorCount = computed(() => findings.value.filter((finding) => finding.severity === 'error').length);
+const warningCount = computed(() => findings.value.filter((finding) => finding.severity === 'warning').length);
+
+// 三个只读投影一次取齐：放在一起取而不是各卡片自己取，是为了让「问题数」「指标」「待清理量」
+// 来自同一次快照——否则会出现「问题清单说没有残留文件、维护卡说还有 3 个」这种自相矛盾的画面。
+async function loadVisibility(): Promise<void> {
+  const [findingsData, metricsData, maintenanceData] = await Promise.all([
+    project.projectApi<FindingsResponse>('/findings'),
+    project.projectApi<MetricsResponse>('/metrics'),
+    project.projectApi<MaintenancePlan>('/maintenance'),
+  ]);
+  findings.value = findingsData.findings;
+  metrics.value = metricsData;
+  maintenance.value = maintenanceData;
+}
+
 async function reload(): Promise<void> {
+  loading.value = true;
   try {
-    await Promise.all([project.refreshStatus(), project.refreshDoctor()]);
+    await Promise.all([project.refreshStatus(), project.refreshDoctor(), loadVisibility()]);
   } catch (error) {
     toasts.error('刷新失败', errorMessage(error));
+  } finally {
+    loading.value = false;
   }
+}
+
+// 维护动作执行后服务端会带回新的 doctor 报告：直接采用，省掉一次往返。
+function onMaintenanceChanged(report: unknown): void {
+  project.applyDoctorReport(report);
+}
+
+function jump(panel: PanelId): void {
+  void router.push('/project/' + (project.currentId ?? '') + '/' + panel);
 }
 
 onMounted(reload);
