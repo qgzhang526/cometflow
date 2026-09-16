@@ -25,6 +25,8 @@
 | 平台侧第二批 | doctor 汇总 hook 状态 ✅、git 提交门禁 ✅、metrics 阈值可配 ✅、husky/lefthook 安装点 ✅、findings 统一呈现 ✅ | **全部完成（P1–P5）** | [platform-next-plan-2.md](./platform-next-plan-2.md) |
 | Web 前端补齐 | 收敛「后端有能力、前端看不见」的差异：修 P0 正确性缺陷，补齐 spec 内核、change 审计与资产可视化 | **已完成**（W1–W5） | [web-ui-enrichment-plan.md](./web-ui-enrichment-plan.md) |
 | Web 前端后续 | 引用关系图与引用高亮、Job 持久化、并发写保护、spec 编辑语义、发布链路收尾 | **已全部完成**（M1–M3，N1–N6） | [web-ui-followup-plan.md](./web-ui-followup-plan.md) |
+| Web 前端覆盖度审计 | 以 CLI / HTTP / 前端调用三份事实源互相对照，量化「后端有能力、前端看不见」的差异（A/B/C 三分类） | **已完成**（2026-09-16 按平台侧 P1–P5 后的基线修订） | [web-ui-coverage-audit.md](./web-ui-coverage-audit.md) |
+| Web 前端可见性 | 把「后端算出来了、但只能敲命令」清零：findings / metrics / current-change 指针 / doctor 维护动作（V1），再到证据回收、回滚指引与写保护卡片（V2–V4） | **计划中**（V1 待评审） | [web-ui-visibility-plan.md](./web-ui-visibility-plan.md) |
 
 ## 阶段顺序原则
 

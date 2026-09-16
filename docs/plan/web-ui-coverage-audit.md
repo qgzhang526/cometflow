@@ -1,26 +1,29 @@
 # Web 前端覆盖度审计（后端已实现能力 ↔ 界面可见性）
 
-状态：审计报告（只读调研；本次仅新增本文档，未改任何代码与既有文档）
+状态：审计报告（只读调研；2026-09-16 按新基线修订 §1/§3/§5/§7/§9，实施批次见
+[web-ui-visibility-plan.md](./web-ui-visibility-plan.md)）
 分支：`codex/enrich-ui`
-基线：`f8e67c0` + 工作区未提交改动（`docs/plan/README.md`、`domains/dashboard/doctor.ts` 的 hook 状态汇总、
-`domains/guard/hook-install.ts` 的 `guardOutdated` / CLI 解析、`scripts/regression.mjs`）
+基线：`main @ 2a4d54f`（含平台侧 P1–P5：doctor 汇总写保护状态、git 提交门禁、metrics 阈值可配、
+gate findings 统一呈现）+ 本分支的审计文档
 关联：ADR 0007（UI 只走 headless service）、[008 客户端可视化](../design/008-client-visualization.md)、
 [web-ui-enrichment-plan.md](./web-ui-enrichment-plan.md)（W1–W5）、
 [web-ui-followup-plan.md](./web-ui-followup-plan.md)（M1–M3 / N1–N6）、
-[metrics-plan.md](./metrics-plan.md)、[platform-next-plan-2.md](./platform-next-plan-2.md)
+[metrics-plan.md](./metrics-plan.md)、[platform-next-plan-2.md](./platform-next-plan-2.md)、
+[web-ui-visibility-plan.md](./web-ui-visibility-plan.md)（本审计的实施计划）
 
 ## 1. 结论摘要
 
 | 口径 | 结果 | 说明 |
 |---|---|---|
 | HTTP 端点接线率 | **75 / 77 ≈ 97%** | 只有 `/config/project`、`/spec-index` 两个端点无人调用（都是冗余投影，非用户可见缺口） |
-| CLI 能力完整可见率 | **47 / 74 ≈ 64%** | 另有 4 条「部分可见」、23 条「无 UI 入口」 |
-| 核心流水线可见率（扣除 12 条安装/运维/长驻进程命令） | **47 / 62 ≈ 76%** 完整，**82%** 至少部分可见 | 缺口集中在度量、审计收尾与「另一条工作流」 |
+| CLI 能力完整可见率 | **47 / 78 ≈ 60%** | 另有 4 条「部分可见」、27 条「无 UI 入口」（其中 14 条属安装/运维/长驻进程，见 §5.2） |
+| 核心流水线可见率（扣除 14 条安装/运维/长驻进程命令） | **47 / 64 ≈ 73%** 完整，**80%** 至少部分可见 | 缺口集中在度量、统一 findings、门禁可见性与审计收尾动作 |
 
 一句话结论：**008 的 S1–S5 与 W1–W5 / N1–N6 声称的产物都在代码里，主流水线（goal → plan → spec →
-change → evolve → eval）已经端到端可用**；剩余缺口不再分布在主链路上，而是三类「边缘但真实」的地方——
-① 度量与健康度投影（`metrics`）完全不可见；② 需要人工决策的收尾动作（doctor 维护、change 指针、
-证据回收、evolve 回滚）只有 CLI 出口；③ 资产与另一条工作流（skill/bundle/classic/hook 安装）只读。
+change → evolve → eval）已经端到端可用**；剩余缺口不再分布在主链路上，而是四类「边缘但真实」的地方——
+① 度量与健康度投影（`metrics`）完全不可见；② P5 刚统一出来的 findings 投影（verify + doctor 两源、已去重）
+没有端点，界面上仍只有 doctor 一个来源；③ 需要人工决策的收尾动作（doctor 维护、change 指针、证据回收、
+evolve 回滚）只有 CLI 出口；④ 资产与另一条工作流（skill/bundle/classic/hook 安装）只读。
 
 ## 2. 方法与口径
 
@@ -44,11 +47,15 @@ change → evolve → eval）已经端到端可用**；剩余缺口不再分布�
 `POST /session/ticket`、`PanelBoundary.vue`、`package-e2e` 的 `web/dist/index.html` 检查），没有发现
 「文档说做了、代码里没有」的条目。
 
+2026-09-16 复核补充：平台侧 P1–P5（doctor 汇总写保护状态、git 提交门禁、metrics 阈值可配、
+gate findings 统一呈现）已合入 `main` 并逐条验证落地；本报告与 `platform-next-plan-2.md` 的关系是
+**后端半场 vs 可见性半场**，不是重复计划——详见 [web-ui-visibility-plan.md](./web-ui-visibility-plan.md) §0。
+
 ## 3. 总量对照
 
 | 维度 | W1 调研时 | 现在 | 本报告关注点 |
 |---|---|---|---|
-| CLI 叶子命令 | 65 | **74** | 新增 spec graph、hook install/status/uninstall、change select/gc/rebase、plan trace 等 |
+| CLI 叶子命令 | 65 | **78** | 新增 spec graph、hook install/status/uninstall、change select/gc/rebase、plan trace、gate check/install/status/uninstall 等 |
 | HTTP 端点 | 49 | **77** | 新增 spec 内核 9、change 审计 5、提案 2、资产与门禁 6、ticket 1 等 |
 | 前端面板 | 8 | **10 + 任务中心** | Specs 7 页签、Changes 4 页签、Assets 4 页签、Goals 5 页签 |
 | 前端源码规模 | 单文件 ≈800 行 | `web/src` 5.4k 行 / 45 个文件（31 个 `.vue`） | 分层为 view / store / component / util |
@@ -57,7 +64,7 @@ change → evolve → eval）已经端到端可用**；剩余缺口不再分布�
 
 | 面板 | 已接线端点 | 深度 | 缺口（对应 §5–§7） |
 |---|---|---|---|
-| 总览 Overview | `/project/status`、`/project/doctor` | 计数卡 + 计划/变更表 + doctor findings 文本 | doctor 维护动作无入口（C1）；`metrics` 投影不可见（C2）；TopBar 无健康徽章（C14） |
+| 总览 Overview | `/project/status`、`/project/doctor` | 计数卡 + 计划/变更表 + doctor findings 文本 | 只有 doctor 一个来源、无去重与跳转（C17）；doctor 维护动作无入口（C1）；`metrics` 投影不可见（C2）；TopBar 无健康徽章（C14） |
 | 目标 Goals | `/mission.md` GET/PUT、`/goals`、`/context/sync`、`/goals/sync` | 5 页签（使命 / 技术栈 / 运行环境 / 任务目标 / 投影）+ 整文 Markdown 编辑 | 只能追加 `### Gn`，无单目标就地编辑/删除（C16） |
 | 规格 Specs | `/init-manifest`、`/spec/scaffold`、`/specs`、`/specs/content`、`/spec/checks`、`/spec/graph`、`/spec/references`、`/spec/versions`、`/spec/version`、`/spec/restore`、`/spec/lock`、`/spec/diff`、`/spec/drift`、`/spec/impact`、`/spec/verify`、`/spec/validate`、`/spec/proposals`、`/spec/proposal` | 7 页签、编辑器引用 chip + 镜像层、版本回放、影响预演、提案存取 | `spec import` 无端点（C8）；`spec anchors` 无端点（C9，图/文件页签部分等价）；`/spec-index` 端点冗余（B1） |
 | 计划 Plans | `/goals`、`/plans`、`/plans/{goal}`、`generate/regenerate/validate/review/approve/freeze` | 状态驱动按钮 + 任务表（kind/capability/spec 绑定/depends_on）+ findings | `plan trace` 无端点（C7） |
@@ -71,7 +78,7 @@ change → evolve → eval）已经端到端可用**；剩余缺口不再分布�
 
 ## 5. A 类：后端有能力、HTTP 无端点（23 条）
 
-### 5.1 产品缺口（10 行 / 11 条叶子命令，值得进下一批）
+### 5.1 产品缺口（13 行 / 13 条叶子命令 + 1 项非命令投影，值得进下一批）
 
 | 能力 | CLI | 领域函数 | 缺什么 | 对 UI 的价值 |
 |---|---|---|---|---|
@@ -84,18 +91,21 @@ change → evolve → eval）已经端到端可用**；剩余缺口不再分布�
 | spec 锚点清单 | `spec anchors` | `buildSpecIndex` | 无端点 | 引用图与文件页签部分等价，缺一份「锚点 → 绑定任务」的平铺视图 |
 | Classic 推进（2 条） | `classic new` / `classic transition` | `domains/classic/*` | 只有 `GET /classic` | 另一条工作流在界面里只读，与 native change 并存的定位仍然模糊 |
 | 预算用量投影 | `daemon budget` | `scheduler/budget.ts` | 无端点 | 调度面板有意只读（见 C5），但连「累计预算用了多少」的只读投影也还没有，用户无法判断调度器是否在正常工作 |
+| 统一 findings 投影（P5 新增，非命令） | —（经 `gate check --findings` / `spec verify --with-doctor` 暴露） | `domains/gates/findings.ts` 的 `collectFindings` / `dedupeFindings` / `formatFinding` | 无端点、无入口 | 「这个项目现在有哪些问题」本来要跑两个命令才拼得出来，P5 已把它统一成一份带 `code/subject/severity` 的列表；界面上仍只有 doctor 一个来源、无去重、无跳转 |
+| 门禁判定投影 | `gate check` | `domains/gates/spec-gates.ts` | 无端点、无入口 | 「本地提交会不会被挡」是只读判定，界面上完全看不到结论；配合 findings 端点才能回答「现在能不能提交」 |
+| 门禁安装状态 | `gate status` | `domains/gates/git-hook.ts` | 无端点、无入口 | 与 C11 同类：装在哪、是否漂移（`core.hooksPath` 变化、hook 被改写）只有 CLI 能看到 |
 
-### 5.2 安装 / 运维 / 长驻进程专属（12 条，建议长期留在命令行）
+### 5.2 安装 / 运维 / 长驻进程专属（14 条，建议长期留在命令行）
 
 `run`、`update`、`uninstall`、`project migrate`、`dashboard`、`skill add`、`skill import`、`bundle create`、
-`bundle distribute`、`hook install`、`hook uninstall`、`daemon start`。
+`bundle distribute`、`hook install`、`hook uninstall`、`gate install`、`gate uninstall`、`daemon start`。
 
 判断依据是「是否需要常驻进程 / 是否改变机器的安装状态」：这类命令给 UI 入口的收益低、风险高
 （例如 `uninstall` 会删项目状态），保持 CLI 专属是有意选择，不算覆盖缺口。它们目前都由面板空状态文案
 明确导回 CLI（Assets 的 Skills/Bundle/Classic 三个页签都写了对应命令）。
 
-按这个口径，74 条叶子命令 = 47 条完整可见 + 4 条部分可见 + 12 条 CLI 专属 + 11 条产品缺口；
-「核心流水线可见率」的 62 条分母就是 74 − 12。
+按这个口径，78 条叶子命令 = 47 条完整可见 + 4 条部分可见 + 14 条 CLI 专属 + 13 条产品缺口；
+「核心流水线可见率」的 64 条分母就是 78 − 14。
 
 ## 6. B 类：有端点、前端未接线（2 条，均为冗余）
 
@@ -121,12 +131,13 @@ change → evolve → eval）已经端到端可用**；剩余缺口不再分布�
 | C8 | 无表格导入入口 | `spec-import.ts` 有实现；Specs 7 个页签都没有导入 | 大批量接口清单只能走 CLI |
 | C9 | 无锚点平铺视图 | `spec anchors` 未接线 | 引用图按 kind 分层下钻，缺「所有锚点 + 覆盖率」的一览 |
 | C10 | Classic 只读 | `AssetsPanel.vue` Classic 页签文案「界面只读，推进仍走 `cometflow classic transition`」 | 「两条工作流并存」在 UI 上表现为一条可写、一条只读，用户会问哪条才是正路 |
-| C11 | Hook 状态只能间接看 | `hook install/uninstall` 无端点；`hook status` 的结论目前通过**未提交**的 `doctor.ts` 改动进入 findings（`hook-guard-missing` / `hook-entry-missing` / `hook-guard-outdated` / `hook-cli-missing` / `hook-installed` / `hook-not-installed`） | 依赖 doctor 汇总意味着「装没装、要不要更新」只在总览的一行文本里，没有独立的写保护卡片 |
+| C11 | Hook 状态只能间接看 | `hook install/uninstall` 无端点；P1 已落地（不再是未提交改动），`doctor.ts` 会汇总 `hook-guard-missing` / `hook-entry-missing` / `hook-guard-outdated` / `hook-cli-missing` / `hook-installed` / `hook-not-installed` 六种 finding | 依赖 doctor 汇总意味着「装没装、要不要更新、CLI 解析得到吗」只在总览的一行文本里，没有独立的写保护卡片 |
 | C12 | Skill/Bundle 只读 | Assets 面板用空状态文案把用户导回 `skill add` / `bundle create` / `bundle distribute` | 属有意的「只读优先」，但 `bundle distribute` 的平台选择（`opencode` / `claude-code`）已由 `GET /bundles` 返回，界面完全可以做成一次点击 |
 | C13 | 无一次性 agent 会话入口 | `run` 未接线 | 试跑/临时会话必须先建 change，或者回 CLI |
 | C14 | TopBar 缺项目健康徽章 | `ProjectView.vue` TopBar 只有项目名/path + agent 徽章 + 任务计数；doctor 状态只在总览 | 008 §5.1 明确要求「项目健康徽章（doctor: OK / NEEDS ATTENTION）」 |
 | C15 | Eval 无历史对比 | `EvalPanel.vue` 的 `adoptLatestJob()` 只找回**最近一次** `eval-run` | 报告本身渲染很完整，但无法并排对比两轮评估（这正是「科学评估」最有价值的地方） |
 | C16 | 目标只能追加 | `GoalsPanel.vue` 的 `addGoal()` 从 `### G(\d+)` 推算最大编号 + 1（P1-10 已修编号推断） | 单个目标的编辑/删除仍要打开整文 Markdown 编辑器 |
+| C17 | 总览的问题清单只有一个来源 | `OverviewPanel.vue` 的 Doctor 卡逐条渲染 `doctor.findings`；P5 的 `collectFindings`（verify + doctor 两个来源、已去重、带 `subject`）没有端点 | 界面上看到的「问题」与 `cometflow gate check . --findings` 给出的不是同一份集合，用户没法据此判断「现在到底还有哪些问题」 |
 
 ## 8. 与 008 阶段设计的对照
 
@@ -139,39 +150,32 @@ change → evolve → eval）已经端到端可用**；剩余缺口不再分布�
 | S4 Evolve + Eval | 门禁日志 + 报告可视化 | **完成** | 回滚（C6）、历史对比（C15） |
 | S5 打磨与扩展 | doctor/daemon 面板、二次确认、离线打包 | **部分**：二次确认与打包完成；doctor 只有一张卡、daemon 面板只读 | C1、C2、C5、C11 |
 
-## 9. 下一批候选（按「补的是不是主链路」排序）
+## 9. 下一批候选 → 已细化为实施计划
 
-如果继续在 `codex/enrich-ui` 上做，建议按这个顺序取，而不是平均用力：
+本节原本是候选清单；2026-09-16 已细化为 [web-ui-visibility-plan.md](./web-ui-visibility-plan.md)
+的 V1–V4（含落点、验收标准、依赖与 DoD）。这里只保留排序结论，细节以计划文档为准：
 
-**P0｜让已经算出来的结论可见**
+| 批次 | 内容 | 对应本报告条目 |
+|---|---|---|
+| V1 | 统一 findings 端点 + 总览问题清单卡；`metrics` 端点 + 质量与健康度卡；current-change 指针端点 + 两处入口；doctor 三个维护动作端点 + 按钮 | C17、C2、C3、C1 |
+| V2 | `change gc` 端点 + 证据占用卡；`evolve rollback` 指引；写保护卡片 | C4、C6、C11 |
+| V3 | `gate check` / `gate status` 可见性；`plan trace`；`spec import`；`spec anchors` 平铺 | §5.1 的门禁两行、C7、C8、C9 |
+| V4 | Eval 历史对比；TopBar 健康徽章；目标单条编辑；Classic 定位；端点冗余清理 | C15、C14、C16、C10、C12、§6 |
 
-1. `metrics` 端点 + 总览「质量与健康度」卡（C2）：薄封装 `collectMetrics`，只读，无写语义，风险最低、收益最大。
-2. doctor 维护动作端点（C1）：`POST /project/doctor/{clean-temp,clean-jobs,force-unlock}`——三者都是已有领域函数，
-   且都要求人工确认（界面二次确认）。这条同时把 C4 的「回收」入口一并解决。
-3. current-change 指针端点 + Changes 面板入口（C3）：`GET/POST /changes/current`（薄封装 `readCurrentChange` /
-   `selectCurrentChange`），否则「多活跃 change → 写保护 fail closed」在界面上是无解的。
+两处对 §9 原稿的修正（写进计划时才发现）：
 
-**P1｜把只读面板补成可决策**
+1. **doctor 三个维护动作不解决 C4**：`doctor --clean-jobs` 回收的是**任务证据**（`runtime/jobs`，走 `applyJobGc`），
+   而 C4 的 `change gc --apply` 回收的是 **change 运行时证据**（`evidence-retention.ts` 的 `applyEvidenceGc`）——
+   两套对象、两个入口，所以 C4 单列为 V2-1，不并进 V1-4。
+2. **V1 多了一条「统一 findings」**：它不在本报告成稿时的 §9 里，是平台侧 P5 落地后新出现的投影（§5.1 已补行）。
+   把它放进 V1 的理由是它是 C1/C14 的天然数据源——先有它，doctor 卡与健康徽章就不必各写一套渲染。
 
-4. 写保护卡片（C11）：把 `hookStatus`（含未提交改动新增的 `guardOutdated` / CLI 解析）做成独立端点 + 资产面板
-   卡片，让「装了但要更新」「CLI 解析不到」从 doctor 的一行文本变成可操作项。
-5. Evolve 回滚（C6）+ Eval 历史对比（C15）：`evolve rollback` 是读投影；Eval 只需在任务中心按 `kind=eval-run`
-   列出历史并支持并排。
-6. Bundle 分发（C12）：平台列表已由 `GET /bundles` 返回，缺一个 `POST /bundles/distribute`。
-
-**P2｜补齐余项与定位**
-
-7. `plan trace`、`spec import`、`spec anchors`（C7/C8/C9）。
-8. Classic 定位（C10）：要么给最小写入闭环，要么在文档与界面里明确标注「CLI-only，推荐 native change」——
-   现状的「只读且不解释」是三种选择里最差的。
-9. 端点冗余清理（§6）：删除或注释 `/config/project`、`/spec-index`。
-
-运维类（§5.2 的 12 条）建议维持 CLI 专属，只在文档里明确登记，不进入前端 backlog。
+运维类（§5.2 的 14 条）建议维持 CLI 专属，只在文档里明确登记，不进入前端 backlog。
 
 ## 10. 附录：复核方法
 
 ```bash
-# 1. CLI 叶子命令数（86 处 .command( − 12 个命令组 = 74）
+# 1. CLI 叶子命令数（91 处 .command( − 13 个命令组 = 78）
 rg -o "\.command\('[a-z-]+" app/cli/index.ts | wc -l
 
 # 2. HTTP 端点（api.ts 的 70 处方法判定；其中 plan 动作与 evolve 动作各是 1 处判定对应 4 条路径，
