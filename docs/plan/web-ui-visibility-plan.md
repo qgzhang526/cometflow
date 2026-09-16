@@ -161,6 +161,10 @@ metrics 阈值可配、findings 有统一投影。本计划做的是**可见性�
 - 新增 `test/domains/serve-visibility-api.test.ts`（10 例）：同源断言 2 例；维护护栏 4 例
   （不匹配不删、缺预告值 400、无锁 409、持有者变化 409）；指针流转 2 例；失败路径 2 例。
 - 全量 `npx vitest run` → **76 文件 / 448 例全绿**；`pnpm typecheck` 与 `pnpm web:typecheck` 均通过。
+- `node scripts/regression.mjs` → **PASS（110 步）**。这里刻意**不新增**回归步：本批的新能力全在 HTTP 层，
+  而回归脚本是 CLI 驱动的——它已经覆盖了等价的 CLI 侧行为（末尾的 `change select --clear` →
+  `hook check` denied `multiple-active-changes`；P5 加的 `gate check --findings` 步骤）。
+  在同一件事上再写一遍 CLI 断言只会增加维护面，HTTP 层交给 `serve-*-api` 系列测试。
 - 浏览器走查（`pnpm web:dev` + 真实 serve）：在真实项目 2048 上看三块卡片，控制台无 error/warning；
   在临时 demo 项目上跑通「设指针 → Hook 放行」与「清残留文件 → 文件真的消失」两条写路径。
 
