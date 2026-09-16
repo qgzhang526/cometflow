@@ -228,6 +228,8 @@ check('approve 后 front-matter 是 approved', fileContains(reportSpec, 'status:
 expectOk('approve 后 plan freeze G3', ['plan', 'freeze', 'G3', '.'], project);
 
 expectOk('eval', ['eval', '.'], project);
+// 一次性试跑（C13）：唯一不绑 change 的 agent 会话，用 mock 只验证「能跑一轮」。
+expectOk('run（一次性试跑 mock）', ['run', '.', '--agent', 'mock'], project);
 expectOk('skill add', ['skill', 'add', 'skills/safe-skill', '--project', '.'], project);
 expectOk('skill list', ['skill', 'list', '--project', '.'], project);
 expectOk('skill import', ['skill', 'import', 'skills/risky-skill', 'risky-skill', '--project', '.'], project);

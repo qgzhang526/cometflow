@@ -1224,6 +1224,10 @@ token: <random>
 - **Spec 文件页签的定稿状态**：每个 spec 显示「草案 / 已定稿」；草案带「批准定稿」按钮
   （等价 `cometflow spec approve <spec-file>`，带二次确认）。草案在 `plan freeze` 时会被拒，
   报错信息直接给出该命令。
+- **设置页的「一次性试跑」**：等价 `cometflow run [path] --agent <id>`——把 `COMETFLOW.md` 与 `specs/`
+  交给一个 agent 跑一轮，用来确认「agent + 这个项目的上下文」能跑通。它**不绑 change / task / acceptance**，
+  产物不进验收账本；日志走任务中心（`job.kind = flow-run`，刷新不丢）。界面会在执行前二次确认并写明
+  「写入不受 change 约束，多个活跃变更时可能被写保护守卫拒绝」。
 - **引用图页签**（W1 之后新增，共 7 个）：按 009 的引用方向表聚合 kind 之间的引用，
   点击可下钻 kind → 文件 → anchor 并列出该文件的逐条引用与位置；未解析引用红色标注，
   且与 `spec validate` 同源（图上红的就是门禁会报的）。对应 CLI：`cometflow spec graph [--json]`（只做投影，不设退出码）。
@@ -1325,6 +1329,7 @@ pnpm build                   # tsc（CLI）+ vite build（Web）
 | GET | `/api/projects/<id>/hook/status` | 写保护安装状态（等价 `hook status`：条目、脚本漂移、守卫调用的 CLI 解析） |
 | GET | `/api/projects/<id>/gate` | 门禁判定（等价 `gate check`）+ 本地提交门禁安装状态（等价 `gate status`） |
 | GET | `/api/projects/<id>/spec/anchors` | 锚点平铺（等价 `spec anchors`：kind / 验收项 / 可执行数 / 绑定任务） |
+| POST | `/api/projects/<id>/run` | 一次性 agent 试跑（等价 `cometflow run`）：`{agent?, model?, timeoutMs?}` → 202 `{jobId, agent}`；未知 agent 400 |
 | POST | `/api/projects/<id>/spec/import` | 表格导入：`dryRun !== false` 只回预览（不落盘），否则写入（`{content, source?, module?, force?}`） |
 | GET | `/api/projects/<id>/plans/<goal>/trace` | 任务追溯（等价 `plan trace`：文本清单 + 结构化任务行） |
 | GET | `/api/projects/<id>/classic` | Classic change 只读列表 |

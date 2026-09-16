@@ -8,7 +8,9 @@ export type JobKind =
   | 'change-run'
   | 'change-verify'
   | 'evolve-verify'
-  | 'eval-run';
+  | 'eval-run'
+  /** 一次性 agent 试跑（`cometflow run` 的界面入口，C13）。 */
+  | 'flow-run';
 
 export interface JobRecord {
   id: string;

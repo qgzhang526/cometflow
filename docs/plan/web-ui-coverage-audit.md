@@ -15,7 +15,7 @@ gate findings 统一呈现）+ 本分支的审计文档
 
 | 口径 | 结果 | 说明 |
 |---|---|---|
-| HTTP 端点接线率 | **90 / 92 ≈ 98%** | `/config/project` 与 `/spec-index` 按 V4-5 的决策**保留给 CLI/脚本**（有文档与测试的对外投影，不是缺口） |
+| HTTP 端点接线率 | **93 / 95 ≈ 98%** | 新增 `/spec/approve`、`/spec/scaffold` 的 capability 入参、`/run`；`/config/project` 与 `/spec-index` 按 V4-5 的决策**保留给 CLI/脚本**（有文档与测试的对外投影，不是缺口） |
 | CLI 能力完整可见率 | **59 / 78 ≈ 76%** | 另有 1 条「部分可见」、18 条「无 UI 入口」，V4 时产品缺口清零；2026-09-16 复核新登记 1 条（C18：Web 无法为 capability 建骨架），**同日按 [spec-authoring-plan.md](./spec-authoring-plan.md) G3 交付**。18 条里 14 条是安装/运维/长驻进程（§5.2），4 条是按决策退出界面（Classic 弃用 3 条 + spec index 保留 1 条，§5.1） |
 | 核心流水线可见率（扣除 18 条安装/运维/弃用/保留命令） | **59 / 60 ≈ 98%** 完整，**100%** 至少部分可见 | 剩下的「部分可见」只有 `bundle compile`（编译产物已在资产面板预览，仅装配动作留 CLI） |
 
@@ -137,7 +137,7 @@ gate findings 统一呈现）已合入 `main` 并逐条验证落地；本报告�
 | ⊘ C10 | Classic 只读 | `AssetsPanel.vue` 曾有 Classic 页签（只读） | **V4-4 按决策处理**：界面移除该页签，USAGE 标注弃用（只保留 native，Classic 后续版本一并移除）——不是「补上写入闭环」 |
 | ✅ C11 | Hook 状态只能间接看 | `hook install/uninstall` 无端点；P1 已落地，`doctor.ts` 汇总六种 hook finding | **V2-3 已交付**：资产面板 Hook 页签的写保护状态表（支持性 / 条目 / 守卫脚本 / CLI 解析），与 doctor findings 互为表里 |
 | C12 | Skill/Bundle 只读 | Assets 面板用空状态文案把用户导回 `skill add` / `bundle create` / `bundle distribute` | 属有意的「只读优先」，但 `bundle distribute` 的平台选择（`opencode` / `claude-code`）已由 `GET /bundles` 返回，界面完全可以做成一次点击 |
-| C13 | 无一次性 agent 会话入口 | `run` 未接线 | 试跑/临时会话必须先建 change，或者回 CLI |
+| ✅ C13 | 无一次性 agent 会话入口 | `run` 未接线 | **已交付**（[agent-trial-run-plan.md](./agent-trial-run-plan.md)）：`POST /run` 起 `flow-run` job（日志走任务中心），设置页「一次性试跑」卡片带 agent 选择与二次确认；文案写明「不绑 change / task / acceptance，产物不进验收账本」 |
 | ✅ C14 | TopBar 缺项目健康徽章 | TopBar 只有项目名/path + agent 徽章 + 任务计数 | **V4-2 已交付**：findings 提升为共享 store，顶栏徽章与总览清单同源同数 |
 | ✅ C15 | Eval 无历史对比 | `adoptLatestJob()` 只找回最近一次 `eval-run` | **V4-1 已交付**：历史表 + 「对比轮」+ 指标差值与结论翻转清单 |
 | ✅ C16 | 目标只能追加 | `addGoal()` 只能追加新块 | **V4-3 已交付**：按 `### Gn` 块就地编辑/删除（删除前显示原块），写回后自动 sync |

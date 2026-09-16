@@ -20,11 +20,13 @@ import {
   mergeProjectConfigOverride,
   readProjectConfig,
   readProjectConfigOverride,
+  resolveModel,
   validateProjectConfig,
   writeProjectConfig,
 } from '../project/config.js';
 import type { ProjectConfig } from '../project/config.js';
 import { builtInAgentRunners, getBuiltInAgentRunner } from '../../platform/agents/registry.js';
+import { resolveAgentId, runFlowRun } from '../scheduler/flow-run.js';
 import { readTextFile } from '../../platform/fs/read-file.js';
 import { listSpecEntries } from '../spec/spec-index.js';
 import { validateSpecs } from '../spec/spec-validate.js';
@@ -1407,6 +1409,46 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
         }
       });
       sendJson(res, 202, { ok: true, data: { jobId: job.id }, requestId: String(Date.now()) });
+      return true;
+    }
+
+    // ---- 一次性 agent 试跑（C13）：等价 `cometflow run` ----
+    // 与 change run 的区别是「没有契约」：不绑 change / task / acceptance，所以它只是试跑，
+    // 结论不进验收账本——界面那侧必须把这句话写出来，否则会被当成交付。
+    if (segments[0] === 'run' && segments.length === 1 && method === 'POST') {
+      const body = await readJsonBody(req);
+      const requested = stringField(body.agent);
+      const agentId = requested !== '' ? requested : await resolveAgentId(root);
+      const knownAgent = builtInAgentRunners().some((runner) => runner.id === agentId);
+      if (!knownAgent) {
+        sendError(res, 400, 'unknown-agent', 'agent must be one of: ' + builtInAgentRunners().map((r) => r.id).join(', '));
+        return true;
+      }
+      const timeoutMs = numberField(body.timeoutMs);
+      const job = jobs.create(projectId, 'flow-run');
+      setImmediate(async () => {
+        jobs.start(job.id);
+        try {
+          jobs.log(job.id, 'flow run: agent=' + agentId + '（试跑：不绑 change / task / acceptance）');
+          const runner = getBuiltInAgentRunner(agentId);
+          const outcome = await runFlowRun(runner, {
+            projectRoot: root,
+            agentId,
+            model: stringField(body.model) !== '' ? stringField(body.model) : await resolveModel(root, agentId),
+            timeoutMs: timeoutMs === null ? undefined : timeoutMs,
+          });
+          for (const line of outcome.result.stdout.split(/\r?\n/u)) if (line !== '') jobs.log(job.id, line);
+          for (const line of outcome.result.stderr.split(/\r?\n/u)) if (line !== '') jobs.log(job.id, '[stderr] ' + line);
+          jobs.log(
+            job.id,
+            'flow run finished: exit=' + outcome.result.exitCode + (outcome.result.timedOut ? ' (timed out)' : ''),
+          );
+          jobs.complete(job.id, { agent: agentId, exitCode: outcome.result.exitCode }, outcome.result.exitCode);
+        } catch (error) {
+          jobs.fail(job.id, error instanceof Error ? error.message : String(error));
+        }
+      });
+      sendJson(res, 202, { ok: true, data: { jobId: job.id, agent: agentId }, requestId: String(Date.now()) });
       return true;
     }
 
