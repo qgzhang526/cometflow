@@ -91,16 +91,25 @@ describe('daemon state projection', () => {
 
   it('daemon 主循环在「没有待办」这个决策点写下状态', async () => {
     // 没有 plans → 推导队列为空 → 主循环第一轮就判定 no-queued-task 并退出。
-    await runDaemonLoop({ projectRoot: root, agentId: 'mock', mode: 'manual', runner: mockRunner(), intervalMs: 0 });
+    const result = await runDaemonLoop({ projectRoot: root, agentId: 'mock', mode: 'always', runner: mockRunner(), intervalMs: 0 });
 
     const state = await readDaemonState(root);
     expect(state).not.toBeNull();
     expect(state?.phase).toBe('stopped');
     expect(state?.stopped_reason).toBe('no-queued-task');
     expect(state?.last_decision).toEqual({ ran: false, reason: 'no-queued-task', task: null });
-    expect(state?.mode).toBe('manual');
+    expect(result.reason).toBe('no-queued-task');
+    expect(state?.mode).toBe('always');
     expect(state?.agent).toBe('mock');
     expect(state?.queue).toEqual({ queued: 0, running: 0, done: 0, failed: 0 });
     expect(EMPTY_QUEUE.tasks.length).toBe(0);
+  });
+
+  it('manual 模式只做一次准备动作就结束，不进循环', async () => {
+    // 旧实现在没有预算时会无限空转；内嵌进 serve 就是一个永不结束的 job，所以显式收口。
+    const result = await runDaemonLoop({ projectRoot: root, agentId: 'mock', mode: 'manual', runner: mockRunner() });
+    expect(result.reason).toBe('manual-single-pass');
+    expect(result.iterations).toBe(0);
+    expect((await readDaemonState(root))?.stopped_reason).toBe('manual-single-pass');
   });
 });

@@ -453,7 +453,13 @@ for (const event of ['open-complete', 'design-complete', 'build-complete', 'veri
   expectOk('classic ' + event, ['classic', 'transition', 'classic-open', event, '.'], project);
 }
 
-expectOk('daemon manual run', ['daemon', 'start', '.', '--mode', 'manual', '--budget', '1', '--safety-bundle'], project);
+const manualRun = expectOk(
+  'daemon manual run',
+  ['daemon', 'start', '.', '--mode', 'manual', '--budget', '1', '--safety-bundle'],
+  project,
+);
+// 循环结束时必须给出可解释的 reason（CLI 与内嵌调度器的 job result 同源）。
+check('daemon 结束时打印 reason', /reason=[a-z-]+/u.test(manualRun.stdout), manualRun.stdout.trim().slice(-120));
 // 调度器状态投影（C5）：面板上的「最近一次决策」读的就是它，必须由 daemon 自己写下来。
 check(
   'daemon 写下状态投影 daemon-state.json',

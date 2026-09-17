@@ -1045,6 +1045,25 @@ daemon 每轮读它——`stop` 退出并写 `stopped_reason=stopped-by-control`
 `pause` 只跳过不退出。控制是**状态**而不是信号，所以换机器、重启后依然有效；界面因此可以「可控」，
 但不必拥有进程（界面没有「启动 daemon」按钮）。
 
+#### 内嵌调度器与常驻（ADR 0027）
+
+页面上的「**启动调度器**」= 在 serve 进程里以 **job** 的形式跑调度器（日志在任务中心），
+并把这个项目记为**常驻**（`scheduler.autostart: true`）；serve 重启会按它自动恢复。
+「停止」会同时清掉常驻标记，所以"停止 = 不再常驻"，想临时让路用「暂停」。
+
+```bash
+# 等价的服务端动作（页面点按钮时发生的就是这些）
+POST /api/projects/<id>/scheduler/daemon/start   # 202 + jobId（mode 读 config.scheduler.mode）
+POST /api/projects/<id>/scheduler/daemon/control {action:"stop"}  # 下一轮退出 + 清 autostart
+```
+
+**单实例**：CLI 与内嵌共用一把租约（`.cometflow/runtime/daemon.lease.json`，心跳 10s / 过期 60s）。
+已经有调度器在跑时，第二次启动会被拒绝并告诉你**谁在跑**（`pid@host`、mode、起始时间）；
+进程被杀导致的过期租约可被接管。CLI 的 `daemon start` 是手动/调试通道，**不读也不写** `autostart`。
+
+`--mode manual` 只做一次回收 / 安全快照 / 状态投影就结束，不进循环——它的定位是"跑一次准备动作"，
+不是常驻。
+
 #### 崩溃恢复与重试（ADR 0024）
 
 队列是**至少一次**语义：任务带租约，崩溃后能被收回并重试。
@@ -1391,6 +1410,7 @@ pnpm build                   # tsc（CLI）+ vite build（Web）
 | POST | `/api/projects/<id>/scheduler/queue/rebuild` \| `/reset` | 重建待办（保留运行时覆盖）/ 清掉覆盖强制重跑（等价 `daemon queue rebuild|reset`） |
 | POST | `/api/projects/<id>/scheduler/queue/retry` | `{task}`：单条任务重新排队（细粒度恢复）；已交付/不存在 → 409 并说明原因 |
 | POST | `/api/projects/<id>/scheduler/daemon/control` | `{action: pause\|resume\|stop}`：只写控制文件，不启停进程（ADR 0026） |
+| POST | `/api/projects/<id>/scheduler/daemon/start` | 启动**内嵌调度器**（ADR 0027）：202 + jobId（`daemon` job，日志进任务中心）；已有调度器 → 409 并给出持有者；未知 agent → 400 |
 | GET | `/api/projects/<id>/skills`、`/skills/<name>` | 已安装 skill 列表 / 单个 skill 详情（含 SKILL.md） |
 | GET | `/api/projects/<id>/bundles` | bundle manifest + 编译产物预览 + 支持平台 |
 | POST | `/api/projects/<id>/hook/check` | 写入门禁预览（与 `hook check` 同源） |

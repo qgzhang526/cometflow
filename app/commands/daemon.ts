@@ -52,7 +52,7 @@ export async function daemonStartCommand(targetPath: string, options: DaemonComm
     scheduleStartMinutes = window.startMinutes;
     scheduleEndMinutes = window.endMinutes;
   }
-  await startDaemon({
+  const result = await startDaemon({
     projectRoot,
     agentId,
     mode: options.mode,
@@ -66,6 +66,9 @@ export async function daemonStartCommand(targetPath: string, options: DaemonComm
     maxAttempts: options.maxAttempts,
     taskTimeoutMs: options.taskTimeout,
   });
+  console.log('daemon: reason=' + result.reason + ' iterations=' + result.iterations + (result.detail ? ' detail=' + result.detail : ''));
+  // 被别人占着（另一个 CLI / serve 内嵌）不是"正常结束"：给非零退出码，脚本能判断。
+  if (result.reason === 'lease-held') process.exitCode = 1;
 }
 
 /**

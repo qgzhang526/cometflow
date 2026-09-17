@@ -6,7 +6,8 @@ import { handleApiRequest } from './api.js';
 import type { ApiContext } from './http.js';
 import { JobManager } from './jobs.js';
 import { createTicketStore } from './tickets.js';
-import { defaultWorkspaceRoot, getProject } from './workspace.js';
+import { createSchedulerHost } from './scheduler-host.js';
+import { defaultWorkspaceRoot, getProject, listProjects } from './workspace.js';
 
 export interface ServeOptions {
   workspaceRoot?: string;
@@ -139,6 +140,8 @@ export async function startServe(options: ServeOptions = {}): Promise<ServeHandl
     resolveProjectRoot: async (projectId) => (await getProject(workspaceRoot, projectId))?.path ?? null,
   });
   const tickets = createTicketStore();
+  // 内嵌调度器（ADR 0027）：与 CLI 共用 `runDaemonLoop`，互斥靠单实例租约，日志进任务中心。
+  const scheduler = createSchedulerHost({ jobs });
 
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', 'http://localhost');
@@ -168,7 +171,7 @@ export async function startServe(options: ServeOptions = {}): Promise<ServeHandl
         return;
       }
 
-      const ctx: ApiContext = { req, res, workspaceRoot, jobs, webDir, tickets };
+      const ctx: ApiContext = { req, res, workspaceRoot, jobs, webDir, tickets, scheduler };
       await handleApiRequest(ctx);
       return;
     }
@@ -186,6 +189,21 @@ export async function startServe(options: ServeOptions = {}): Promise<ServeHandl
 
   const address = server.address();
   const port = typeof address === 'object' && address ? address.port : requestedPort;
+
+  /**
+   * 常驻调度器的恢复：serve 启动时按各项目的 `scheduler.autostart` 拉起内嵌调度器。
+   *
+   * 这是「一键启动之后长期生效」的落点——否则 serve 一重启，无人值守就静默停了。
+   * 失败不影响 serve 启动：租约与状态投影里都留有痕迹，页面能看到谁在跑。
+   */
+  void (async () => {
+    try {
+      const started = await scheduler.autostartAll(await listProjects(workspaceRoot));
+      for (const projectId of started) console.log('scheduler: autostarted ' + projectId);
+    } catch (error) {
+      console.error('scheduler: autostart failed: ' + (error instanceof Error ? error.message : String(error)));
+    }
+  })();
 
   return {
     port,

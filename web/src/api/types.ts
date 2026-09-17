@@ -591,6 +591,8 @@ export interface SchedulerResponse {
   >;
   /** 未消费的控制指令（pause / resume / stop），idle 表示没有。 */
   control?: { action: 'pause' | 'resume' | 'stop' | 'idle'; requested_at: string; requested_by: string } | null;
+  /** 内嵌调度器（ADR 0027）：本进程里有没有在跑、配置里是否标了常驻。 */
+  embedded?: { running: boolean; autostart: boolean };
   next: QueueTask | null;
   scheduler: ProjectConfig['scheduler'] | null;
   /** 无人值守前置检查档位（fail / warn / off）：可编辑在设置页，这里只回显。 */

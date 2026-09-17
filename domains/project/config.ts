@@ -19,6 +19,14 @@ export interface SchedulerConfig {
   idleCpuThreshold?: number;
   scheduleStartMinutes?: number;
   scheduleEndMinutes?: number;
+  /**
+   * 「常驻无人值守」的期望状态：true 时 serve 启动会按这份配置自动把调度器拉起来。
+   *
+   * 由页面上的「启动 / 停止」维护（启动=true、停止=false），默认 false——
+   * 也就是"默认不常驻，你打开一次之后它才长期生效"。CLI `daemon start` 是手动/调试通道，
+   * 不读也不写这个开关。
+   */
+  autostart?: boolean;
 }
 
 export interface ScopeConfig {

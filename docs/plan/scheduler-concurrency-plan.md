@@ -20,7 +20,7 @@ P4 把 daemon 变成了交付流水线，但**并发与排序刻意没做**：�
 | C1 | **任务领取原子化** | 两个 daemon（CLI / serve 内嵌 / 不同机器）读到同一份队列，双双选中同一个任务，各跑一遍 agent | ✅ 已实施 |
 | C1 | **change 级互斥** | 人手工 `change run G1-T1` 的同时 daemon 也在推它 → 两个 agent 改同一块代码 | ✅ 已实施 |
 | C2 | **排序语义** | 顺序 = 计划文件顺序；`depends_on` 依赖图**已经存在但调度器完全没用** | ⬜ |
-| C3 | **并发上限**（`--concurrency N`） | 想并行只能起多个 daemon → 回到 C1 的风险 | ⬜ |
+| C3 | **并发上限**（`--concurrency N`） | 想并行只能起多个 daemon → 回到 C1 的风险 | ⬜（**前置已完成**：单实例租约，见下） |
 | C4 | **指针与写保护的配合** | 多 change 并发时 `current-change` 只能指一个，ADR 0018 的 fail closed 会拒掉 agent 的写入 | ⬜ |
 
 ### C1｜原子领取 + change 级互斥（已实施）
@@ -50,6 +50,10 @@ P4 把 daemon 变成了交付流水线，但**并发与排序刻意没做**：�
 验收：`depends_on` 表达的顺序被遵守（用夹具构造 T2 依赖 T1）；同层顺序稳定；环不会死锁（validate 先拦）。
 
 ### C3｜并发上限（待实施）
+
+**前置（2026-09-17 已完成）**：单实例租约 `runtime/daemon.lease.json`（心跳 10s / 过期 60s）+
+serve 内嵌调度器（ADR 0027）。没有它，"并发"只能靠起多个 daemon 实现，而那是用户心智模型之外的形态；
+有了它，并发才是"一个调度器内部跑 N 个任务"，`--concurrency N` 才有明确的语义边界。
 
 - 新增 `daemon start --concurrency N`（默认 1）；并发单元先按 **goal**（一个 goal 同时最多一个任务），
   因为 goal 内的任务共享 spec 与 module，是最小可信的隔离粒度；

@@ -1479,6 +1479,11 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
       // 读不到就是从未跑过 daemon，界面据此显式说明，而不是拿空队列糊弄。
       const daemon = await readDaemonState(root);
       const control = await readDaemonControl(root);
+      // 内嵌调度器（ADR 0027）的两个状态：本进程里有没有在跑、配置里是不是标了常驻。
+      const embedded = {
+        running: ctx.scheduler?.running().includes(projectId) ?? false,
+        autostart: config.scheduler?.autostart === true,
+      };
       // 每行任务补上「工作流视角」（S4）：队列状态回答「跑没跑」，change 回答「交付没交付」。
       // 两列并排，才看得出「跑过但没交付」和「已交付」的区别。
       const tasks = await Promise.all(
@@ -1504,6 +1509,7 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
         budget,
         daemon,
         control,
+        embedded,
       });
       return true;
     }
@@ -1516,8 +1522,33 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
         return true;
       }
       const record = await writeDaemonControl(root, action, { by: 'web' });
+      // 停止 = 不再常驻：同时清掉期望状态，否则 serve 重启会把它又拉起来。
+      if (action === 'stop') await ctx.scheduler?.clearAutostart(root);
       jobs.stateChanged(projectId, '/api/scheduler/queue');
       sendOk(res, { control: record });
+      return true;
+    }
+    // 内嵌调度器（ADR 0027）：启动 = 起一个 `daemon` job 并把它记为常驻。
+    if (segments[0] === 'scheduler' && segments[1] === 'daemon' && segments[2] === 'start' && method === 'POST') {
+      if (!ctx.scheduler) {
+        sendError(res, 503, 'scheduler-unavailable', '这个 serve 实例没有内嵌调度器');
+        return true;
+      }
+      const body = await readJsonBody(req);
+      const mode = stringField(body.mode);
+      const result = await ctx.scheduler.start({
+        projectId,
+        projectRoot: root,
+        mode: mode === '' ? undefined : (mode as 'always' | 'idle' | 'schedule' | 'manual'),
+        agentId: stringField(body.agent) === '' ? undefined : stringField(body.agent),
+        persistAutostart: body.autostart !== false,
+      });
+      if (!result.ok) {
+        sendError(res, result.code === 'unknown-agent' ? 400 : 409, result.code, result.message);
+        return true;
+      }
+      jobs.stateChanged(projectId, '/api/scheduler/queue');
+      sendJson(res, 202, { ok: true, data: { jobId: result.jobId }, requestId: String(Date.now()) });
       return true;
     }
     // 队列维护（S3）：把「手工删 queue.json」升级成有语义的动作，与 CLI `daemon queue` 同源。
