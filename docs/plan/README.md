@@ -32,7 +32,7 @@
 | 可见性收口（C5 / C12） | C5：daemon 状态投影（`.cometflow/runtime/daemon-state.json`）+ 调度面板「最近一次决策」卡；C12：`POST /bundles/distribute` + Bundle 页签一键分发（预告 → 确认 → 执行） | **已实施**（2026-09-16，C 类缺口全部关闭） | [visibility-closeout-plan.md](./visibility-closeout-plan.md) |
 | 能力地图 | CLI 能力 / HTTP 端点 / 面板的对应关系，以及每条主链路的「你怎么自己验证它对不对」 | **已产出**（2026-09-16） | [capability-map.md](./capability-map.md) |
 | P4 Workflow 深度融合 | 让 daemon 驱动 change 生命周期（取任务 → 建 change → 执行 → 独立验收 → 归档 → 回写交付事实），队列降级为派生视图 + 运行时覆盖，控制语义走控制文件（ADR 0026） | **S1–S4 已实施**（2026-09-17，回归 145 步） | [daemon-drives-change-plan.md](./daemon-drives-change-plan.md) |
-| 调度并发与排序 | C1 原子领取 + change 级互斥 ✅；C2 依赖排序（`depends_on` 必须已交付）✅；C3 `--concurrency N` 准入与配置就位（执行仍串行）；C4 并发策略决策（ADR 0028）✅ | **C1/C2/C4 已实施，C3 部分**（2026-09-17） | [scheduler-concurrency-plan.md](./scheduler-concurrency-plan.md) |
+| 调度并发与排序 | C1 原子领取 + change 级互斥 ✅；C2 依赖排序 ✅；C3 `--concurrency N` 槽位并发（无守卫 + 不同 spec_ref）✅；C4 并发策略（ADR 0028）✅ | **C1–C4 均已实施**（2026-09-17，回归 147 步） | [scheduler-concurrency-plan.md](./scheduler-concurrency-plan.md) |
 | 内嵌调度器与常驻 | serve 内嵌调度器（job 形式）+ 单实例租约 + `scheduler.autostart` 常驻恢复 + 页面启动按钮（ADR 0027，修订 0026） | **已实施**（2026-09-17） | [daemon-drives-change-plan.md](./daemon-drives-change-plan.md) |
 
 ## 阶段顺序原则

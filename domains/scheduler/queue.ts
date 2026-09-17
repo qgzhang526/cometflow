@@ -2,6 +2,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { parse } from 'yaml';
 import type { TaskPlan } from '../task-plan/types.js';
+import { atomicWriteText } from '../../platform/fs/atomic-write.js';
 
 export type QueueTaskStatus = 'queued' | 'running' | 'done' | 'failed';
 
@@ -35,6 +36,8 @@ export interface QueueTask {
   depends_on?: string[];
   /** 未满足的依赖（调度器据此跳过它，界面据此显示「等待 X 交付」）。 */
   blocked_by?: string[];
+  /** capability（并发单元用：同一 capability 的任务不并行，见 ADR 0028）。 */
+  capability?: string | null;
 }
 
 export interface SchedulerQueue {
@@ -50,16 +53,27 @@ export async function readQueue(projectRoot: string): Promise<SchedulerQueue | n
   try {
     const source = await fs.readFile(queuePath(projectRoot), "utf8");
     return JSON.parse(source) as SchedulerQueue;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
-    throw error;
+  } catch {
+    /**
+     * 读不到 / 解析不了都按「没有队列」处理。
+     *
+     * 后者是并发场景的真实故障模式：写队列与读队列可能同时发生，读到半截 JSON 会直接抛
+     * SyntaxError（CI 上就撞到过：`Unexpected end of JSON input`）。写入侧已经改成原子写，
+     * 这里再兜一层：队列只是**运行时覆盖 + 快照**，退化到"按计划重新推导"永远比让调度器崩掉好。
+     */
+    return null;
   }
 }
 
 export async function writeQueue(projectRoot: string, queue: SchedulerQueue): Promise<string> {
   const filePath = queuePath(projectRoot);
   await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, JSON.stringify(queue, null, 2));
+  /**
+   * **原子写**（ADR 0014 的口径）：并发调度时写队列与读队列会同时发生，
+   * 直接 `writeFile` 会让另一侧读到半截 JSON（CI 上就撞到过 `Unexpected end of JSON input`）。
+   * rename 在同一文件系统内是原子的，读者看到的永远是"旧的完整内容"或"新的完整内容"。
+   */
+  await atomicWriteText(filePath, JSON.stringify(queue, null, 2));
   return filePath;
 }
 
@@ -101,6 +115,7 @@ export function queueFromPlan(plan: TaskPlan): QueueTask[] {
     spec_anchor: task.spec_anchor ?? null,
     spec_hash: task.spec_hash ?? null,
     depends_on: task.depends_on ?? [],
+    capability: task.capability ?? null,
   }));
 }
 

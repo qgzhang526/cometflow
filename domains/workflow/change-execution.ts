@@ -279,7 +279,9 @@ export async function runChange(
   await assertGitProvenance(projectRoot, name, state, options);
   // C1：change 级互斥。人手工 `change run` 与 daemon 可能同时驱动同一个 change，
   // 没有这把锁就会真跑两个 agent 改同一块代码。拿不到锁立刻失败并说明持有者（ADR 0021）。
-  const lock = await acquireLock(projectRoot, 'change run ' + name);
+  // scope：**按 change 隔离**。项目级那把锁是给"一次改多个文件"的事务用的（冻结/归档），
+  // 并发执行两个不同 change 时不该互相排队（P4/C3，ADR 0028）。
+  const lock = await acquireLock(projectRoot, 'change run ' + name, { scope: 'change-run-' + name });
   try {
     const prompt = await buildChangePrompt(projectRoot, name);
     await appendChangeEvent(projectRoot, name, 'run-started', { agent: runner.id }, { phase: state.phase });
