@@ -23,6 +23,14 @@ export interface QueueTask {
   change?: string | null;
   /** 最近一次驱动结论（delivered / agent-failed / verify-failed / spec-conflict / error）。 */
   verdict?: string | null;
+  /**
+   * 任务的契约形态（推导自计划）：无人值守前置检查要用它判断
+   * 「这条任务的验收能不能自动判定」，以及在冻结版本里找 acceptance。
+   */
+  kind?: string | null;
+  spec_ref?: string | null;
+  spec_anchor?: string | null;
+  spec_hash?: string | null;
 }
 
 export interface SchedulerQueue {
@@ -84,6 +92,10 @@ export function queueFromPlan(plan: TaskPlan): QueueTask[] {
     status: 'queued' as const,
     attempts: 0,
     updated_at: now,
+    kind: task.kind,
+    spec_ref: task.spec_ref ?? null,
+    spec_anchor: task.spec_anchor ?? null,
+    spec_hash: task.spec_hash ?? null,
   }));
 }
 

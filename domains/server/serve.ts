@@ -192,9 +192,19 @@ export async function startServe(options: ServeOptions = {}): Promise<ServeHandl
     token,
     url: 'http://' + host + ':' + port,
     ui: inspectUi(webDir),
-    close: () =>
-      new Promise<void>((resolve, reject) => {
+    close: async () => {
+      await new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()));
-      }),
+      });
+      /**
+       * 优雅停机要把**在途的任务落盘**等完。
+       *
+       * 任务的终态是先在内存里改、再异步落盘（`jobs.complete` → `track(persist)`），
+       * 所以「接口已经报 succeeded」不等于「磁盘上已经是 succeeded」。少了这一步，
+       * 刚跑完一个任务就重启 serve，重启后可能读不到那条记录（CI 上就撞到过：
+       * `keeps jobs and their results across a serve restart` 偶发 404）。
+       */
+      await jobs.flush();
+    },
   };
 }

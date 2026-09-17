@@ -974,6 +974,7 @@ cometflow daemon start [path] \
 cometflow daemon budget [path] [--reset]   # 查看/清零跨重启累计的已用预算
 cometflow daemon pause|resume|stop [path]  # 写控制文件（下一轮生效），不碰进程
 cometflow daemon queue rebuild|reset [path] # 重建待办（保留运行时覆盖）/ 清掉覆盖强制重跑
+cometflow daemon queue retry <goal:task> [path] # 只把这一条重新排队（细粒度恢复）
 ```
 
 | 模式 | 行为 |
@@ -1001,6 +1002,40 @@ cometflow daemon queue rebuild|reset [path] # 重建待办（保留运行时覆�
   `.cometflow/runtime/safety.bundle`（`git bundle create ... --all`）。
 - 每个任务按交付结论结算：`delivered` → `done`，可重试的失败 → 回到 `queued`（受尝试上限约束），
   需要人工介入的（spec 冲突 / blocked）→ `failed` 并**停机**，状态投影里写明人工出口。
+
+#### 无人值守前置检查（验收必须可自动判定）
+
+默认配置（`mode: checks`、`verifier_policy: warn`）下，只有文字、没有可执行 `check:` 的验收项判不出来，
+一律 `blocked`——这类任务跑到最后必然是"验收不过"，白烧预算。所以 daemon 在执行**之前**先判一次：
+
+```
+每条验收都有 check:  →  放行
+否则：项目配了 eval（.cometflow/eval.yaml）或独立 Verifier（checks+agent / agent-required 且 agent 可用）
+        →  放行（有兜底）
+        →  否则：不执行，任务直接失败，daemon 停机交人工
+```
+
+开关在 `.cometflow/config.yaml`：
+
+```yaml
+verification:
+  unattended_preflight: fail   # 默认；warn=照常执行只记一笔；off=不检查（人工在场时用）
+```
+
+`spec-authoring` 任务不参与这条检查（它由产物护栏负责：产物存在 + `spec validate` 无 error）。
+
+#### 细粒度恢复
+
+daemon 因"需人工介入"停机后，那条任务在队列里是 `failed`：
+
+```bash
+cometflow change unblock auth-login .     # 或 rebase / reconciliation，按停机提示做
+cometflow daemon queue retry G1:T1 .      # 只把这一条放回待办（等价界面上的「重新排队」按钮）
+cometflow daemon start . --mode always    # 继续无人值守
+```
+
+`retry` 只动一条：其余任务的 `running`/失败结论与尝试次数原样保留（这是它与 `reset` 的区别——
+不为修一条任务而重置整个队列）。已交付（有归档 change）的任务不会被重排。
 
 #### 暂停 / 停止（ADR 0026）
 
@@ -1354,6 +1389,7 @@ pnpm build                   # tsc（CLI）+ vite build（Web）
 | POST | `/api/projects/<id>/changes/<name>/unblock` | 解除停机（409 = 该 change 未停机） |
 | GET | `/api/projects/<id>/scheduler/queue` | 调度面板的全部事实：`tasks`（合并视图：推导 + 运行时覆盖 + 交付账本，每行带 `source`/`delivered`/`workflow`）+ `derived` / `queue`（对账）+ `next` + `scheduler` + `budget` + `daemon`（状态投影）+ `control`（未消费的暂停/停止指令） |
 | POST | `/api/projects/<id>/scheduler/queue/rebuild` \| `/reset` | 重建待办（保留运行时覆盖）/ 清掉覆盖强制重跑（等价 `daemon queue rebuild|reset`） |
+| POST | `/api/projects/<id>/scheduler/queue/retry` | `{task}`：单条任务重新排队（细粒度恢复）；已交付/不存在 → 409 并说明原因 |
 | POST | `/api/projects/<id>/scheduler/daemon/control` | `{action: pause\|resume\|stop}`：只写控制文件，不启停进程（ADR 0026） |
 | GET | `/api/projects/<id>/skills`、`/skills/<name>` | 已安装 skill 列表 / 单个 skill 详情（含 SKILL.md） |
 | GET | `/api/projects/<id>/bundles` | bundle manifest + 编译产物预览 + 支持平台 |

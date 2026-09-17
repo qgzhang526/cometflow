@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mergeTodoView, rebuildQueue, resetQueue } from '../../domains/scheduler/daemon-todo.js';
+import { mergeTodoView, rebuildQueue, resetQueue, retryQueueTask } from '../../domains/scheduler/daemon-todo.js';
 import { readQueue, writeQueue } from '../../domains/scheduler/queue.js';
 import type { QueueTask } from '../../domains/scheduler/queue.js';
 
@@ -170,5 +170,38 @@ describe('待办推导（S3）', () => {
     const t1 = again.tasks.find((task) => task.task === 'T1');
     expect(t1?.status).toBe('queued');
     expect(t1?.change).toBe('G1-T1');
+  });
+
+  // 细粒度恢复：daemon 因「需人工介入」停机后，只把修好的那一条放回待办。
+  it('retry 只重排指定的一条，其余任务的覆盖与尝试次数不动', async () => {
+    await writeQueue(root, {
+      schema: 'cometflow.queue.v1',
+      tasks: [
+        { id: 'G1:T1', goal: 'G1', task: 'T1', title: 'T1 的实现', status: 'failed', attempts: 3, updated_at: new Date(0).toISOString(), verdict: 'spec-conflict' },
+        { id: 'G1:T2', goal: 'G1', task: 'T2', title: 'T2 的实现', status: 'failed', attempts: 2, updated_at: new Date(0).toISOString(), verdict: 'verify-failed' },
+      ],
+    });
+
+    const result = await retryQueueTask(root, 'G1:T1');
+    expect(result.retried).toBe(true);
+    const t1 = result.view.tasks.find((task) => task.task === 'T1');
+    const t2 = result.view.tasks.find((task) => task.task === 'T2');
+    expect(t1?.status).toBe('queued');
+    expect(t1?.attempts).toBe(0);
+    expect(t1?.verdict).toBeNull();
+    // 另一条原样：还是 failed / 2 次尝试——这正是 reset 做不到的。
+    expect(t2?.status).toBe('failed');
+    expect(t2?.attempts).toBe(2);
+  });
+
+  it('retry 不重排已交付的任务，也不认不认识的任务', async () => {
+    await writeArchivedChange('G1-T1', 'G1', 'T1');
+    const delivered = await retryQueueTask(root, 'G1:T1');
+    expect(delivered.retried).toBe(false);
+    expect(delivered.reason).toContain('已交付');
+
+    const unknown = await retryQueueTask(root, 'nope:1');
+    expect(unknown.retried).toBe(false);
+    expect(unknown.reason).toContain('没有这条任务');
   });
 });

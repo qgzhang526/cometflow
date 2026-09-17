@@ -68,6 +68,7 @@ import {
   daemonBudgetCommand,
   daemonControlCommand,
   daemonQueueCommand,
+  daemonRetryCommand,
   daemonStartCommand,
 } from '../commands/daemon.js';
 import { goalSyncCommand } from '../commands/goal.js';
@@ -586,11 +587,27 @@ daemon
     await daemonBudgetCommand(targetPath, options);
   });
 
-daemon
-  .command('queue <action> [path]')
-  .description('Rebuild the todo list from facts (rebuild) or drop the runtime overlay (reset)')
-  .action(async (action, targetPath = '.') => {
-    await daemonQueueCommand(action, targetPath);
+const daemonQueue = daemon.command('queue').description('Todo list maintenance');
+
+daemonQueue
+  .command('rebuild [path]')
+  .description('Re-derive the todo list from facts, keeping the runtime overlay')
+  .action(async (targetPath = '.') => {
+    await daemonQueueCommand('rebuild', targetPath);
+  });
+
+daemonQueue
+  .command('reset [path]')
+  .description('Drop the runtime overlay so every non-delivered task runs again')
+  .action(async (targetPath = '.') => {
+    await daemonQueueCommand('reset', targetPath);
+  });
+
+daemonQueue
+  .command('retry <task> [path]')
+  .description('Requeue a single task (e.g. G1:T1) without touching the others')
+  .action(async (task, targetPath = '.') => {
+    await daemonRetryCommand(task, targetPath);
   });
 
 for (const action of ['pause', 'resume', 'stop'] as const) {
