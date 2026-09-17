@@ -579,16 +579,24 @@ check(
 );
 
 expectOk('change select --clear', ['change', 'select', 'stall-demo', '.', '--clear'], project);
-// C3 准入：这个项目此刻装着写保护守卫（前面几行刚复原），并发必须被拒并说明原因。
-expectDenied(
-  '装守卫时并发被拒',
-  ['daemon', 'start', '.', '--mode', 'always', '--agent', 'mock', '--concurrency', '2'],
+// C3 准入：这个项目此刻装着写保护守卫（前面几行刚复原）。守卫现在按 module 判归属，
+// 而夹具的 spec 都声明了互不相交的 module（src/core、src/auth、…），所以并发**允许**——
+// 这条断言钉的正是"守卫在位也能并发"这个 ADR 0028 的扩容结论。
+const concurrentRun = expectOk(
+  '装守卫且 module 不相交时并发被放行',
+  ['daemon', 'start', '.', '--mode', 'manual', '--agent', 'mock', '--concurrency', '2'],
   project,
-  'concurrency-not-open',
+);
+check(
+  '并发准入按 module 判定（日志给出依据）',
+  concurrentRun.stdout.includes('concurrency') && concurrentRun.stdout.includes('capability spec'),
+  concurrentRun.stdout.trim().slice(0, 160),
 );
 expectDenied(
-  '无指针时拒绝归属不明的写入',
-  ['hook', 'check', path.join('src', 'auth', 'index.ts'), '.', '--event', 'write'],
+  // 目标故意选在所有 module 之外（docs/）：guard 现在先按 module 判归属，
+  // 写进某个活跃 change 的模块会被放行（那是并发的前提），"谁都不认领"才是 fail closed 的场景。
+  '无指针时拒绝归属不明的写入（路径不在任何 module 内）',
+  ['hook', 'check', path.join('docs', 'unattributed.md'), '.', '--event', 'write'],
   project,
   'denied: multiple-active-changes',
 );

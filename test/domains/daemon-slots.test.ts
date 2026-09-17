@@ -7,6 +7,7 @@ import type { AgentRunner } from '../../platform/agents/types.js';
 import { generateTaskPlan } from '../../domains/task-plan/task-plan-generate.js';
 import { freezeTaskPlan } from '../../domains/task-plan/task-plan-freeze.js';
 import { writeTaskPlan } from '../../domains/task-plan/task-plan-store.js';
+import { installHook } from '../../domains/guard/hook-install.js';
 
 /**
  * C3 执行部分：并发槽位（ADR 0028）。
@@ -126,5 +127,26 @@ describe('并发槽位（C3 执行部分）', () => {
     expect(probe.runs()).toBe(2);
     // 两条都在同一 spec_ref 上：并发单元去重把它们排成串行。
     expect(probe.maxInFlight()).toBe(1);
+  }, 60000);
+
+  // ADR 0028 的守卫扩容：装了守卫也能并发——前提是 module 声明齐全且两两不相交
+  // （守卫先按 module 判归属，路径归属无歧义就不需要 current-change 指针）。
+  it('装了写保护守卫、且 module 两两不相交：仍然可以并发', async () => {
+    await writeProject([{ name: 'core', anchors: 1 }, { name: 'cli', anchors: 1 }]);
+    await installHook(root, 'claude-code');
+    const probe = concurrencyProbe();
+
+    const result = await runDaemonLoop({
+      projectRoot: root,
+      agentId: 'mock',
+      mode: 'always',
+      runner: probe.runner,
+      concurrency: 2,
+      intervalMs: 0,
+    });
+
+    expect(probe.runs()).toBe(2);
+    expect(probe.maxInFlight()).toBe(2);
+    expect(result.reason).toBe('no-queued-task');
   }, 60000);
 });

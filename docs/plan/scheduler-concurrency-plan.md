@@ -72,11 +72,20 @@ P4 把 daemon 变成了交付流水线，但**并发与排序刻意没做**：�
 **仍未做**：写好方案里提到的"按 goal 排序 / 优先级 / 抢占"，以及装了守卫时的并发
 （需要守卫支持按 module 归属，落点在 ADR 0023 的守卫本体）。
 
-### C4｜指针与写保护（决策完成，实现待守卫扩容）
+### C4｜指针与写保护（已实施：守卫按 module 判归属）
 
-ADR 0028 的结论：并发单元 = capability spec；**写保护守卫在位时不开放并发**（守卫按 current-change
-指针 fail-closed，并发会让另一个 change 的写入被拒）。要让装了守卫的项目也能并发，前提是守卫支持
-按 module 判定归属——那是守卫（ADR 0023）自己的扩容，不在本批。
+第一轮：ADR 0028 把策略定成"守卫在位时不开放并发"（守卫只会按 current-change 指针判归属）。
+第二轮把守卫本体扩了容（[ADR 0028 修订](../decisions/0028-concurrency-policy.md)）：
+
+- 守卫**先按 module 判归属**：写入落在唯一一个 build change 的 module 内 → 归它，不需要指针；
+  路径不在任何 module 内、或同时落在多个 module 里 → 回落到指针与 fail closed；
+- 准入随之放宽：装了守卫时，只要每个待办实现任务的 spec 都声明 `module` 且两两不相交，并发照开；
+- 指针的职责从"唯一路由"变成"处理歧义"，`.cometflow/current-change.json` 仍在、语义更窄。
+
+验证：`hook-guard-module.test.ts`（module 归属/歧义/未认领三种）、`daemon-slots.test.ts`
+（装了守卫仍观测到并发 2）、`current-change.test.ts`（三条用例按新契约调整）、回归 148 步。
+
+**仍未做**：module 嵌套的并发（嵌套视为歧义，必须串行）、goal 级优先级、跨项目并发。
 
 ### 单实例租约（C3 的前置，已完成）
 

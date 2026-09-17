@@ -67,8 +67,33 @@ C1（原子领取 + change 级互斥）与单实例租约（ADR 0027）之后，
 
 实测（`daemon-slots.test.ts`，注入式 runner 记录同时运行数）：
 两个 capability 各一条任务、`concurrency=2` → 观测到 **2** 并发；
-同一 `spec_ref` 的两条任务、`concurrency=2` → 观测到 **1**（串行）；
-装了 claude-code 守卫的项目（`daemon-dependency.test.ts` 真装一次钩子）→ 启动被拒并提示 `hook uninstall`。
+同一 `spec_ref` 的两条任务、`concurrency=2` → 观测到 **1**（串行）。
 
-**仍未做**：写保护守卫支持按 module 判定归属（那样装了守卫的项目也能并发）、goal 级排序与优先级、
-跨项目并发。前者的落点是 ADR 0023 的守卫本体。
+### 修订（2026-09-17，第二轮）：守卫按 module 判归属，装了守卫也能并发
+
+第一轮写的是"守卫在位时不开放并发"，理由是守卫只会**按 current-change 指针**判归属。
+第二轮把这个前提去掉了：
+
+1. **守卫扩容**（`hook-guard.ts`）：多个活跃 change 并存时**先按 module 判归属**——
+   这次写入落在唯一一个 build 阶段 change 声明的 module 内，就归它（不需要指针）；
+   只有当路径**不在任何 module 内**、或**同时落在多个 module 里**（module 互相包含）时，
+   才回落到 current-change 指针与 fail closed。指针的角色从"唯一路由"变成"处理歧义"。
+2. **准入放宽**（`daemon-concurrency.ts`）：装了守卫时不再一律拒绝，改为检查——
+   每个待办**实现**任务的 spec 是否都声明了 `module`，且这些 module **两两不相交**
+   （一个路径只能落在一个 module 里）。起草类任务不受这条约束（它写 `specs/`，走保护路径）。
+   任一条件不满足 → 仍然拒绝，并指出差在哪（哪个任务没声明 module / 哪两个 module 互相包含）。
+
+实测：
+
+- `hook-guard-module.test.ts` 3 例：两个 build change 各写自己 module → 都放行；
+  写在所有 module 之外 → 仍 fail closed（提示指向 module 与 `change select`）；
+  module 互相包含（`src` vs `src/inner`）→ 回落到指针语义并拒绝。
+- `daemon-slots.test.ts` 新增一例：**装了 claude-code 守卫、module 不相交 → 并发度仍是 2**。
+- `daemon-dependency.test.ts` 的准入用例改为：装了守卫但 spec 没声明 module → 被拒，理由指到"补 module"。
+- `current-change.test.ts` 的三个用例按新契约调整：module 内写入按 module 归属，
+  路径不在任何 module 内时仍然 fail closed（指针缺失 / 指针失效两条路径都保留）。
+- 回归：那一步从「装守卫时并发被拒」改成「装守卫且 module 不相交时并发被放行」，
+  另保留一条「路径不在任何 module 内 → 拒绝归属不明的写入」（148 步）。
+
+**仍未做**：goal 级排序与优先级、跨项目并发，以及 module 的**嵌套**并发
+（现在嵌套一律视为归属歧义、必须串行——保守，但正确）。

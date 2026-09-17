@@ -33,12 +33,29 @@ function isInside(relative: string | null, prefix: string): boolean {
 async function resolveOwningChange(
   projectRoot: string,
   activeChanges: ChangeState[],
+  relative: string,
 ): Promise<{ change: ChangeState | null; decision: HookDecision | null }> {
   if (activeChanges.length === 0) {
     return { change: null, decision: { allowed: true, reason: 'no-active-change' } };
   }
   if (activeChanges.length === 1) {
     return { change: activeChanges[0], decision: null };
+  }
+
+  /**
+   * 模块归属（ADR 0028 的守卫扩容）：多个活跃 change 并存时，先看**这次写入落在谁的 module 里**。
+   *
+   * 这是并发的前提条件：两个 change 各写自己声明的模块时，归属本来就没有歧义，
+   * 不需要人工先设 current-change 指针。只有"没有 module / 落在多个 module 里"才回落到指针与 fail closed。
+   * 只认 build 阶段：shape 写 specs（走保护路径），verify/archive 是只读的。
+   */
+  const moduleCandidates = activeChanges.filter((change) => {
+    if (change.phase !== 'build' || change.module === null || change.module === undefined) return false;
+    const attribution = attributionFor(relative, change.module, []);
+    return attribution === 'module' || attribution === 'module-prefix';
+  });
+  if (moduleCandidates.length === 1) {
+    return { change: moduleCandidates[0], decision: null };
   }
 
   const pointer = await readCurrentChange(projectRoot);
@@ -53,7 +70,10 @@ async function resolveOwningChange(
           activeChanges.length +
           ' 个活跃 change（' +
           activeChanges.map((entry) => entry.name).join(', ') +
-          '），无法判断这次写入属于谁；先运行 cometflow change select <name> 指定当前 change',
+          '），且 ' +
+          relative +
+          ' 不在任何一个 change 声明的 module 内（或同时落在多个 module 里），无法判断归属；' +
+          '先运行 cometflow change select <name> 指定当前 change',
       },
     };
   }
@@ -88,7 +108,7 @@ export async function evaluateHook(projectRoot: string, event: HookEvent, target
   }
 
   const activeChanges = (await listChangeStates(projectRoot)).filter((change) => !change.archived);
-  const routing = await resolveOwningChange(projectRoot, activeChanges);
+  const routing = await resolveOwningChange(projectRoot, activeChanges, relative);
   if (routing.decision) return routing.decision;
   const change = routing.change!;
   if (isInside(relative, "changes/" + change.name)) {

@@ -1,5 +1,8 @@
 import { HOOK_PLATFORMS, hookStatus } from '../guard/hook-install.js';
 import type { QueueTask } from './queue.js';
+import path from 'node:path';
+import { readTextFile } from '../../platform/fs/read-file.js';
+import { parseSpecMeta, normalizeModulePath } from '../spec/spec-meta.js';
 
 /**
  * 并发准入与并发单元（ADR 0028 的执行部分）。
@@ -49,17 +52,74 @@ export interface ConcurrencyGate {
 export async function checkConcurrencyGate(projectRoot: string, requested: number): Promise<ConcurrencyGate> {
   if (requested <= 1) return { ok: true, reason: 'concurrency=1' };
   const guard = await guardStatus(projectRoot);
-  if (guard.installed) {
+  if (!guard.installed) return { ok: true, reason: 'no-guard' };
+
+  /**
+   * 装了守卫也能并发——前提是**归属无歧义**：守卫现在先按 module 判归属（ADR 0028 的守卫扩容），
+   * 所以要求每个待办实现任务的 spec 都声明了 module，且这些 module **两两不相交**
+   * （一个路径只能落在一个 module 里，否则守卫仍然只能 fail closed）。
+   * 起草类任务（spec-authoring）不受这条约束：它写的是 specs/，走保护路径。
+   */
+  const modules = await pendingImplementationModules(projectRoot);
+  const missing = modules.filter((entry) => entry.module === null).map((entry) => entry.task);
+  if (missing.length > 0) {
     return {
       ok: false,
       reason:
         '装了写保护守卫（' +
         guard.platforms.join(', ') +
-        '）：它按 current-change 指针 fail-closed，并发会让另一个 change 的写入被拒；' +
-        '先 cometflow hook uninstall . --platform <platform>，或等守卫支持按 module 判定归属（ADR 0028）',
+        '）：它按 module 判定写入归属，而这些任务的 spec 没有声明 module —— ' +
+        missing.join(', ') +
+        '；给对应 spec 补 module，或先串行跑',
     };
   }
-  return { ok: true, reason: 'no-guard' };
+  const overlap = findOverlappingModules(modules.map((entry) => entry.module!));
+  if (overlap !== null) {
+    return {
+      ok: false,
+      reason:
+        '装了写保护守卫（' +
+        guard.platforms.join(', ') +
+        '）：待办任务的 module 互相包含（' +
+        overlap[0] +
+        ' vs ' +
+        overlap[1] +
+        '），路径归属会有歧义；把它们排成串行，或让 module 两两不相交',
+    };
+  }
+  return { ok: true, reason: 'guard-module-attribution' };
+}
+
+/** 待办实现任务的 module（读 spec 的 front-matter）。读不到 spec 时 module 记 null（= 不能并发）。 */
+export async function pendingImplementationModules(
+  projectRoot: string,
+): Promise<Array<{ task: string; module: string | null }>> {
+  const { mergeTodoView } = await import('./daemon-todo.js');
+  const view = await mergeTodoView(projectRoot);
+  const result: Array<{ task: string; module: string | null }> = [];
+  for (const task of view.tasks) {
+    if (task.status !== 'queued' || task.delivered) continue;
+    if (task.kind === 'spec-authoring' || !task.spec_ref) continue;
+    const absolute = path.join(projectRoot, task.spec_ref);
+    try {
+      const meta = parseSpecMeta(await readTextFile(absolute));
+      result.push({ task: task.goal + ':' + task.task, module: normalizeModulePath(meta.module) });
+    } catch {
+      result.push({ task: task.goal + ':' + task.task, module: null });
+    }
+  }
+  return result;
+}
+
+/** 找出第一对互相包含的 module（前缀关系），没有则返回 null。 */
+export function findOverlappingModules(modules: readonly string[]): [string, string] | null {
+  const sorted = [...new Set(modules)].sort();
+  for (const [index, left] of sorted.entries()) {
+    for (const right of sorted.slice(index + 1)) {
+      if (right === left || right.startsWith(left + '/')) return [left, right];
+    }
+  }
+  return null;
 }
 
 /**
