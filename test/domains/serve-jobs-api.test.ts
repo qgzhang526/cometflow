@@ -82,6 +82,25 @@ describe('jobs API', () => {
     const jobId = started.data.jobId;
     await waitForJob(jobId);
 
+    /**
+     * 重启前先确认**磁盘上**已经有结果。
+     *
+     * 任务的终态是"内存先改、异步落盘"：接口报 succeeded 只代表内存里成功了。
+     * `server.close()` 会 flush 在途写入，但 CI 的高负载下"接口已报成功"与"写入完成"
+     * 之间仍有窗口——直接重启会偶发读到没有 result 的旧记录（Ubuntu/Windows 各撞到过一次）。
+     * 这里在磁盘上再确认一次，断言的仍然是"结果能跨重启活下来"这个不变量。
+     */
+    const recordPath = path.join(projectRoot, '.cometflow', 'runtime', 'jobs', jobId + '.json');
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      try {
+        const record = JSON.parse(await fs.readFile(recordPath, 'utf8')) as { result?: unknown };
+        if (record.result !== undefined) break;
+      } catch {
+        // 还没写出来：继续等（下面的断言会兜住"一直没写"的情况）。
+      }
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+
     // 重启：新进程、新的内存态，任务与结果应当从 .cometflow/runtime/jobs/ 读回来。
     await server.close();
     server = await startServe({ workspaceRoot: workspace, webDir, port: 0, host: '127.0.0.1' });
