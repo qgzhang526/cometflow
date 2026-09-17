@@ -6,6 +6,8 @@ import type { QueueTask, SchedulerQueue } from './queue.js';
 import { listChangeStates } from '../workflow/change-list.js';
 import type { TaskPlan } from '../task-plan/types.js';
 import { changeNameForTask } from './daemon-run-change.js';
+import { compareGoals, readScheduleOrder } from '../goal/schedule-order.js';
+import type { ScheduleOrder } from '../goal/schedule-order.js';
 
 /**
  * 待办清单的**唯一推导规则**（P4 / S3）：
@@ -34,6 +36,11 @@ export interface TodoView {
   derived: QueueTask[];
   /** 运行时覆盖（`queue.json` 里的非派生行；没有文件时为 null）。 */
   overlay: SchedulerQueue | null;
+  /**
+   * 本次推导用的 goal 级调度顺序（ADR 0029）：显式清单在前、其余按编号兜底。
+   * 界面据此回答「为什么它先跑」——顺序属于推导，不属于运行时覆盖。
+   */
+  order: ScheduleOrder;
 }
 
 async function readPlans(projectRoot: string): Promise<TaskPlan[]> {
@@ -84,16 +91,29 @@ export async function inFlightTasks(projectRoot: string): Promise<Map<string, st
 }
 
 export async function deriveTodoList(projectRoot: string): Promise<QueueTask[]> {
+  return deriveTodoListWith(projectRoot, await readScheduleOrder(projectRoot));
+}
+
+/**
+ * 按给定顺序推导待办（顺序读一次、用一次）。
+ *
+ * 顺序的判据是 goal（ADR 0029）：清单里列出的按位置，没列出的按编号升序排在后面。
+ * 同一个 goal 内部保持计划里的任务顺序。
+ */
+async function deriveTodoListWith(projectRoot: string, order: ScheduleOrder): Promise<QueueTask[]> {
+  const plans = await readPlans(projectRoot);
+  plans.sort((left, right) => compareGoals(left.goal, right.goal, order));
   const tasks: QueueTask[] = [];
-  for (const plan of await readPlans(projectRoot)) {
+  for (const plan of plans) {
     tasks.push(...queueFromPlan(plan));
   }
   return tasks;
 }
 
 export async function mergeTodoView(projectRoot: string): Promise<TodoView> {
+  const order = await readScheduleOrder(projectRoot);
   const [derived, overlay, delivered, inFlight] = await Promise.all([
-    deriveTodoList(projectRoot),
+    deriveTodoListWith(projectRoot, order),
     readQueue(projectRoot),
     deliveredTasks(projectRoot),
     inFlightTasks(projectRoot),
@@ -176,7 +196,7 @@ export async function mergeTodoView(projectRoot: string): Promise<TodoView> {
     merged.push({ ...orphan, delivered: orphan.verdict === 'delivered', source: 'overlay' });
   }
 
-  return { tasks: merged, derived, overlay };
+  return { tasks: merged, derived, overlay, order };
 }
 
 /**
@@ -196,7 +216,8 @@ export async function rebuildQueue(projectRoot: string): Promise<TodoView> {
  * 与 `rebuild` 的区别就是这一句：legacy 的 `done` 会被丢掉，于是那些任务重新进入待办。
  */
 export async function resetQueue(projectRoot: string): Promise<TodoView> {
-  const derived = await deriveTodoList(projectRoot);
+  const order = await readScheduleOrder(projectRoot);
+  const derived = await deriveTodoListWith(projectRoot, order);
   const delivered = await deliveredTasks(projectRoot);
   const tasks: TodoEntry[] = derived.map((task) => {
     const archived = delivered.get(task.goal + ':' + task.task);
@@ -216,7 +237,7 @@ export async function resetQueue(projectRoot: string): Promise<TodoView> {
         };
   });
   await writeQueue(projectRoot, { schema: 'cometflow.queue.v1', tasks });
-  return { tasks, derived, overlay: null };
+  return { tasks, derived, overlay: null, order };
 }
 
 /** 兼容旧入口：没跑过 daemon 时按计划推导（保留给既有调用方）。 */

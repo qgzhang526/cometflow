@@ -6,6 +6,7 @@ import { resolveAgentId } from '../../domains/scheduler/flow-run.js';
 import { resolveModel } from '../../domains/project/config.js';
 import { parseScheduleWindow } from '../../domains/scheduler/schedule.js';
 import { rebuildQueue, resetQueue, retryQueueTask } from '../../domains/scheduler/daemon-todo.js';
+import { formatScheduleOrder } from '../../domains/goal/schedule-order.js';
 import { writeDaemonControl } from '../../domains/scheduler/daemon-control.js';
 
 export interface DaemonCommandOptions {
@@ -90,6 +91,9 @@ export async function daemonQueueCommand(action: string, targetPath: string): Pr
   }
   const view = action === 'rebuild' ? await rebuildQueue(projectRoot) : await resetQueue(projectRoot);
   const count = (status: string): number => view.tasks.filter((task) => task.status === status).length;
+  // 顺序也是推导的一部分（ADR 0029）：先把它打出来，再列队列——否则"为什么这条排第一"要靠猜。
+  console.log('调度顺序：' + formatScheduleOrder(view.order));
+  for (const warning of view.order.warnings) console.log('警告：' + warning);
   console.log(
     'daemon queue ' + action + ': ' +
       'queued=' + count('queued') +
@@ -98,9 +102,9 @@ export async function daemonQueueCommand(action: string, targetPath: string): Pr
       ' failed=' + count('failed') +
       ' delivered=' + view.tasks.filter((task) => task.delivered).length,
   );
-  for (const task of view.tasks) {
+  for (const [index, task] of view.tasks.entries()) {
     console.log(
-      ['  ', task.goal + ':' + task.task, task.status, task.source, task.change ?? ''].filter(Boolean).join(' '),
+      ['  ', '#' + (index + 1), task.goal + ':' + task.task, task.status, task.source, task.change ?? ''].filter(Boolean).join(' '),
     );
   }
 }
