@@ -10,7 +10,9 @@ export type JobKind =
   | 'evolve-verify'
   | 'eval-run'
   /** 一次性 agent 试跑（`cometflow run` 的界面入口，C13）。 */
-  | 'flow-run';
+  | 'flow-run'
+  /** serve 内嵌的调度器循环（ADR 0027）：一个 daemon job 就是一次 `daemon start`。 */
+  | 'daemon';
 
 export interface JobRecord {
   id: string;

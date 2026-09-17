@@ -101,17 +101,32 @@
       <h2>控制</h2>
       <span class="grow" />
       <!--
-        只写控制文件，不启停进程（ADR 0026）：进程归启动它的终端，serve/浏览器不持有它。
-        所以这里没有「启动 daemon」按钮——那是 CLI 的事，界面只负责「让正在跑的那个停/等」。
+        ADR 0027：内嵌调度器由 serve 托管，所以页面能「启动」——它起的是一个 daemon job，
+        不是 spawn 游离进程；暂停/继续/停止仍然只写控制文件（ADR 0026 的那套语义没变）。
       -->
+      <button class="primary" :disabled="controlBusy || data?.embedded?.running === true" @click="startScheduler">
+        {{ data?.embedded?.running ? '调度器在跑' : '启动调度器' }}
+      </button>
       <button :disabled="controlBusy" @click="control('pause')">暂停</button>
       <button :disabled="controlBusy" @click="control('resume')">继续</button>
       <button :disabled="controlBusy" @click="control('stop')">停止</button>
       <StatusBadge v-if="data?.control && data.control.action !== 'idle'" tone="warn" :text="'已请求 ' + data.control.action" />
+      <StatusBadge
+        :tone="data?.embedded?.autostart ? 'ok' : 'gray'"
+        :text="data?.embedded?.autostart ? '常驻：开' : '常驻：关'"
+      />
     </div>
     <p class="muted">
-      暂停 / 停止在 daemon 的下一轮生效；启动仍然在终端里跑
-      <code>cometflow daemon start . --mode always</code>。队列是可以随意重建的派生视图，不需要先停调度器再改。
+      <b>启动调度器</b> = serve 内嵌一个调度器 job（日志在任务中心）+ 记为常驻（serve 重启会自动恢复）；
+      暂停 / 停止在下一轮生效，<b>停止</b>会同时清掉常驻标记。模式（always / idle / schedule / manual）
+      读设置页的「调度器默认参数」；单实例由租约保证——CLI 起的调度器在跑时，这里会拒绝并告诉你是谁在跑。
+      队列是可以随意重建的派生视图，不需要先停调度器再改。
+      <br />
+      验收前置检查：<b>{{ data?.preflight ?? 'fail' }}</b>
+      <span v-if="(data?.preflight ?? 'fail') === 'fail'">（验收判不出来的任务不执行、直接失败并停机）</span>
+      <span v-else-if="data?.preflight === 'warn'">（判不出来照常执行，只在结论里记一笔）</span>
+      <span v-else>（不做前置检查）</span>
+      —— 改它去<RouterLink :to="'/project/' + (project.currentId ?? '') + '/settings'">设置页的「验收」</RouterLink>。
     </p>
   </div>
 
@@ -120,7 +135,16 @@
       <h2>下一个待办</h2>
       <span class="grow" />
       <!-- S3 之后待办是合并视图：每行都能回答「从哪来」。 -->
-      <StatusBadge tone="brand" :text="'待交付 ' + pendingCount + ' · 已交付 ' + deliveredCount" />
+      <StatusBadge
+        tone="brand"
+        :text="
+          '待交付 ' +
+          pendingCount +
+          (blockedCount > 0 ? '（等依赖 ' + blockedCount + '）' : '') +
+          ' · 已交付 ' +
+          deliveredCount
+        "
+      />
     </div>
     <p v-if="data?.next === null" class="muted">没有排队中的任务。</p>
     <table v-else>
@@ -164,6 +188,10 @@
               :tone="task.status === 'done' ? 'ok' : task.status === 'failed' ? 'err' : task.status === 'running' ? 'brand' : 'warn'"
               :text="task.status"
             />
+            <!-- 依赖（C2）：前序没交付就不调度——把"为什么还没轮到它"直接写在行上。 -->
+            <span v-if="(task.blocked_by?.length ?? 0) > 0" class="badge warn" style="margin-left: 6px">
+              等待 {{ task.blocked_by?.join(', ') }} 交付
+            </span>
           </td>
           <!-- 「从哪来」：derived=推导出的待办，overlay=运行时记录，delivered=change 账本。 -->
           <td class="muted">
@@ -221,6 +249,8 @@ const retrying = ref('');
 /** S3：面板看的是合并视图（推导 + 运行时覆盖 + 交付账本），不是 `queue.json` 那一份。 */
 const tasks = computed(() => data.value?.tasks ?? []);
 const pendingCount = computed(() => tasks.value.filter((task) => task.status === 'queued').length);
+/** 待交付里有多少条在等前序任务（依赖，C2）：一眼看出是"卡在顺序上"还是"没人做"。 */
+const blockedCount = computed(() => tasks.value.filter((task) => (task.blocked_by?.length ?? 0) > 0).length);
 const deliveredCount = computed(() => tasks.value.filter((task) => task.delivered).length);
 
 /** 暂停 / 继续 / 停止：写控制文件（ADR 0026），进程仍归启动它的终端。 */
@@ -252,6 +282,28 @@ async function retry(task: { id: string; goal: string; task: string }): Promise<
     toasts.error('重新排队失败', errorMessage(error));
   } finally {
     retrying.value = '';
+  }
+}
+
+/**
+ * 启动内嵌调度器（ADR 0027）：serve 里起一个 `daemon` job。
+ *
+ * 模式读设置页的调度器默认参数；把它记为常驻（serve 重启自动恢复）由服务端负责。
+ */
+async function startScheduler(): Promise<void> {
+  controlBusy.value = true;
+  try {
+    const data = await project.projectApi<{ jobId: string }>('/scheduler/daemon/start', {
+      method: 'POST',
+      body: {},
+    });
+    await load();
+    toasts.success('调度器已启动', 'job ' + data.jobId + '，日志在任务中心');
+  } catch (error) {
+    // 单实例租约会回 409 并带上持有者：原样显示比"启动失败"有用。
+    toasts.error('启动失败', errorMessage(error));
+  } finally {
+    controlBusy.value = false;
   }
 }
 

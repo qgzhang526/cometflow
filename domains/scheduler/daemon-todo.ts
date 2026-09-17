@@ -106,6 +106,11 @@ export async function mergeTodoView(projectRoot: string): Promise<TodoView> {
     const key = task.goal + ':' + task.task;
     const runtime = overlayById.get(key);
     const archived = delivered.get(key);
+    /**
+     * 依赖（C2）：`depends_on` 里的任务必须**已交付**（有归档 change）才轮到它。
+     * 计划里的依赖是同 goal 内的任务 id，所以这里按 `goal:task` 判定。
+     */
+    const blockedBy = (task.depends_on ?? []).filter((id) => !delivered.has(task.goal + ':' + id));
     if (archived !== undefined) {
       // 交付由账本定义，但「试了几次、什么时候动的」仍是运行时事实——保留它，
       // 否则交付记录里看不到「这条其实重试过 N 次」。
@@ -123,7 +128,7 @@ export async function mergeTodoView(projectRoot: string): Promise<TodoView> {
     }
     if (runtime !== undefined && runtime.status !== 'queued') {
       // 运行时的事实优先于「推导出待办」：正在跑的不能被重复排队，失败的保留尝试次数。
-      merged.push({ ...task, ...runtime, delivered: false, source: 'overlay' });
+      merged.push({ ...task, ...runtime, blocked_by: blockedBy, delivered: false, source: 'overlay' });
       continue;
     }
     /**
@@ -141,6 +146,7 @@ export async function mergeTodoView(projectRoot: string): Promise<TodoView> {
       merged.push({
         ...task,
         ...carried,
+        blocked_by: blockedBy,
         status: 'running',
         change: claimed,
         verdict: 'in-flight',
@@ -154,7 +160,14 @@ export async function mergeTodoView(projectRoot: string): Promise<TodoView> {
       continue;
     }
     // daemon 自己上次没跑完的 change（确定性命名）：保持待办，下一轮由驱动按 phase 续作。
-    merged.push({ ...task, ...carried, change: claimed ?? task.change ?? null, delivered: false, source: 'derived' });
+    merged.push({
+      ...task,
+      ...carried,
+      blocked_by: blockedBy,
+      change: claimed ?? task.change ?? null,
+      delivered: false,
+      source: 'derived',
+    });
     overlayById.delete(key);
   }
 
@@ -187,10 +200,13 @@ export async function resetQueue(projectRoot: string): Promise<TodoView> {
   const delivered = await deliveredTasks(projectRoot);
   const tasks: TodoEntry[] = derived.map((task) => {
     const archived = delivered.get(task.goal + ':' + task.task);
+    // reset 也保留依赖关系：重跑不等于无视前后顺序。
+    const blockedBy = (task.depends_on ?? []).filter((id) => !delivered.has(task.goal + ':' + id));
     return archived === undefined
-      ? { ...task, attempts: 0, delivered: false, source: 'derived' as const }
+      ? { ...task, blocked_by: blockedBy, attempts: 0, delivered: false, source: 'derived' as const }
       : {
           ...task,
+          blocked_by: blockedBy,
           status: 'done' as const,
           attempts: 0,
           change: archived,

@@ -149,6 +149,35 @@ describe('scheduler / assets / guard API', () => {
     expect(unknown.body.error?.message).toContain('没有这条任务');
   });
 
+  // ADR 0027：内嵌调度器——启动是「起一个 daemon job 并记为常驻」，停止会清掉常驻标记。
+  it('starts an embedded scheduler as a daemon job, and refuses a second one', async () => {
+    const started = await post<{ jobId: string }>('/scheduler/daemon/start', { mode: 'manual', agent: 'mock' });
+    expect(started.status).toBe(202);
+    expect(started.body.data.jobId).toMatch(/^job_/u);
+
+    // 同一个项目第二次启动：本进程内已有 → 409 already-running（比撞租约更快也更清楚）。
+    const again = await post<unknown>('/scheduler/daemon/start', { mode: 'manual', agent: 'mock' });
+    expect(again.status).toBe(409);
+    expect(again.body.error?.code).toBe('already-running');
+
+    // 启动把它记为常驻；停止（控制文件）应当同时清掉，否则 serve 重启会又拉起来。
+    const config = await get<{ config: { scheduler?: { autostart?: boolean } } }>('/config');
+    expect(config.body.data.config.scheduler?.autostart).toBe(true);
+    const stopped = await post<{ control: { action: string } }>('/scheduler/daemon/control', { action: 'stop' });
+    expect(stopped.body.data.control.action).toBe('stop');
+    const after = await get<{ config: { scheduler?: { autostart?: boolean } } }>('/config');
+    expect(after.body.data.config.scheduler?.autostart).toBe(false);
+
+    // manual 模式只做一次回收/快照就结束，很快会自己退出（无需等待太久）。
+    await new Promise((resolve) => setTimeout(resolve, 300));
+  }, 60000);
+
+  it('rejects an unknown agent when starting the embedded scheduler', async () => {
+    const bad = await post<unknown>('/scheduler/daemon/start', { agent: 'nope' });
+    expect(bad.status).toBe(400);
+    expect(bad.body.error?.code).toBe('unknown-agent');
+  });
+
   it('lists installed skills and reads one skill definition', async () => {
     const list = await get<{ skills: Array<{ name: string; files: string[] }> }>('/skills');
     expect(list.status).toBe(200);

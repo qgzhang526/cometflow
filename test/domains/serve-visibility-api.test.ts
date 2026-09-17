@@ -386,6 +386,7 @@ describe('V4：调度预算可见 + 冗余端点清理', () => {
       budget: { schema: string; used_ms: number; updated_at: string };
       scheduler: unknown;
       daemon: unknown;
+      preflight: string;
     }>('/scheduler/queue');
     expect(status).toBe(200);
     expect(body.data.budget.schema).toBe('cometflow.budget.v1');
@@ -395,6 +396,8 @@ describe('V4：调度预算可见 + 冗余端点清理', () => {
     // 调度器状态投影（C5）：字段存在但可以是 null——null 的语义是「这台机器上没跑过 daemon」，
     // 界面据此显式说明，而不是拿空队列糊弄。
     expect(body.data.daemon).toBeNull();
+    // 前置检查档位跟着调度面板一起返回（设置页可编辑，面板只回显）。
+    expect(['fail', 'warn', 'off']).toContain(body.data.preflight);
   });
 
   it('/spec-index 与 /config/project 保留（CLI/脚本投影，界面不消费）', async () => {

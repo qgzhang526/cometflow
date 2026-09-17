@@ -22,6 +22,8 @@ export interface DaemonCommandOptions {
   maxAttempts?: number;
   /** 单任务超时（毫秒）。 */
   taskTimeout?: number;
+  /** 并发槽位（ADR 0028：>1 目前会被拒绝并说明原因）。 */
+  concurrency?: number;
 }
 
 /** 查看/清零跨重启累计的预算用量。 */
@@ -52,7 +54,7 @@ export async function daemonStartCommand(targetPath: string, options: DaemonComm
     scheduleStartMinutes = window.startMinutes;
     scheduleEndMinutes = window.endMinutes;
   }
-  await startDaemon({
+  const result = await startDaemon({
     projectRoot,
     agentId,
     mode: options.mode,
@@ -65,7 +67,11 @@ export async function daemonStartCommand(targetPath: string, options: DaemonComm
     safetyBundle: options.safetyBundle === true,
     maxAttempts: options.maxAttempts,
     taskTimeoutMs: options.taskTimeout,
+    concurrency: options.concurrency,
   });
+  console.log('daemon: reason=' + result.reason + ' iterations=' + result.iterations + (result.detail ? ' detail=' + result.detail : ''));
+  // 被别人占着（另一个 CLI / serve 内嵌）不是"正常结束"：给非零退出码，脚本能判断。
+  if (result.reason === 'lease-held') process.exitCode = 1;
 }
 
 /**

@@ -77,8 +77,20 @@
         </select>
       </label>
       <label>Verifier 模型 <input v-model="form.verificationModel" placeholder="留空 = 继承默认" /></label>
+      <label>
+        无人值守前置检查
+        <select v-model="form.verificationPreflight">
+          <option value="fail">fail · 判不出来就不执行（默认）</option>
+          <option value="warn">warn · 照常执行，只在结论里记一笔</option>
+          <option value="off">off · 不检查（人工在场时用）</option>
+        </select>
+      </label>
     </div>
-    <p class="muted">验收项必须可执行；没有 check 的验收项会交给独立 Verifier 或人工判定（ADR 0013）。</p>
+    <p class="muted">
+      验收项必须可执行；没有 check 的验收项会交给独立 Verifier 或人工判定（ADR 0013）。
+      无人值守时 daemon 会先做一次前置检查：<b>每条验收要么有可执行 check，要么有 eval / 独立 Verifier 兜底</b>，
+      否则这条任务不执行、直接判失败并停机（`fail` 档），避免跑到最后必然是 blocked。
+    </p>
   </div>
 
   <div class="card">
@@ -232,6 +244,7 @@ const form = reactive({
   verificationMode: 'checks' as NonNullable<ProjectConfig['verification']>['mode'],
   verificationAgent: '',
   verificationModel: '',
+  verificationPreflight: 'fail' as NonNullable<ProjectConfig['verification']>['unattended_preflight'],
   scopeAllow: '',
   schedulerMode: 'idle' as NonNullable<ProjectConfig['scheduler']>['mode'],
   intervalMs: '',
@@ -256,6 +269,7 @@ async function load(): Promise<void> {
     form.verificationMode = config.verification?.mode ?? 'checks';
     form.verificationAgent = config.verification?.agent ?? '';
     form.verificationModel = config.verification?.model ?? '';
+    form.verificationPreflight = config.verification?.unattended_preflight ?? 'fail';
     form.scopeAllow = (config.scope?.allow ?? []).join('\n');
     form.schedulerMode = config.scheduler?.mode ?? 'idle';
     form.intervalMs = config.scheduler?.intervalMs === undefined ? '' : String(config.scheduler.intervalMs);
@@ -300,6 +314,8 @@ async function save(): Promise<void> {
     const verification: NonNullable<ProjectConfig['verification']> = { mode: form.verificationMode };
     if (form.verificationAgent !== '') verification.agent = form.verificationAgent;
     if (form.verificationModel.trim() !== '') verification.model = form.verificationModel.trim();
+    // 前置检查是 daemon 能不能开工的前提：写进项目层，daemon 每次领取任务前读它。
+    verification.unattended_preflight = form.verificationPreflight;
 
     const payload: Partial<ProjectConfig> = {
       agent: form.agent,

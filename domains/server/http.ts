@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { JobManager } from './jobs.js';
 import type { TicketStore } from './tickets.js';
+import type { SchedulerHost } from './scheduler-host.js';
 
 export interface ApiContext {
   req: IncomingMessage;
@@ -10,6 +11,8 @@ export interface ApiContext {
   jobs: JobManager;
   webDir: string;
   tickets: TicketStore;
+  /** serve 内嵌调度器（ADR 0027）：页面上的启动/停止走它。 */
+  scheduler?: SchedulerHost;
 }
 
 export function sendJson(res: ServerResponse, status: number, body: unknown): void {
