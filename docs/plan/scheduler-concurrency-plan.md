@@ -20,7 +20,7 @@ P4 把 daemon 变成了交付流水线，但**并发与排序刻意没做**：�
 | C1 | **任务领取原子化** | 两个 daemon（CLI / serve 内嵌 / 不同机器）读到同一份队列，双双选中同一个任务，各跑一遍 agent | ✅ 已实施 |
 | C1 | **change 级互斥** | 人手工 `change run G1-T1` 的同时 daemon 也在推它 → 两个 agent 改同一块代码 | ✅ 已实施 |
 | C2 | **排序语义** | 顺序 = 计划文件顺序；`depends_on` 依赖图**已经存在但调度器完全没用** | ✅ 已实施 |
-| C3 | **并发上限**（`--concurrency N`） | 想并行只能起多个 daemon → 回到 C1 的风险 | ⚠️ 部分：准入与配置已就位，**执行仍串行**（见下） |
+| C3 | **并发上限**（`--concurrency N`） | 想并行只能起多个 daemon → 回到 C1 的风险 | ✅ 已实施（两条约束：无守卫 + 不同 spec_ref） |
 | C4 | **指针与写保护的配合** | 多 change 并发时 `current-change` 只能指一个，ADR 0018 的 fail closed 会拒掉 agent 的写入 | ✅ 决策完成（[ADR 0028](../decisions/0028-concurrency-policy.md)） |
 
 ### C1｜原子领取 + change 级互斥（已实施）
@@ -52,15 +52,25 @@ P4 把 daemon 变成了交付流水线，但**并发与排序刻意没做**：�
 
 验收：`daemon-dependency.test.ts` 3 例（前序未交付 → 不被选中且标出在等谁、前序交付 → 自然可调度、链式全交付 → 队列排空）。
 
-### C3｜并发上限（部分实施）
+### C3｜并发上限（已实施）
 
-**已就位**：`--concurrency <n>` / `scheduler.concurrency` 的配置面与传递链（CLI → daemon → 内嵌调度器），
-以及**明确的拒绝语义**：>1 时返回 `concurrency-not-open` 并说明原因与解除方式（ADR 0028），
-**不静默降级**——静默降级会让"我开了并发"变成一句假话。
+**已实现**：
 
-**未实施**：真正并行执行多个任务。它需要：并发槽位调度（同一 `spec_ref` 不并行）、
-队列写入的进程内互斥（后写覆盖前写会丢状态）、以及 `stop/pause` 在并发下的收口语义（停止领取新任务、
-等已领取的跑完）。这些都在 ADR 0028 的框架下，但属于独立一批。
+- **槽位领取**：主循环按 `concurrency` 领到满，`Promise.race` 等空槽；`stop` / `pause` / `needs-human`
+  只停止领取，已领取的槽跑完（不抢占）；
+- **并发单元去重**：`concurrencyUnit()` = `spec_ref`（起草类任务回退到 capability），
+  同一单元已在跑时这一轮不领它——同一份契约/模块不会被两个 agent 同时改；
+- **准入**：`--concurrency > 1` 时探测写保护守卫，装了则**拒绝启动**并说明解除方式（ADR 0028）；
+- **队列写入互斥**：`withQueueWrite()` 串行化"改内存队列 + 落盘"，并发收尾不会互相覆盖；
+- **锁粒度**：`change run` 的锁改成 per-change scope（`runtime/locks/change-run-<name>.lock`），
+  不同 change 可以并行跑——这一点是被 `daemon-slots` 的并发用例逼出来的（项目级一把锁会把它们排成串行）。
+
+**验证**：`daemon-slots.test.ts` 用注入式 runner 记录"同时运行数"：
+两个 capability 的任务 → 观测到 2；同一 spec_ref 的两条任务 → 观测到 1（串行）；
+回归新增一步：装了守卫时 `--concurrency 2` 被拒（标记 `concurrency-not-open`）。
+
+**仍未做**：写好方案里提到的"按 goal 排序 / 优先级 / 抢占"，以及装了守卫时的并发
+（需要守卫支持按 module 归属，落点在 ADR 0023 的守卫本体）。
 
 ### C4｜指针与写保护（决策完成，实现待守卫扩容）
 

@@ -52,3 +52,23 @@ C1（原子领取 + change 级互斥）与单实例租约（ADR 0027）之后，
 | 单实例租约（ADR 0027） | 并发的语义是"一个调度器内部 N 个槽"，不是"起 N 个调度器" |
 | 写保护守卫（ADR 0023） | 本 ADR 明确：守卫在位 → 并发关闭；这不是临时妥协，而是 fail-closed 的直接推论 |
 | 任务依赖（C2） | 并发的准入还要满足依赖：`blocked_by` 非空的条目任何槽都不会领 |
+
+## 实施记录（2026-09-17）
+
+本条的**执行部分**已落地，两条约束都按上面执行：
+
+| 机制 | 实现 |
+|---|---|
+| 并发单元 | `concurrencyUnit()`：`spec_ref`（起草类任务回退到 `capability`）；领取时用 `nextClaimableTask(tasks, unitsInFlight)` 跳过已被占用的单元 |
+| 准入 | `checkConcurrencyGate()`：`--concurrency > 1` 时探测写保护守卫（`hookStatus` 支持且已安装的平台），装了则返回 `concurrency-not-open` 并说明解除方式（CLI 退出码 1，**不静默降级**） |
+| 队列写互斥 | 调度器内 `withQueueWrite()`（promise 链）串行化"改内存队列 + 落盘"，并发收尾不会互相覆盖 |
+| 槽位 | 主循环按 `concurrency` 领取到满，`Promise.race` 等空槽；`stop`/`pause`/`needs-human` 只**停止领取**，已领取的槽跑完（不抢占） |
+| 锁粒度 | `acquireLock` 新增 `scope`：`change run` 用 `change-run-<name>`（`runtime/locks/<scope>.lock`），**按 change 隔离**——项目级那把锁仍是"一次改多个文件"的事务锁（冻结/归档） |
+
+实测（`daemon-slots.test.ts`，注入式 runner 记录同时运行数）：
+两个 capability 各一条任务、`concurrency=2` → 观测到 **2** 并发；
+同一 `spec_ref` 的两条任务、`concurrency=2` → 观测到 **1**（串行）；
+装了 claude-code 守卫的项目（`daemon-dependency.test.ts` 真装一次钩子）→ 启动被拒并提示 `hook uninstall`。
+
+**仍未做**：写保护守卫支持按 module 判定归属（那样装了守卫的项目也能并发）、goal 级排序与优先级、
+跨项目并发。前者的落点是 ADR 0023 的守卫本体。

@@ -579,6 +579,13 @@ check(
 );
 
 expectOk('change select --clear', ['change', 'select', 'stall-demo', '.', '--clear'], project);
+// C3 准入：这个项目此刻装着写保护守卫（前面几行刚复原），并发必须被拒并说明原因。
+expectDenied(
+  '装守卫时并发被拒',
+  ['daemon', 'start', '.', '--mode', 'always', '--agent', 'mock', '--concurrency', '2'],
+  project,
+  'concurrency-not-open',
+);
 expectDenied(
   '无指针时拒绝归属不明的写入',
   ['hook', 'check', path.join('src', 'auth', 'index.ts'), '.', '--event', 'write'],

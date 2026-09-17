@@ -9,6 +9,7 @@ import { clearDaemonControl, readDaemonControl } from './daemon-control.js';
 import { acquireLock } from '../../platform/fs/file-lock.js';
 import type { QueueTask } from './queue.js';
 import { acquireDaemonLease } from './daemon-lease.js';
+import { checkConcurrencyGate, concurrencyUnit, nextClaimableTask } from './daemon-concurrency.js';
 import { idleGovernorAllows, type SchedulerMode } from './idle-governor.js';
 import { buildRollbackGuidance, captureGitSafetySnapshot } from './git-safety.js';
 import {
@@ -141,13 +142,16 @@ export async function runDaemonLoop(options: DaemonLoopOptions): Promise<DaemonL
 
   // 状态投影（C5）：面板读的就是这份文件。写失败不阻断调度——它只是给人看的投影。
   let lastTask: DaemonLastTask | null = null;
+  /** 最近一次「决策」：终局写投影时要保留它（停止原因与最近决策是两件事）。 */
+  let lastDecision: { ran: boolean; reason: string; task: string | null } | null = null;
   const reportState = async (
     currentQueue: SchedulerQueue,
     iteration: number,
     phase: 'started' | 'skipping' | 'ran' | 'stopped',
-    decision: { ran: boolean; reason: string; task: string | null } | null,
+    decision?: { ran: boolean; reason: string; task: string | null } | null,
     stoppedReason: string | null = null,
   ): Promise<void> => {
+    if (decision !== undefined) lastDecision = decision;
     try {
       await writeDaemonState(options.projectRoot, {
         pid: process.pid,
@@ -156,7 +160,7 @@ export async function runDaemonLoop(options: DaemonLoopOptions): Promise<DaemonL
         iteration,
         phase,
         stopped_reason: stoppedReason,
-        last_decision: decision,
+        last_decision: lastDecision,
         last_task: lastTask,
         queue: countQueue(currentQueue),
         budget: {
@@ -199,23 +203,28 @@ export async function runDaemonLoop(options: DaemonLoopOptions): Promise<DaemonL
    */
   const concurrency = options.concurrency ?? 1;
   if (concurrency > 1) {
+    // 准入（ADR 0028）：没装守卫才允许开并发；装了守卫一律拒绝并说明解除方式。
+    const gate = await checkConcurrencyGate(options.projectRoot, concurrency);
     log(
       [
         'daemon',
-        'concurrency-not-open',
+        gate.ok ? 'concurrency' : 'concurrency-not-open',
         'requested=' + concurrency,
-        '并发单元是 capability spec，且写保护守卫按 current-change 指针 fail-closed；',
-        '装了守卫就先 cometflow hook uninstall . --platform claude-code，或等守卫支持按 module 归属（ADR 0028）',
+        gate.ok
+          ? '并发单元 = capability spec（同一 spec_ref 不并行）'
+          : gate.reason,
       ].join(' '),
     );
-    await reportState(
-      { schema: 'cometflow.queue.v1', tasks: (await mergeTodoView(options.projectRoot)).tasks },
-      0,
-      'stopped',
-      { ran: false, reason: 'concurrency-not-open', task: null },
-      'concurrency-not-open',
-    );
-    return { reason: 'concurrency-not-open', detail: 'requested=' + concurrency, iterations: 0 };
+    if (!gate.ok) {
+      await reportState(
+        { schema: 'cometflow.queue.v1', tasks: (await mergeTodoView(options.projectRoot)).tasks },
+        0,
+        'stopped',
+        { ran: false, reason: 'concurrency-not-open', task: null },
+        'concurrency-not-open',
+      );
+      return { reason: 'concurrency-not-open', detail: gate.reason, iterations: 0 };
+    }
   }
 
   /**
@@ -289,111 +298,31 @@ export async function runDaemonLoop(options: DaemonLoopOptions): Promise<DaemonL
   let index = 0;
   let finalReason: DaemonLoopStopReason = 'budget-exhausted';
   let finalDetail: string | undefined;
-  while (!budget.isExhausted()) {
-    // 控制语义（S4）：每轮先看有没有人按下暂停 / 停止。进程仍归 CLI 持有，这里只读一个文件。
-    const control = await readDaemonControl(options.projectRoot);
-    if (control?.action === 'stop') {
-      log(['daemon', String(index), 'stopped-by-control', control.requested_by].join(' '));
-      // 一次性动作消费掉：否则下次 start 会立刻又停。
-      await clearDaemonControl(options.projectRoot);
-      await reportState(queue, index, 'stopped', { ran: false, reason: 'stopped-by-control', task: null }, 'stopped-by-control');
-      finalReason = 'stopped-by-control';
-      break;
-    }
-    if (control?.action === 'pause') {
-      log(['daemon', String(index), 'paused-by-control', control.requested_by].join(' '));
-      await reportState(queue, index, 'skipping', { ran: false, reason: 'paused-by-control', task: null }, 'paused-by-control');
-      index += 1;
-      // 暂停也要能退出：否则预算耗尽的进程会一直停在暂停里出不来。
-      if (budget.isExhausted()) break;
-      await new Promise((resolve) => setTimeout(resolve, intervalMs));
-      continue;
-    }
-    /**
-     * 领取（C1）：推导待办 → 回收过期租约 → 选第一条 queued → 标 running 并落盘，
-     * **整段在项目锁内完成**，且锁内**重新从事实推导**（不用内存里的旧队列）。
-     *
-     * 少了这一步，两个 daemon 实例（CLI 一个、serve 内嵌一个、或两台机器）会读到同一份队列、
-     * 双双选中同一个任务，各跑一遍 agent。
-     */
-    let claim: Awaited<ReturnType<typeof acquireLock>>;
-    try {
-      claim = await acquireLock(options.projectRoot, 'daemon claim');
-    } catch (error) {
-      // 另一个进程正在领取：等一轮再来，不打断它，也不让 daemon 崩掉。
-      const reason = error instanceof Error ? error.message : String(error);
-      log(['daemon', String(index), 'claim-blocked', reason.split('\n')[0]].join(' '));
-      index += 1;
-      if (budget.isExhausted()) break;
-      await new Promise((resolve) => setTimeout(resolve, intervalMs));
-      continue;
-    }
+  let stopClaiming = false;
 
-    let task: QueueTask | null = null;
-    let skipReason: string | null = null;
-    let stopReason: string | null = null;
+  /**
+   * 队列写入的**进程内互斥**（ADR 0028）。
+   *
+   * 并发下多个任务会同时收尾，各自「读内存队列 → 改自己那行 → 落盘」；没有这把锁，
+   * 后写的快照会覆盖前一次更新的状态（丢 update）。串行化的是**写入**，不是执行。
+   */
+  let writeChain: Promise<void> = Promise.resolve();
+  const withQueueWrite = async <T>(mutate: () => Promise<T>): Promise<T> => {
+    const previous = writeChain;
+    let release!: () => void;
+    writeChain = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await previous;
     try {
-      const view = await mergeTodoView(options.projectRoot);
-      let claimed: SchedulerQueue = { schema: 'cometflow.queue.v1', tasks: view.tasks };
-      // 每轮再回收一次：别的进程可能留下过期租约（锁内做，避免两边同时回收同一条）。
-      const swept = reclaimExpiredLeases(claimed, { maxAttempts });
-      if (swept.reclaimed.length > 0 || swept.exhausted.length > 0) {
-        claimed = swept.queue;
-        for (const entry of swept.reclaimed) log(['daemon', 'reclaimed', entry.id].join(' '));
-        for (const entry of swept.exhausted) log(['daemon', 'giving-up', entry.id].join(' '));
-      }
-
-      const candidate = nextQueuedTask(claimed);
-      if (candidate === null) {
-        queue = claimed;
-        await writeQueue(options.projectRoot, queue);
-        stopReason = 'no-queued-task';
-      } else {
-        const decision = shouldRunIteration(options.mode, {
-          loadavg1: loadavg()[0] ?? 0,
-          idleCpuThreshold: options.idleCpuThreshold ?? 1.0,
-          nowMinutes: new Date().getHours() * 60 + new Date().getMinutes(),
-          scheduleStartMinutes: options.scheduleStartMinutes,
-          scheduleEndMinutes: options.scheduleEndMinutes,
-        });
-        if (!decision.allowed) {
-          // 不允许跑就不领取：租约留给真正要执行的那一轮。
-          queue = claimed;
-          await writeQueue(options.projectRoot, queue);
-          skipReason = decision.reason;
-          task = candidate;
-        } else {
-          // 租约要长于单任务超时，否则正常执行中的任务会被误判为过期。
-          const change = changeNameForTask(candidate.goal, candidate.task);
-          task = candidate;
-          queue = markQueueTask(claimed, candidate.id, 'running', {
-            leaseMs: Math.max(DEFAULT_LEASE_MS, taskTimeoutMs + 60_000),
-            change,
-          });
-          await writeQueue(options.projectRoot, queue);
-        }
-      }
+      return await mutate();
     } finally {
-      await claim.release();
+      release();
     }
+  };
 
-    if (stopReason !== null) {
-      log(['daemon', String(index), stopReason, 'stop'].join(' '));
-      await reportState(queue, index, 'stopped', { ran: false, reason: stopReason, task: null }, stopReason);
-      finalReason = 'no-queued-task';
-      break;
-    }
-    if (task === null || skipReason !== null) {
-      const skipped = task;
-      log(['daemon', String(index), 'skip', skipReason ?? 'unknown', skipped?.id ?? ''].join(' ').trim());
-      await reportState(queue, index, 'skipping', { ran: false, reason: skipReason ?? 'unknown', task: skipped?.id ?? null });
-      index += 1;
-      if (budget.isExhausted()) break;
-      await new Promise((resolve) => setTimeout(resolve, intervalMs));
-      continue;
-    }
-
-    const change = changeNameForTask(task.goal, task.task);
+  /** 执行一条**已领取**的任务：并发下每个槽各跑一份，队列写入走互斥。 */
+  const executeTask = async (task: QueueTask): Promise<void> => {
     const taskStartedAt = Date.now();
     // P4：交付通道——不再把任务丢给无绑定的 flow-run，而是推进一次完整的 change 生命周期。
     const outcome = await runTaskThroughChange({
@@ -414,11 +343,13 @@ export async function runDaemonLoop(options: DaemonLoopOptions): Promise<DaemonL
     // 需要人工介入的（spec 冲突 / blocked / 未知阶段）直接标 failed 并停下：
     // 让 daemon 继续跑下一个任务，只会把问题掩盖在一串"看起来在推进"的日志后面。
     const gaveUp = outcome.needsHuman || (!succeeded && task.attempts + 1 >= maxAttempts);
-    queue = markQueueTask(queue, task.id, succeeded ? 'done' : gaveUp ? 'failed' : 'queued', {
-      change: outcome.change,
-      verdict: outcome.verdict,
+    await withQueueWrite(async () => {
+      queue = markQueueTask(queue, task.id, succeeded ? 'done' : gaveUp ? 'failed' : 'queued', {
+        change: outcome.change,
+        verdict: outcome.verdict,
+      });
+      await writeQueue(options.projectRoot, queue);
     });
-    await writeQueue(options.projectRoot, queue);
     await addBudgetUsage(options.projectRoot, elapsedMs);
     lastTask = {
       id: task.id,
@@ -447,9 +378,12 @@ export async function runDaemonLoop(options: DaemonLoopOptions): Promise<DaemonL
       reason: succeeded ? 'task-delivered' : gaveUp ? 'task-needs-human' : 'task-retry',
       task: task.id,
     });
-    index += 1;
     if (outcome.needsHuman) {
       // 停机交人工：状态投影里写明原因，界面与 CLI 都能看到「为什么停了」。
+      // 并发下这是"停止领取新任务"，已经在跑的槽让它跑完（不抢占）。
+      stopClaiming = true;
+      finalReason = 'needs-human';
+      finalDetail = outcome.verdict;
       await reportState(
         queue,
         index,
@@ -457,19 +391,168 @@ export async function runDaemonLoop(options: DaemonLoopOptions): Promise<DaemonL
         { ran: false, reason: 'needs-human:' + outcome.verdict, task: task.id },
         'needs-human:' + outcome.verdict,
       );
-      finalReason = 'needs-human';
-      finalDetail = outcome.verdict;
+    }
+  };
+
+  /** 领取一条任务（锁内重新推导；并发单元是 capability spec，见 ADR 0028）。 */
+  type ClaimResult =
+    | { kind: 'claimed'; task: QueueTask }
+    | { kind: 'idle' }
+    | { kind: 'skip'; reason: string; task: QueueTask }
+    | { kind: 'blocked'; reason: string };
+
+  const claimOne = async (activeUnits: ReadonlySet<string>): Promise<ClaimResult> => {
+    /**
+     * 领取（C1）：推导待办 → 回收过期租约 → 选第一条 queued → 标 running 并落盘，
+     * **整段在项目锁内完成**，且锁内**重新从事实推导**（不用内存里的旧队列）。
+     *
+     * 少了这一步，两个 daemon 实例（CLI 一个、serve 内嵌一个、或两台机器）会读到同一份队列、
+     * 双双选中同一个任务，各跑一遍 agent。
+     */
+    let claim: Awaited<ReturnType<typeof acquireLock>>;
+    try {
+      claim = await acquireLock(options.projectRoot, 'daemon claim');
+    } catch (error) {
+      // 另一个进程正在领取：等一轮再来，不打断它，也不让 daemon 崩掉。
+      const reason = error instanceof Error ? error.message : String(error);
+      return { kind: 'blocked', reason: reason.split('\n')[0] };
+    }
+
+    try {
+      const view = await mergeTodoView(options.projectRoot);
+      let claimed: SchedulerQueue = { schema: 'cometflow.queue.v1', tasks: view.tasks };
+      // 每轮再回收一次：别的进程可能留下过期租约（锁内做，避免两边同时回收同一条）。
+      const swept = reclaimExpiredLeases(claimed, { maxAttempts });
+      if (swept.reclaimed.length > 0 || swept.exhausted.length > 0) {
+        claimed = swept.queue;
+        for (const entry of swept.reclaimed) log(['daemon', 'reclaimed', entry.id].join(' '));
+        for (const entry of swept.exhausted) log(['daemon', 'giving-up', entry.id].join(' '));
+      }
+
+      // 并发单元去重：同一 capability（spec_ref）已有槽在跑时，这一轮不领它。
+      const candidate = nextClaimableTask(claimed.tasks, activeUnits);
+      if (candidate === null) {
+        await withQueueWrite(async () => {
+          queue = claimed;
+          await writeQueue(options.projectRoot, queue);
+        });
+        return { kind: 'idle' };
+      }
+      const decision = shouldRunIteration(options.mode, {
+        loadavg1: loadavg()[0] ?? 0,
+        idleCpuThreshold: options.idleCpuThreshold ?? 1.0,
+        nowMinutes: new Date().getHours() * 60 + new Date().getMinutes(),
+        scheduleStartMinutes: options.scheduleStartMinutes,
+        scheduleEndMinutes: options.scheduleEndMinutes,
+      });
+      if (!decision.allowed) {
+        // 不允许跑就不领取：租约留给真正要执行的那一轮。
+        await withQueueWrite(async () => {
+          queue = claimed;
+          await writeQueue(options.projectRoot, queue);
+        });
+        return { kind: 'skip', reason: decision.reason, task: candidate };
+      }
+      // 租约要长于单任务超时，否则正常执行中的任务会被误判为过期。
+      const change = changeNameForTask(candidate.goal, candidate.task);
+      await withQueueWrite(async () => {
+        queue = markQueueTask(claimed, candidate.id, 'running', {
+          leaseMs: Math.max(DEFAULT_LEASE_MS, taskTimeoutMs + 60_000),
+          change,
+        });
+        await writeQueue(options.projectRoot, queue);
+      });
+      return { kind: 'claimed', task: candidate };
+    } finally {
+      await claim.release();
+    }
+  };
+
+  const active = new Map<string, Promise<void>>();
+  const unitById = new Map<string, string>();
+  const unitsInFlight = (): Set<string> => new Set([...active.keys()].map((id) => unitById.get(id) ?? id));
+
+  while (!budget.isExhausted()) {
+    // 控制语义（S4）：每轮先看有没有人按下暂停 / 停止。进程仍归 CLI/宿主持有，这里只读一个文件。
+    const control = await readDaemonControl(options.projectRoot);
+    if (control?.action === 'stop') {
+      log(['daemon', String(index), 'stopped-by-control', control.requested_by].join(' '));
+      // 一次性动作消费掉：否则下次 start 会立刻又停。
+      await clearDaemonControl(options.projectRoot);
+      stopClaiming = true;
+      finalReason = 'stopped-by-control';
+    } else if (control?.action === 'pause') {
+      log(['daemon', String(index), 'paused-by-control', control.requested_by].join(' '));
+      await reportState(queue, index, 'skipping', { ran: false, reason: 'paused-by-control', task: null }, 'paused-by-control');
+      // 已领取的槽继续跑完；没有在跑的槽就等一轮再看控制文件。
+      if (active.size > 0) {
+        await Promise.race(active.values());
+        continue;
+      }
+      if (budget.isExhausted()) break;
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+      continue;
+    }
+
+    // 领取到槽位满（或没有可领取的为止）。
+    let claimedThisRound = 0;
+    let backoffReason: ClaimResult | null = null;
+    while (!stopClaiming && active.size < concurrency && !budget.isExhausted()) {
+      const result = await claimOne(unitsInFlight());
+      if (result.kind === 'claimed') {
+        const task = result.task;
+        unitById.set(task.id, concurrencyUnit(task));
+        index += 1;
+        const promise = executeTask(task).finally(() => {
+          active.delete(task.id);
+          unitById.delete(task.id);
+        });
+        active.set(task.id, promise);
+        claimedThisRound += 1;
+        continue;
+      }
+      backoffReason = result;
       break;
     }
-    if (budget.isExhausted()) {
-      await reportState(queue, index, 'stopped', { ran: false, reason: 'budget-exhausted', task: null }, 'budget-exhausted');
-      break;
+
+    if (claimedThisRound === 0) {
+      if (active.size === 0) {
+        if (stopClaiming) break;
+        // 队列里没有任何"可领取"的（可能全在等依赖，或全被别人占着）——收工。
+        log(['daemon', String(index), 'no-queued-task', 'stop'].join(' '));
+        await reportState(queue, index, 'stopped', { ran: false, reason: 'no-queued-task', task: null }, 'no-queued-task');
+        finalReason = 'no-queued-task';
+        break;
+      }
+      // 有槽在跑：等一个槽空出来再看（不空转）。
+      if (backoffReason !== null && backoffReason.kind === 'skip') {
+        log(['daemon', String(index), 'skip', backoffReason.reason, backoffReason.task.id].join(' '));
+        await reportState(queue, index, 'skipping', { ran: false, reason: backoffReason.reason, task: backoffReason.task.id });
+      }
+      if (backoffReason !== null && backoffReason.kind === 'blocked') {
+        log(['daemon', String(index), 'claim-blocked', backoffReason.reason].join(' '));
+      }
+      await Promise.race(active.values());
+      continue;
     }
+
+    if (active.size > 0) await Promise.race(active.values());
     // 失败后退避：连续失败的尝试间隔递增，避免立刻重跑同一个必然失败的任务。
-    const backoff = succeeded ? intervalMs : Math.min(intervalMs * (task.attempts + 1), intervalMs * 4);
-    await new Promise((resolve) => setTimeout(resolve, backoff));
+    const backoff = Math.min(intervalMs, intervalMs);
+    if (backoff > 0) await new Promise((resolve) => setTimeout(resolve, backoff));
   }
 
+  // 收口：等已领取的槽跑完（stop / needs-human 只停止领取，不抢占）。
+  await Promise.all([...active.values()]);
+  // 终局写一次投影：**停止原因**写进 stopped_reason，最近决策保持原样（两者不是一回事）。
+  // 用取值函数读一次：`finalReason` 会被闭包里的 `executeTask` 改成 'needs-human'，
+  // 而 TS 的控制流分析看不到闭包赋值（会把它窄化成"循环里赋过的那几个值"）。
+  const reasonAtExit = (): DaemonLoopStopReason => finalReason;
+  const stoppedReason =
+    reasonAtExit() === 'needs-human' && finalDetail !== undefined
+      ? 'needs-human:' + finalDetail
+      : finalReason;
+  await reportState(queue, index, 'stopped', undefined, stoppedReason);
   // 循环结束统一释放租约：别让「进程还在但已经不调度」占着单实例名额。
   await daemonLease.release();
   return { reason: finalReason, detail: finalDetail, iterations: index };

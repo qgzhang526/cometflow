@@ -74,8 +74,8 @@ describe('调度并发（C1）', () => {
     // runChange 要求 build 阶段：先走 confirm-acceptance。
     const build = applyChangeTransition(created, 'confirm-acceptance');
     await commitTransition(root, 'confirm-acceptance', created, build);
-    // 手工持有的锁标签与 runChange 内部一致：模拟「另一个驱动者正在跑同一个 change」。
-    const holding = await acquireLock(root, 'change run G1-T1');
+    // 手工持有的锁与 runChange 内部一致（含 scope）：模拟「另一个驱动者正在跑同一个 change」。
+    const holding = await acquireLock(root, 'change run G1-T1', { scope: 'change-run-G1-T1' });
     try {
       await expect(runChange(root, 'G1-T1', countingRunner({ runs: 0 }, 0))).rejects.toThrow(/另一个进程正在执行/u);
     } finally {

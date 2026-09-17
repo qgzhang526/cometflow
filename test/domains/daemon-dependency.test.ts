@@ -6,6 +6,7 @@ import { nextQueuedTask } from '../../domains/scheduler/queue.js';
 import { mergeTodoView } from '../../domains/scheduler/daemon-todo.js';
 import { runDaemonLoop } from '../../domains/scheduler/daemon.js';
 import type { AgentRunner } from '../../platform/agents/types.js';
+import { installHook } from '../../domains/guard/hook-install.js';
 
 /**
  * 依赖排序（C2）：`depends_on` 里的任务**已交付**（有归档 change）才轮到它。
@@ -93,7 +94,7 @@ describe('依赖排序（C2）', () => {
   });
 
   // ADR 0028：并发槽位 >1 一律拒绝并说明原因（不静默降级），因为写保护守卫按指针 fail-closed。
-  it('concurrency > 1 被拒绝，并说明怎么才能开', async () => {
+  it('装了写保护守卫时 concurrency > 1 被拒绝，并说明怎么才能开', async () => {
     const lines: string[] = [];
     const runner: AgentRunner = {
       id: 'mock',
@@ -104,6 +105,9 @@ describe('依赖排序（C2）', () => {
       subagentTool: () => 'task',
       configTemplate: () => 'none',
     };
+    // 真装一次守卫（claude-code），让准入检查面对真实证据而不是桩。
+    await installHook(root, 'claude-code');
+
     const result = await runDaemonLoop({
       projectRoot: root,
       agentId: 'mock',

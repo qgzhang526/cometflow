@@ -35,6 +35,8 @@ export interface QueueTask {
   depends_on?: string[];
   /** 未满足的依赖（调度器据此跳过它，界面据此显示「等待 X 交付」）。 */
   blocked_by?: string[];
+  /** capability（并发单元用：同一 capability 的任务不并行，见 ADR 0028）。 */
+  capability?: string | null;
 }
 
 export interface SchedulerQueue {
@@ -101,6 +103,7 @@ export function queueFromPlan(plan: TaskPlan): QueueTask[] {
     spec_anchor: task.spec_anchor ?? null,
     spec_hash: task.spec_hash ?? null,
     depends_on: task.depends_on ?? [],
+    capability: task.capability ?? null,
   }));
 }
 

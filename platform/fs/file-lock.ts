@@ -25,9 +25,22 @@ export function lockPath(projectRoot: string): string {
   return path.join(projectRoot, '.cometflow', 'runtime', 'lock');
 }
 
-export async function readLock(projectRoot: string): Promise<LockRecord | null> {
+/**
+ * 锁的作用域（可选）。
+ *
+ * 默认（不传）仍然是项目级一把锁——冻结计划、归档、恢复版本这些"一次要改多个文件"的动作继续用它。
+ * 但**并发执行 change** 需要更细的粒度：两个不同的 change 各改自己的工作区，不该互相排队。
+ * 传了 scope 就落到 `runtime/locks/<scope>.lock`，互不打扰（P4/C3，ADR 0028）。
+ */
+export function scopedLockPath(projectRoot: string, scope?: string): string {
+  if (scope === undefined || scope === '') return lockPath(projectRoot);
+  const safe = scope.replace(/[^A-Za-z0-9._-]/gu, '_');
+  return path.join(projectRoot, '.cometflow', 'runtime', 'locks', safe + '.lock');
+}
+
+export async function readLock(projectRoot: string, options: { scope?: string } = {}): Promise<LockRecord | null> {
   try {
-    const parsed = JSON.parse(await fs.readFile(lockPath(projectRoot), 'utf8')) as LockRecord;
+    const parsed = JSON.parse(await fs.readFile(scopedLockPath(projectRoot, options.scope), 'utf8')) as LockRecord;
     return typeof parsed.startedAt === 'string' ? parsed : null;
   } catch {
     return null;
@@ -53,9 +66,9 @@ export interface LockInspection {
 
 export async function inspectLock(
   projectRoot: string,
-  options: { now?: Date; ttlMs?: number } = {},
+  options: { now?: Date; ttlMs?: number; scope?: string } = {},
 ): Promise<LockInspection> {
-  const record = await readLock(projectRoot);
+  const record = await readLock(projectRoot, { scope: options.scope });
   if (record === null) return { record: null, stale: false, reason: null };
   const now = (options.now ?? new Date()).getTime();
   const started = new Date(record.startedAt).getTime();
@@ -98,9 +111,9 @@ export interface AcquiredLock {
 export async function acquireLock(
   projectRoot: string,
   action: string,
-  options: { ttlMs?: number; now?: Date } = {},
+  options: { ttlMs?: number; now?: Date; scope?: string } = {},
 ): Promise<AcquiredLock> {
-  const target = lockPath(projectRoot);
+  const target = scopedLockPath(projectRoot, options.scope);
   await fs.mkdir(path.dirname(target), { recursive: true });
   const record: LockRecord = {
     pid: process.pid,
@@ -122,7 +135,7 @@ export async function acquireLock(
       return {
         record,
         release: async () => {
-          const current = await readLock(projectRoot);
+          const current = await readLock(projectRoot, { scope: options.scope });
           // 只释放自己持有的锁：接管过陈旧锁的进程不能把新持有者的锁删掉。
           if (current !== null && current.pid === record.pid && current.startedAt === record.startedAt) {
             await fs.rm(target, { force: true }).catch(() => undefined);
@@ -139,7 +152,7 @@ export async function acquireLock(
       return {
         record,
         release: async () => {
-          const current = await readLock(projectRoot);
+          const current = await readLock(projectRoot, { scope: options.scope });
           if (current !== null && current.pid === record.pid && current.startedAt === record.startedAt) {
             await fs.rm(target, { force: true }).catch(() => undefined);
           }
