@@ -2,6 +2,9 @@ import { createChangeFromTask } from '../workflow/change-create.js';
 import { commitTransition, readChangeState } from '../workflow/change-store.js';
 import { applyChangeTransition } from '../workflow/change-transitions.js';
 import { archiveChange, runChange, verifyChange, SpecConflictError } from '../workflow/change-execution.js';
+import { readProjectConfig } from '../project/config.js';
+import { preflightTask } from './daemon-preflight.js';
+import type { TaskKind } from '../task-plan/types.js';
 import type { ChangePhase, ChangeState } from '../workflow/change-types.js';
 import type { AgentRunner } from '../../platform/agents/types.js';
 
@@ -18,6 +21,8 @@ export type DaemonTaskVerdict =
   | 'delivered'
   | 'agent-failed'
   | 'verify-failed'
+  /** 验收无法自动判定：不执行，直接判失败并停机（`verification.unattended_preflight`）。 */
+  | 'unverifiable'
   | 'spec-conflict'
   | 'error';
 
@@ -51,6 +56,11 @@ export interface RunTaskThroughChangeOptions {
   goal: string;
   task: string;
   runner: AgentRunner;
+  /** 前置检查需要知道任务形态：spec-authoring 由 G4 的产物护栏负责，不参与验收预检。 */
+  taskKind?: TaskKind | null;
+  specRef?: string | null;
+  specAnchor?: string | null;
+  specHash?: string | null;
   model?: string;
   timeoutMs?: number;
   /** 显式忽略 git 来源漂移（与 CLI `change run --allow-drift` 同义）。 */
@@ -74,6 +84,26 @@ export async function runTaskThroughChange(options: RunTaskThroughChangeOptions)
   }
 
   try {
+    // 无人值守前置检查：验收判不出来的任务不执行——它跑到最后必然是 blocked，
+    // 先判掉等于把预算留给"把 spec 补成可判定"这件事（P4 后续）。
+    if (state === null) {
+      const config = await readProjectConfig(options.projectRoot);
+      const preflight = await preflightTask({
+        projectRoot: options.projectRoot,
+        task: { kind: options.taskKind ?? 'implementation', spec_ref: options.specRef ?? null, spec_anchor: options.specAnchor ?? null, spec_hash: options.specHash ?? null },
+        config,
+      });
+      if (preflight.verdict === 'unverifiable' && preflight.policy === 'fail') {
+        return {
+          verdict: 'unverifiable',
+          change,
+          phase: null,
+          archived: false,
+          detail: preflight.reason + '；补 check / eval / verifier，或把 verification.unattended_preflight 设为 warn|off',
+          needsHuman: true,
+        };
+      }
+    }
     if (state === null) {
       state = await createChangeFromTask({
         projectRoot: options.projectRoot,

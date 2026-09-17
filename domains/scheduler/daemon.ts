@@ -6,6 +6,8 @@ import { runFlowRun } from './flow-run.js';
 import { changeNameForTask, runTaskThroughChange } from './daemon-run-change.js';
 import { mergeTodoView } from './daemon-todo.js';
 import { clearDaemonControl, readDaemonControl } from './daemon-control.js';
+import { acquireLock } from '../../platform/fs/file-lock.js';
+import type { QueueTask } from './queue.js';
 import { idleGovernorAllows, type SchedulerMode } from './idle-governor.js';
 import { buildRollbackGuidance, captureGitSafetySnapshot } from './git-safety.js';
 import {
@@ -200,44 +202,90 @@ export async function runDaemonLoop(options: DaemonLoopOptions): Promise<void> {
       await new Promise((resolve) => setTimeout(resolve, intervalMs));
       continue;
     }
-    // 每轮再回收一次：同一轮里也可能有别的进程留下的过期租约。
-    const swept = reclaimExpiredLeases(queue, { maxAttempts });
-    if (swept.reclaimed.length > 0 || swept.exhausted.length > 0) {
-      queue = swept.queue;
-      await writeQueue(options.projectRoot, queue);
-      for (const task of swept.reclaimed) console.log(['daemon', 'reclaimed', task.id].join(' '));
-      for (const task of swept.exhausted) console.log(['daemon', 'giving-up', task.id].join(' '));
-    }
-    const task = nextQueuedTask(queue);
-    if (!task) {
-      console.log(['daemon', String(index), 'no-queued-task', 'stop'].join(' '));
-      await reportState(queue, index, 'stopped', { ran: false, reason: 'no-queued-task', task: null }, 'no-queued-task');
-      break;
-    }
-
-    const decision = shouldRunIteration(options.mode, {
-      loadavg1: loadavg()[0] ?? 0,
-      idleCpuThreshold: options.idleCpuThreshold ?? 1.0,
-      nowMinutes: new Date().getHours() * 60 + new Date().getMinutes(),
-      scheduleStartMinutes: options.scheduleStartMinutes,
-      scheduleEndMinutes: options.scheduleEndMinutes,
-    });
-    if (!decision.allowed) {
-      console.log(['daemon', String(index), 'skip', decision.reason, task.id].join(' '));
-      await reportState(queue, index, 'skipping', { ran: false, reason: decision.reason, task: task.id });
+    /**
+     * 领取（C1）：推导待办 → 回收过期租约 → 选第一条 queued → 标 running 并落盘，
+     * **整段在项目锁内完成**，且锁内**重新从事实推导**（不用内存里的旧队列）。
+     *
+     * 少了这一步，两个 daemon 实例（CLI 一个、serve 内嵌一个、或两台机器）会读到同一份队列、
+     * 双双选中同一个任务，各跑一遍 agent。
+     */
+    let claim: Awaited<ReturnType<typeof acquireLock>>;
+    try {
+      claim = await acquireLock(options.projectRoot, 'daemon claim');
+    } catch (error) {
+      // 另一个进程正在领取：等一轮再来，不打断它，也不让 daemon 崩掉。
+      const reason = error instanceof Error ? error.message : String(error);
+      console.log(['daemon', String(index), 'claim-blocked', reason.split('\n')[0]].join(' '));
       index += 1;
       if (budget.isExhausted()) break;
       await new Promise((resolve) => setTimeout(resolve, intervalMs));
       continue;
     }
 
-    // 租约要长于单任务超时，否则正常执行中的任务会被误判为过期。
+    let task: QueueTask | null = null;
+    let skipReason: string | null = null;
+    let stopReason: string | null = null;
+    try {
+      const view = await mergeTodoView(options.projectRoot);
+      let claimed: SchedulerQueue = { schema: 'cometflow.queue.v1', tasks: view.tasks };
+      // 每轮再回收一次：别的进程可能留下过期租约（锁内做，避免两边同时回收同一条）。
+      const swept = reclaimExpiredLeases(claimed, { maxAttempts });
+      if (swept.reclaimed.length > 0 || swept.exhausted.length > 0) {
+        claimed = swept.queue;
+        for (const entry of swept.reclaimed) console.log(['daemon', 'reclaimed', entry.id].join(' '));
+        for (const entry of swept.exhausted) console.log(['daemon', 'giving-up', entry.id].join(' '));
+      }
+
+      const candidate = nextQueuedTask(claimed);
+      if (candidate === null) {
+        queue = claimed;
+        await writeQueue(options.projectRoot, queue);
+        stopReason = 'no-queued-task';
+      } else {
+        const decision = shouldRunIteration(options.mode, {
+          loadavg1: loadavg()[0] ?? 0,
+          idleCpuThreshold: options.idleCpuThreshold ?? 1.0,
+          nowMinutes: new Date().getHours() * 60 + new Date().getMinutes(),
+          scheduleStartMinutes: options.scheduleStartMinutes,
+          scheduleEndMinutes: options.scheduleEndMinutes,
+        });
+        if (!decision.allowed) {
+          // 不允许跑就不领取：租约留给真正要执行的那一轮。
+          queue = claimed;
+          await writeQueue(options.projectRoot, queue);
+          skipReason = decision.reason;
+          task = candidate;
+        } else {
+          // 租约要长于单任务超时，否则正常执行中的任务会被误判为过期。
+          const change = changeNameForTask(candidate.goal, candidate.task);
+          task = candidate;
+          queue = markQueueTask(claimed, candidate.id, 'running', {
+            leaseMs: Math.max(DEFAULT_LEASE_MS, taskTimeoutMs + 60_000),
+            change,
+          });
+          await writeQueue(options.projectRoot, queue);
+        }
+      }
+    } finally {
+      await claim.release();
+    }
+
+    if (stopReason !== null) {
+      console.log(['daemon', String(index), stopReason, 'stop'].join(' '));
+      await reportState(queue, index, 'stopped', { ran: false, reason: stopReason, task: null }, stopReason);
+      break;
+    }
+    if (task === null || skipReason !== null) {
+      const skipped = task;
+      console.log(['daemon', String(index), 'skip', skipReason ?? 'unknown', skipped?.id ?? ''].join(' ').trim());
+      await reportState(queue, index, 'skipping', { ran: false, reason: skipReason ?? 'unknown', task: skipped?.id ?? null });
+      index += 1;
+      if (budget.isExhausted()) break;
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+      continue;
+    }
+
     const change = changeNameForTask(task.goal, task.task);
-    queue = markQueueTask(queue, task.id, 'running', {
-      leaseMs: Math.max(DEFAULT_LEASE_MS, taskTimeoutMs + 60_000),
-      change,
-    });
-    await writeQueue(options.projectRoot, queue);
     const taskStartedAt = Date.now();
     // P4：交付通道——不再把任务丢给无绑定的 flow-run，而是推进一次完整的 change 生命周期。
     const outcome = await runTaskThroughChange({
@@ -245,6 +293,11 @@ export async function runDaemonLoop(options: DaemonLoopOptions): Promise<void> {
       goal: task.goal,
       task: task.task,
       runner,
+      // 前置检查需要任务形态：这些字段在合并视图里都带着（推导自计划）。
+      taskKind: task.kind === 'spec-authoring' ? 'spec-authoring' : 'implementation',
+      specRef: task.spec_ref ?? null,
+      specAnchor: task.spec_anchor ?? null,
+      specHash: task.spec_hash ?? null,
       model: options.model,
       timeoutMs: taskTimeoutMs,
     });

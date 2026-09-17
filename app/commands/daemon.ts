@@ -5,7 +5,7 @@ import type { SchedulerMode } from '../../domains/scheduler/idle-governor.js';
 import { resolveAgentId } from '../../domains/scheduler/flow-run.js';
 import { resolveModel } from '../../domains/project/config.js';
 import { parseScheduleWindow } from '../../domains/scheduler/schedule.js';
-import { rebuildQueue, resetQueue } from '../../domains/scheduler/daemon-todo.js';
+import { rebuildQueue, resetQueue, retryQueueTask } from '../../domains/scheduler/daemon-todo.js';
 import { writeDaemonControl } from '../../domains/scheduler/daemon-control.js';
 
 export interface DaemonCommandOptions {
@@ -113,4 +113,12 @@ export async function daemonControlCommand(
   if (action === 'stop') {
     console.log('（正在跑的 daemon 会在下一轮退出；没有在跑时这条指令会在下次 start 时被消费）');
   }
+}
+
+/** 单条任务重新排队（细粒度恢复）：`daemon queue retry G1:T1`。 */
+export async function daemonRetryCommand(taskRef: string, targetPath: string): Promise<void> {
+  const projectRoot = path.resolve(targetPath);
+  const result = await retryQueueTask(projectRoot, taskRef);
+  console.log('daemon queue retry: ' + result.reason);
+  if (!result.retried) process.exitCode = 1;
 }

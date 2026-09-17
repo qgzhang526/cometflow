@@ -277,27 +277,34 @@ export async function runChange(
     );
   }
   await assertGitProvenance(projectRoot, name, state, options);
-  const prompt = await buildChangePrompt(projectRoot, name);
-  await appendChangeEvent(projectRoot, name, 'run-started', { agent: runner.id }, { phase: state.phase });
-  // model 一路传下去：调度器带 `--model` 驱动 change 时，builder 必须真的用上它
-  // （verify 那条链早就在传 model，build 这条以前没有，属于静默忽略配置）。
-  const result = await runner.run({ prompt, cwd: projectRoot, model: options.model, timeoutMs: options.timeoutMs });
-  if (result.exitCode !== 0) {
+  // C1：change 级互斥。人手工 `change run` 与 daemon 可能同时驱动同一个 change，
+  // 没有这把锁就会真跑两个 agent 改同一块代码。拿不到锁立刻失败并说明持有者（ADR 0021）。
+  const lock = await acquireLock(projectRoot, 'change run ' + name);
+  try {
+    const prompt = await buildChangePrompt(projectRoot, name);
+    await appendChangeEvent(projectRoot, name, 'run-started', { agent: runner.id }, { phase: state.phase });
+    // model 一路传下去：调度器带 `--model` 驱动 change 时，builder 必须真的用上它
+    // （verify 那条链早就在传 model，build 这条以前没有，属于静默忽略配置）。
+    const result = await runner.run({ prompt, cwd: projectRoot, model: options.model, timeoutMs: options.timeoutMs });
+    if (result.exitCode !== 0) {
+      await appendChangeEvent(projectRoot, name, 'run-completed', {
+        agent: runner.id,
+        exitCode: result.exitCode,
+        ok: false,
+      }, { phase: state.phase });
+      return { state, agentExitCode: result.exitCode };
+    }
+    const next = applyChangeTransition(state, 'submit-candidate');
+    await commitTransition(projectRoot, 'submit-candidate', state, next);
     await appendChangeEvent(projectRoot, name, 'run-completed', {
       agent: runner.id,
       exitCode: result.exitCode,
-      ok: false,
-    }, { phase: state.phase });
-    return { state, agentExitCode: result.exitCode };
+      ok: true,
+    }, { phase: next.phase });
+    return { state: next, agentExitCode: result.exitCode };
+  } finally {
+    await lock.release();
   }
-  const next = applyChangeTransition(state, 'submit-candidate');
-  await commitTransition(projectRoot, 'submit-candidate', state, next);
-  await appendChangeEvent(projectRoot, name, 'run-completed', {
-    agent: runner.id,
-    exitCode: result.exitCode,
-    ok: true,
-  }, { phase: next.phase });
-  return { state: next, agentExitCode: result.exitCode };
 }
 
 export interface ChangeVerifyOutcome {
@@ -384,6 +391,9 @@ export async function verifyChange(
   const state = await readChangeState(projectRoot, name);
   if (state.phase !== 'verify') throw new Error('change verify requires verify phase');
   await assertGitProvenance(projectRoot, name, state, { allowDrift: options.allowDrift });
+  // 这里刻意**不**加 change 级锁：verify 只读代码、跑确定性检查与只读 Verifier，唯一的写入是
+  // verification.md（同源结果，最后写入者胜），而真正改状态的归档有自己的锁。
+  // 需要互斥的是"跑 builder"（`change run` 已加锁）与"归档"（archiveChange 已有锁）。
   // 起草类 change 的「验收」就是那份 spec 本身：先确认它真的合格，再谈别的。
   await assertAuthoredSpecReady(projectRoot, state);
 

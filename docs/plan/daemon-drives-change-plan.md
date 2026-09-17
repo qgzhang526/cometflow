@@ -137,7 +137,7 @@ daemon 从「把 agent 叫起来的批处理泵」升级为**交付流水线**�
 
 | 命令 | 结果 |
 |---|---|
-| `npx vitest run` | **84 文件 / 501 例全绿** |
+| `npx vitest run` | **86 文件 / 511 例全绿**（含后续批次新增的前置检查 / 细粒度恢复 / 并发用例） |
 | `node scripts/regression.mjs` | **145 步 PASS**（新增 10 步：队列重建、控制文件生效、驱动一次真实交付） |
 | `tsc --noEmit` / `vue-tsc --noEmit` / `pnpm build` / `pnpm package-e2e` | 全部通过 |
 | 浏览器走查 | 调度面板：控制按钮 + 来源列 + 交付列（change/phase/已归档）渲染正常，控制台无 error |

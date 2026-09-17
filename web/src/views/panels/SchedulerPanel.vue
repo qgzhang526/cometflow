@@ -150,7 +150,7 @@
       <thead>
         <tr>
           <th>目标</th><th>任务</th><th>标题</th><th>调度状态</th><th>来源</th>
-          <th>交付（change）</th><th>尝试</th>
+          <th>交付（change）</th><th>尝试</th><th>恢复</th>
           <th v-if="hasDaemonQueue">更新时间</th>
         </tr>
       </thead>
@@ -183,6 +183,18 @@
             <span v-else class="muted">—</span>
           </td>
           <td>{{ task.attempts }}</td>
+          <td>
+            <!-- 细粒度恢复：只重排这一条，不动其它任务的覆盖与尝试次数。 -->
+            <button
+              v-if="task.status === 'failed' && !task.delivered"
+              class="ghost"
+              :disabled="retrying !== ''"
+              title="把这一条重新排队（等价 cometflow daemon queue retry <goal:task>）"
+              @click="retry(task)"
+            >
+              {{ retrying === task.id ? '排队中…' : '重新排队' }}
+            </button>
+          </td>
           <td v-if="hasDaemonQueue" class="muted">{{ relativeTime(task.updated_at) }}</td>
         </tr>
       </tbody>
@@ -204,6 +216,7 @@ const project = useProjectStore();
 const toasts = useToastStore();
 const data = ref<SchedulerResponse | null>(null);
 const controlBusy = ref(false);
+const retrying = ref('');
 
 /** S3：面板看的是合并视图（推导 + 运行时覆盖 + 交付账本），不是 `queue.json` 那一份。 */
 const tasks = computed(() => data.value?.tasks ?? []);
@@ -221,6 +234,24 @@ async function control(action: 'pause' | 'resume' | 'stop'): Promise<void> {
     toasts.error('控制失败', errorMessage(error));
   } finally {
     controlBusy.value = false;
+  }
+}
+
+/** 重新排队单条任务：daemon 停机交人工之后，把那一条放回待办，其余不动。 */
+async function retry(task: { id: string; goal: string; task: string }): Promise<void> {
+  retrying.value = task.id;
+  try {
+    await project.projectApi('/scheduler/queue/retry', {
+      method: 'POST',
+      body: { task: task.goal + ':' + task.task },
+    });
+    await load();
+    toasts.success('已重新排队', task.goal + ':' + task.task);
+  } catch (error) {
+    // 已交付/不存在的任务会返回 409 与原因——直接显示它，比"失败"两个字有用。
+    toasts.error('重新排队失败', errorMessage(error));
+  } finally {
+    retrying.value = '';
   }
 }
 

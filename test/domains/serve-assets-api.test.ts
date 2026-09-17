@@ -133,6 +133,22 @@ describe('scheduler / assets / guard API', () => {
     expect(bad.body.error?.code).toBe('invalid-control-action');
   });
 
+  // 细粒度恢复：单条任务重新排队（不用 reset 整个队列）。
+  it('requeues a single task and explains why it refuses', async () => {
+    const missing = await post<unknown>('/scheduler/queue/retry', {});
+    expect(missing.status).toBe(400);
+    expect(missing.body.error?.code).toBe('missing-task');
+
+    // fixture 里 G1:T1 已有归档 change → 已交付，不能重排（要重跑得新开 change）。
+    const delivered = await post<unknown>('/scheduler/queue/retry', { task: 'G1:T1' });
+    expect(delivered.status).toBe(409);
+    expect(delivered.body.error?.code).toBe('not-retryable');
+
+    const unknown = await post<unknown>('/scheduler/queue/retry', { task: 'nope:1' });
+    expect(unknown.status).toBe(409);
+    expect(unknown.body.error?.message).toContain('没有这条任务');
+  });
+
   it('lists installed skills and reads one skill definition', async () => {
     const list = await get<{ skills: Array<{ name: string; files: string[] }> }>('/skills');
     expect(list.status).toBe(200);

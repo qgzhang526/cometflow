@@ -105,6 +105,17 @@ export interface VerificationConfig {
    * 设为 1 表示「只要一次失败就停机」，适合无人值守场景。
    */
   max_repair_attempts?: number;
+  /**
+   * 无人值守前置检查：验收项既没有可执行 `check:`、也没有 eval / 独立 Verifier 兜底时怎么办。
+   *
+   * 这类任务跑到最后必然是 blocked（`needs an independent verifier or a human verdict`），
+   * 所以默认**不执行**：直接判失败并停机，把预算留给人把 spec 补成可判定的。
+   *
+   * - `fail`（默认，未配置即此值）：不执行，任务失败，daemon 停机交人工；
+   * - `warn`：照常执行，只在结论里记一笔（人工在场时可用）；
+   * - `off`：不检查。
+   */
+  unattended_preflight?: 'fail' | 'warn' | 'off';
   /** 仅在 mode 为 checks+agent / agent-required 时生效。 */
   verifier_policy?: VerifierPolicy;
 }

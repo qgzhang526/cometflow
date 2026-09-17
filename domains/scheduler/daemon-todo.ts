@@ -104,22 +104,43 @@ export async function mergeTodoView(projectRoot: string): Promise<TodoView> {
 
   for (const task of derived) {
     const key = task.goal + ':' + task.task;
+    const runtime = overlayById.get(key);
     const archived = delivered.get(key);
     if (archived !== undefined) {
-      merged.push({ ...task, status: 'done', change: archived, verdict: 'delivered', delivered: true, source: 'delivered' });
+      // 交付由账本定义，但「试了几次、什么时候动的」仍是运行时事实——保留它，
+      // 否则交付记录里看不到「这条其实重试过 N 次」。
+      merged.push({
+        ...task,
+        ...(runtime === undefined ? {} : { attempts: runtime.attempts, updated_at: runtime.updated_at }),
+        status: 'done',
+        change: archived,
+        verdict: 'delivered',
+        delivered: true,
+        source: 'delivered',
+      });
+      overlayById.delete(key);
       continue;
     }
-    const runtime = overlayById.get(key);
     if (runtime !== undefined && runtime.status !== 'queued') {
       // 运行时的事实优先于「推导出待办」：正在跑的不能被重复排队，失败的保留尝试次数。
       merged.push({ ...task, ...runtime, delivered: false, source: 'overlay' });
       continue;
     }
+    /**
+     * 即便是 `queued`（失败后重试中），`attempts` / `updated_at` / `verdict` 也是运行时事实：
+     * 推导不知道「这条已经试过几次」。少了这几行，重试计数每轮被清零，尝试上限永远到不了——
+     * 一个必然失败的任务会被无限重跑（实测踩到过）。
+     */
+    const carried =
+      runtime === undefined
+        ? {}
+        : { attempts: runtime.attempts, updated_at: runtime.updated_at, verdict: runtime.verdict ?? null };
     const claimed = inFlight.get(key);
     if (claimed !== undefined && claimed !== changeNameForTask(task.goal, task.task)) {
       // 有人（或另一条通道）正在这个任务上干活：标记在飞，daemon 让开，别让两个 agent 改同一块代码。
       merged.push({
         ...task,
+        ...carried,
         status: 'running',
         change: claimed,
         verdict: 'in-flight',
@@ -133,7 +154,7 @@ export async function mergeTodoView(projectRoot: string): Promise<TodoView> {
       continue;
     }
     // daemon 自己上次没跑完的 change（确定性命名）：保持待办，下一轮由驱动按 phase 续作。
-    merged.push({ ...task, change: claimed ?? task.change ?? null, delivered: false, source: 'derived' });
+    merged.push({ ...task, ...carried, change: claimed ?? task.change ?? null, delivered: false, source: 'derived' });
     overlayById.delete(key);
   }
 
@@ -185,4 +206,45 @@ export async function resetQueue(projectRoot: string): Promise<TodoView> {
 /** 兼容旧入口：没跑过 daemon 时按计划推导（保留给既有调用方）。 */
 export async function deriveQueueCompat(projectRoot: string): Promise<SchedulerQueue> {
   return buildQueueFromPlans(projectRoot);
+}
+
+/**
+ * `retry`：把**单条**任务重新排队（S3 之后的细粒度恢复手段）。
+ *
+ * 动机是补掉粗粒度：daemon 因「需人工介入」停机后，那条任务在队列里是 `failed`，
+ * 而 `reset` 会把所有任务的覆盖与 attempts 一起清掉——修一个问题却要重置整个队列。
+ * 这里只动一条：其余任务的 running/失败结论与尝试次数原样保留。
+ *
+ * 已交付（有归档 change）的任务不会被重排：要重跑它得显式新开一个 change 承载同一任务。
+ */
+export async function retryQueueTask(
+  projectRoot: string,
+  taskRef: string,
+  options: { attempts?: number; now?: Date } = {},
+): Promise<{ view: TodoView; retried: boolean; reason: string }> {
+  const view = await mergeTodoView(projectRoot);
+  const target = view.tasks.find((task) => task.id === taskRef || task.goal + ':' + task.task === taskRef);
+  if (target === undefined) {
+    return { view, retried: false, reason: '队列里没有这条任务：' + taskRef };
+  }
+  if (target.delivered) {
+    return { view, retried: false, reason: target.id + ' 已交付（有归档 change）；要重跑请新开一个 change 承载同一任务' };
+  }
+
+  const now = (options.now ?? new Date()).toISOString();
+  const tasks: TodoEntry[] = view.tasks.map((task) =>
+    task.id === target.id
+      ? {
+          ...task,
+          status: 'queued' as const,
+          attempts: options.attempts ?? 0,
+          lease_until: null,
+          owner: null,
+          verdict: null,
+          updated_at: now,
+        }
+      : task,
+  );
+  await writeQueue(projectRoot, { schema: 'cometflow.queue.v1', tasks });
+  return { view: { ...view, tasks }, retried: true, reason: target.id + ' 已重新排队' };
 }

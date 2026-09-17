@@ -99,7 +99,7 @@ import type { SchedulerQueue } from '../scheduler/queue.js';
 import { readBudgetUsage } from '../scheduler/budget.js';
 import { readDaemonState } from '../scheduler/daemon-state.js';
 import { readDaemonControl, writeDaemonControl } from '../scheduler/daemon-control.js';
-import { mergeTodoView, rebuildQueue, resetQueue } from '../scheduler/daemon-todo.js';
+import { mergeTodoView, rebuildQueue, resetQueue, retryQueueTask } from '../scheduler/daemon-todo.js';
 import { runLocalEval } from '../eval/eval-service.js';
 import { collectFindings } from '../gates/findings.js';
 import { readMetricsGate } from '../gates/metrics-gate.js';
@@ -1527,6 +1527,24 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
       const view = await resetQueue(root);
       jobs.stateChanged(projectId, '/api/scheduler/queue');
       sendOk(res, { tasks: view.tasks, queued: view.tasks.filter((task) => task.status === 'queued').length });
+      return true;
+    }
+    // 单条任务重新排队（细粒度恢复）：不用为了修一条任务而 reset 整个队列。
+    if (segments[0] === 'scheduler' && segments[1] === 'queue' && segments[2] === 'retry' && method === 'POST') {
+      const body = await readJsonBody(req);
+      const taskRef = stringField(body.task);
+      if (taskRef === '') {
+        sendError(res, 400, 'missing-task', 'task 必填：goal:task（如 G1:T1）');
+        return true;
+      }
+      const result = await retryQueueTask(root, taskRef);
+      if (!result.retried) {
+        // 已交付 / 不存在都是「什么都别做」，但要让人知道原因，而不是静默成功。
+        sendError(res, 409, 'not-retryable', result.reason);
+        return true;
+      }
+      jobs.stateChanged(projectId, '/api/scheduler/queue');
+      sendOk(res, { tasks: result.view.tasks, reason: result.reason });
       return true;
     }
     if (segments[0] === 'skills' && segments.length === 1 && method === 'GET') {
