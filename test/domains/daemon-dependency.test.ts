@@ -4,8 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { nextQueuedTask } from '../../domains/scheduler/queue.js';
 import { mergeTodoView } from '../../domains/scheduler/daemon-todo.js';
-import { runDaemonLoop } from '../../domains/scheduler/daemon.js';
-import type { AgentRunner } from '../../platform/agents/types.js';
+import { checkConcurrencyGate } from '../../domains/scheduler/daemon-concurrency.js';
 import { installHook } from '../../domains/guard/hook-install.js';
 
 /**
@@ -93,31 +92,24 @@ describe('依赖排序（C2）', () => {
     expect(nextQueuedTask({ schema: 'cometflow.queue.v1', tasks: view.tasks })).toBeNull();
   });
 
-  // ADR 0028：装了守卫时按 module 判归属——spec 没声明 module 就没有归属依据，仍然 fail closed。
-  it('装了写保护守卫且 spec 没声明 module：并发被拒并说明怎么才能开', async () => {
-    const lines: string[] = [];
-    const runner: AgentRunner = {
-      id: 'mock',
-      name: 'mock',
-      buildCommand: (input) => ({ command: 'mock', args: [input.prompt], cwd: input.cwd }),
-      run: async () => ({ exitCode: 0, stdout: '', stderr: '', timedOut: false }),
-      check: async () => true,
-      subagentTool: () => 'task',
-      configTemplate: () => 'none',
-    };
+  /**
+   * ADR 0028（第三轮修订）：装了守卫**不再拒绝并发**——spec 没声明 module 只是让那些任务退化成
+   * 串行（归属不可判），而不是让整个项目失去并发。这里钉的是"准入的形态"：单元从 spec_ref
+   * 换成 module，并把会串行的任务点名说出来。
+   */
+  it('装了写保护守卫且 spec 没声明 module：并发仍开，但点明这些任务只能串行', async () => {
     // 真装一次守卫（claude-code），让准入检查面对真实证据而不是桩。
     await installHook(root, 'claude-code');
 
-    const result = await runDaemonLoop({
-      projectRoot: root,
-      agentId: 'mock',
-      mode: 'always',
-      runner,
-      concurrency: 2,
-      log: (line) => lines.push(line),
-    });
-    expect(result.reason).toBe('concurrency-not-open');
-    // 拒绝理由必须指到"补 module"，而不是笼统的"不支持"。
-    expect(lines.join('\n')).toContain('没有声明 module');
+    const gate = await checkConcurrencyGate(root, 2);
+    expect(gate.unit).toBe('module');
+    // 说明里必须点出：这些任务没声明 module，所以会串行（而不是笼统的"不支持"）。
+    expect(gate.reason).toContain('没声明 module');
+    expect(gate.reason).toContain('G1:T1');
+  });
+
+  it('没装守卫：并发单元仍是 capability spec（不额外牺牲吞吐）', async () => {
+    const gate = await checkConcurrencyGate(root, 2);
+    expect(gate.unit).toBe('spec-ref');
   });
 });

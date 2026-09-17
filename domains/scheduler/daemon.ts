@@ -9,7 +9,15 @@ import { clearDaemonControl, readDaemonControl } from './daemon-control.js';
 import { acquireLock } from '../../platform/fs/file-lock.js';
 import type { QueueTask } from './queue.js';
 import { acquireDaemonLease } from './daemon-lease.js';
-import { checkConcurrencyGate, concurrencyUnit, nextClaimableTask } from './daemon-concurrency.js';
+import {
+  checkConcurrencyGate,
+  concurrencyUnit,
+  nextClaimableTask,
+  type ClaimSkip,
+  type ConcurrencyGate,
+  type OccupiedModule,
+} from './daemon-concurrency.js';
+import { listChangeStates } from '../workflow/change-list.js';
 import { idleGovernorAllows, type SchedulerMode } from './idle-governor.js';
 import { buildRollbackGuidance, captureGitSafetySnapshot } from './git-safety.js';
 import {
@@ -121,8 +129,11 @@ export type DaemonLoopStopReason =
   | 'lease-held'
   /** `manual` 模式：只做一次回收/快照/状态投影，不进循环。 */
   | 'manual-single-pass'
-  /** 并发槽位 >1 时的拒绝（ADR 0028）：不静默降级，直接说清为什么不开放。 */
-  | 'concurrency-not-open';
+  /**
+   * 并发槽位 >1 且装着写保护守卫（ADR 0028）：候选任务的 module 被在飞的 change 占着
+   * （相等 / 互相包含 / 未声明），归属有歧义，必须等它交付或归档——不是拒绝启动，是串行。
+   */
+  | 'waiting-on-active-change';
 
 export interface DaemonLoopResult {
   reason: DaemonLoopStopReason;
@@ -194,38 +205,25 @@ export async function runDaemonLoop(options: DaemonLoopOptions): Promise<DaemonL
   const intervalMs = options.intervalMs ?? 60_000;
 
   /**
-   * 并发槽位（ADR 0028）：**先拒绝，不静默降级**。
+   * 并发槽位（ADR 0028，第三轮修订）：**能开就开，冲突的串行——不拒绝启动**。
    *
-   * 并发单元是 capability spec（同一 `spec_ref` 不并行），而写保护守卫是按 current-change 指针
-   * fail-closed 的——并发跑两个 change 时指针只能指一个，另一个的写入会被守卫拒绝。
-   * 所以在守卫支持按 module 归属之前，>1 一律拒绝，并说明怎么才能开：
-   *   卸载守卫，或等守卫扩容。
+   * - 没装写保护守卫：并发单元 = capability spec（同一 `spec_ref` 不并行）；
+   * - 装了守卫：并发单元换成 **module 归属**，领取时把与在飞 change 的 module 相等 /
+   *   互相包含 / 未声明的候选跳过（`nextClaimableTask`），于是"同模块串行、异模块并行"。
+   *
+   * 拒绝启动是上一轮的形态：它把"有歧义的组合"升级成"整个项目不能并发"，代价过大——
+   * 一个 module 没声明就让并发彻底不可用，而实际需要串行的只是那几条。
    */
   const concurrency = options.concurrency ?? 1;
+  let gate: ConcurrencyGate = { unit: 'spec-ref', reason: 'concurrency=1' };
   if (concurrency > 1) {
-    // 准入（ADR 0028）：没装守卫才允许开并发；装了守卫一律拒绝并说明解除方式。
-    const gate = await checkConcurrencyGate(options.projectRoot, concurrency);
+    gate = await checkConcurrencyGate(options.projectRoot, concurrency);
     log(
-      [
-        'daemon',
-        gate.ok ? 'concurrency' : 'concurrency-not-open',
-        'requested=' + concurrency,
-        gate.ok
-          ? '并发单元 = capability spec（同一 spec_ref 不并行）'
-          : gate.reason,
-      ].join(' '),
+      ['daemon', 'concurrency', 'requested=' + concurrency, 'unit=' + gate.unit, gate.reason].join(' '),
     );
-    if (!gate.ok) {
-      await reportState(
-        { schema: 'cometflow.queue.v1', tasks: (await mergeTodoView(options.projectRoot)).tasks },
-        0,
-        'stopped',
-        { ran: false, reason: 'concurrency-not-open', task: null },
-        'concurrency-not-open',
-      );
-      return { reason: 'concurrency-not-open', detail: gate.reason, iterations: 0 };
-    }
   }
+  /** 装了守卫且开了并发：领取时按 module 排除（守卫的归属判定要求"一个路径只落在一个 module 里"）。 */
+  const moduleExclusion = gate.unit === 'module';
 
   /**
    * 单实例租约（C3 前置）：一个项目同时只有一个调度器。
@@ -398,8 +396,25 @@ export async function runDaemonLoop(options: DaemonLoopOptions): Promise<DaemonL
   type ClaimResult =
     | { kind: 'claimed'; task: QueueTask }
     | { kind: 'idle' }
+    /** 有任务但这一轮谁也领不了（单元被占 / module 归属冲突）：等槽空或等 change 收尾。 */
+    | { kind: 'waiting'; skipped: ClaimSkip[] }
     | { kind: 'skip'; reason: string; task: QueueTask }
     | { kind: 'blocked'; reason: string };
+
+  /**
+   * 已被占用的 module（装了守卫、开了并发时才算）：**在飞 change 的账本**（含人手工开的）
+   * 叠上**本进程已领取的槽**（change 还没落盘的窗口）。候选人自己的 change 由
+   * `moduleConflictFor` 剔除——那是"续作自己的活"，不是并发冲突。
+   */
+  const occupiedModules = async (): Promise<OccupiedModule[]> => {
+    const entries: OccupiedModule[] = [];
+    for (const state of await listChangeStates(options.projectRoot)) {
+      if (state.archived) continue;
+      entries.push({ change: state.name, module: state.module ?? null });
+    }
+    for (const entry of moduleById.values()) entries.push(entry);
+    return entries;
+  };
 
   const claimOne = async (activeUnits: ReadonlySet<string>): Promise<ClaimResult> => {
     /**
@@ -429,15 +444,28 @@ export async function runDaemonLoop(options: DaemonLoopOptions): Promise<DaemonL
         for (const entry of swept.exhausted) log(['daemon', 'giving-up', entry.id].join(' '));
       }
 
-      // 并发单元去重：同一 capability（spec_ref）已有槽在跑时，这一轮不领它。
-      const candidate = nextClaimableTask(claimed.tasks, activeUnits);
-      if (candidate === null) {
+      /**
+       * 领取挑选：并发单元去重（同一 `spec_ref` 不并行）+ module 归属排除（装了守卫时）。
+       * 被占用的候选**跳过而不是卡住**——后面的候选接着看，槽位不会空转。
+       */
+      const selection = nextClaimableTask(claimed.tasks, {
+        activeUnits,
+        ...(moduleExclusion
+          ? {
+              occupied: await occupiedModules(),
+              moduleOf: (task: QueueTask) => task.module ?? null,
+              changeOf: (task: QueueTask) => changeNameForTask(task.goal, task.task),
+            }
+          : {}),
+      });
+      if (selection.kind !== 'claimable') {
         await withQueueWrite(async () => {
           queue = claimed;
           await writeQueue(options.projectRoot, queue);
         });
-        return { kind: 'idle' };
+        return selection.kind === 'none' ? { kind: 'idle' } : { kind: 'waiting', skipped: selection.skipped };
       }
+      const candidate = selection.task;
       const decision = shouldRunIteration(options.mode, {
         loadavg1: loadavg()[0] ?? 0,
         idleCpuThreshold: options.idleCpuThreshold ?? 1.0,
@@ -470,7 +498,22 @@ export async function runDaemonLoop(options: DaemonLoopOptions): Promise<DaemonL
 
   const active = new Map<string, Promise<void>>();
   const unitById = new Map<string, string>();
+  /** 已领取任务占用的 module（`occupiedModules` 用它补上"change 还没落盘"的窗口）。 */
+  const moduleById = new Map<string, OccupiedModule>();
   const unitsInFlight = (): Set<string> => new Set([...active.keys()].map((id) => unitById.get(id) ?? id));
+
+  /** 一条 module 冲突的说明：给日志和状态投影用（"在等谁"比"没得跑"有用得多）。 */
+  const describeSkip = (entry: ClaimSkip): string =>
+    entry.reason === 'unit-busy'
+      ? entry.task.id + ' 并发单元已被占用'
+      : entry.task.id +
+        ' 的 module 与在飞 change ' +
+        (entry.occupier?.change ?? '?') +
+        ' 冲突（module=' +
+        (entry.task.module ?? '(未声明)') +
+        ' vs ' +
+        (entry.occupier?.module ?? '(未声明)') +
+        '）';
 
   while (!budget.isExhausted()) {
     // 控制语义（S4）：每轮先看有没有人按下暂停 / 停止。进程仍归 CLI/宿主持有，这里只读一个文件。
@@ -502,10 +545,15 @@ export async function runDaemonLoop(options: DaemonLoopOptions): Promise<DaemonL
       if (result.kind === 'claimed') {
         const task = result.task;
         unitById.set(task.id, concurrencyUnit(task));
+        moduleById.set(task.id, {
+          change: changeNameForTask(task.goal, task.task),
+          module: task.module ?? null,
+        });
         index += 1;
         const promise = executeTask(task).finally(() => {
           active.delete(task.id);
           unitById.delete(task.id);
+          moduleById.delete(task.id);
         });
         active.set(task.id, promise);
         claimedThisRound += 1;
@@ -518,6 +566,25 @@ export async function runDaemonLoop(options: DaemonLoopOptions): Promise<DaemonL
     if (claimedThisRound === 0) {
       if (active.size === 0) {
         if (stopClaiming) break;
+        /**
+         * 没有槽在跑，而候选全被 module 占用挡住了：这不是"队列空了"，是"要等的 change 还没收尾"。
+         * 两者必须分开说——前者是正常收工，后者要人去看那个 change（归档 / unblock / 让 module 不相交）。
+         */
+        if (backoffReason !== null && backoffReason.kind === 'waiting') {
+          for (const entry of backoffReason.skipped) log(['daemon', String(index), 'skip', describeSkip(entry)].join(' '));
+          log(
+            ['daemon', String(index), 'waiting-on-active-change', 'stop', '在飞 change 占着这些任务的 module'].join(' '),
+          );
+          await reportState(
+            queue,
+            index,
+            'stopped',
+            { ran: false, reason: 'waiting-on-active-change', task: backoffReason.skipped[0]?.task.id ?? null },
+            'waiting-on-active-change',
+          );
+          finalReason = 'waiting-on-active-change';
+          break;
+        }
         // 队列里没有任何"可领取"的（可能全在等依赖，或全被别人占着）——收工。
         log(['daemon', String(index), 'no-queued-task', 'stop'].join(' '));
         await reportState(queue, index, 'stopped', { ran: false, reason: 'no-queued-task', task: null }, 'no-queued-task');
@@ -531,6 +598,10 @@ export async function runDaemonLoop(options: DaemonLoopOptions): Promise<DaemonL
       }
       if (backoffReason !== null && backoffReason.kind === 'blocked') {
         log(['daemon', String(index), 'claim-blocked', backoffReason.reason].join(' '));
+      }
+      if (backoffReason !== null && backoffReason.kind === 'waiting') {
+        // 有槽在跑：把跳过的原因说清楚，然后等一个槽空出来（同一 module 的任务自然排到后面）。
+        for (const entry of backoffReason.skipped) log(['daemon', String(index), 'skip', describeSkip(entry)].join(' '));
       }
       await Promise.race(active.values());
       continue;

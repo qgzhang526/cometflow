@@ -71,8 +71,9 @@ export async function daemonStartCommand(targetPath: string, options: DaemonComm
   });
   console.log('daemon: reason=' + result.reason + ' iterations=' + result.iterations + (result.detail ? ' detail=' + result.detail : ''));
   // 被拒绝的启动不是"正常结束"：给非零退出码，脚本能判断。
-  // - lease-held：已有调度器在跑；concurrency-not-open：并发准入没过（装了写保护守卫）。
-  if (result.reason === 'lease-held' || result.reason === 'concurrency-not-open') process.exitCode = 1;
+  // - lease-held：已有调度器在跑（单实例租约没拿到）。
+  // 注意 `waiting-on-active-change` **不算失败**：那是并发下"同 module 的任务排队"，退出码保持 0。
+  if (result.reason === 'lease-held') process.exitCode = 1;
 }
 
 /**

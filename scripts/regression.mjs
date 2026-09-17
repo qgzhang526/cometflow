@@ -579,18 +579,18 @@ check(
 );
 
 expectOk('change select --clear', ['change', 'select', 'stall-demo', '.', '--clear'], project);
-// C3 准入：这个项目此刻装着写保护守卫（前面几行刚复原）。守卫现在按 module 判归属，
-// 而夹具的 spec 都声明了互不相交的 module（src/core、src/auth、…），所以并发**允许**——
-// 这条断言钉的正是"守卫在位也能并发"这个 ADR 0028 的扩容结论。
+// C3 准入（第三轮修订）：这个项目此刻装着写保护守卫（前面几行刚复原）。守卫按 module 判归属，
+// 并发单元因此是 **module**——不再"有守卫就拒绝开并发"，而是"module 冲突的串行"。
+// 这条断言钉的正是准入的形态：单元是 module，且把会串行的任务点出来。
 const concurrentRun = expectOk(
-  '装守卫且 module 不相交时并发被放行',
+  '装了守卫也能开并发（并发单元 = module）',
   ['daemon', 'start', '.', '--mode', 'manual', '--agent', 'mock', '--concurrency', '2'],
   project,
 );
 check(
-  '并发准入按 module 判定（日志给出依据）',
-  concurrentRun.stdout.includes('concurrency') && concurrentRun.stdout.includes('capability spec'),
-  concurrentRun.stdout.trim().slice(0, 160),
+  '并发准入按 module 判定（日志给出单元与依据）',
+  concurrentRun.stdout.includes('unit=module') && concurrentRun.stdout.includes('module 归属'),
+  concurrentRun.stdout.trim().slice(0, 200),
 );
 expectDenied(
   // 目标故意选在所有 module 之外（docs/）：guard 现在先按 module 判归属，
