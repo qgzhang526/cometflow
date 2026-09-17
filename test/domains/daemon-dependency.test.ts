@@ -93,8 +93,8 @@ describe('依赖排序（C2）', () => {
     expect(nextQueuedTask({ schema: 'cometflow.queue.v1', tasks: view.tasks })).toBeNull();
   });
 
-  // ADR 0028：并发槽位 >1 一律拒绝并说明原因（不静默降级），因为写保护守卫按指针 fail-closed。
-  it('装了写保护守卫时 concurrency > 1 被拒绝，并说明怎么才能开', async () => {
+  // ADR 0028：装了守卫时按 module 判归属——spec 没声明 module 就没有归属依据，仍然 fail closed。
+  it('装了写保护守卫且 spec 没声明 module：并发被拒并说明怎么才能开', async () => {
     const lines: string[] = [];
     const runner: AgentRunner = {
       id: 'mock',
@@ -117,6 +117,7 @@ describe('依赖排序（C2）', () => {
       log: (line) => lines.push(line),
     });
     expect(result.reason).toBe('concurrency-not-open');
-    expect(lines.join('\n')).toContain('hook uninstall');
+    // 拒绝理由必须指到"补 module"，而不是笼统的"不支持"。
+    expect(lines.join('\n')).toContain('没有声明 module');
   });
 });

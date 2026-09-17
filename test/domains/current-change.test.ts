@@ -86,7 +86,7 @@ describe('current change pointer', () => {
 });
 
 describe('hook routing with several active changes', () => {
-  it('routes by the pointer and applies that change module boundary', async () => {
+  it('按 module 归属：写进某个活跃 change 的模块就归它，不需要指针', async () => {
     await writeChange(tmp, 'alpha', 'build', { module: 'src/alpha' });
     await writeChange(tmp, 'beta', 'build', { module: 'src/beta' });
     await selectCurrentChange(tmp, 'alpha', { source: 'manual' });
@@ -94,29 +94,33 @@ describe('hook routing with several active changes', () => {
     const insideAlpha = await evaluateHook(tmp, 'write', path.join(tmp, 'src', 'alpha', 'x.ts'));
     expect(insideAlpha.allowed).toBe(true);
 
-    // beta 的模块在 alpha 的边界之外：如果路由错了，这里会被放行。
+    // 写进 beta 的模块 → 归 beta（这正是并发能开的前提：各写各的模块，归属无歧义）。
     const insideBeta = await evaluateHook(tmp, 'write', path.join(tmp, 'src', 'beta', 'x.ts'));
-    expect(insideBeta.allowed).toBe(false);
-    expect(insideBeta.reason).toBe('outside-module-scope');
+    expect(insideBeta.allowed).toBe(true);
+
+    // 谁都不认领的路径：回落到指针（alpha），再按 alpha 的模块边界拒绝。
+    const outside = await evaluateHook(tmp, 'write', path.join(tmp, 'docs', 'note.md'));
+    expect(outside.allowed).toBe(false);
+    expect(outside.reason).toBe('outside-module-scope');
   });
 
-  it('fails closed when several changes are active and no pointer is set', async () => {
+  it('多个 change 且没有指针、路径不在任何 module 里：仍然 fail closed', async () => {
     await writeChange(tmp, 'alpha', 'build', { module: 'src/alpha' });
     await writeChange(tmp, 'beta', 'build', { module: 'src/beta' });
 
-    const decision = await evaluateHook(tmp, 'write', path.join(tmp, 'src', 'alpha', 'x.ts'));
+    const decision = await evaluateHook(tmp, 'write', path.join(tmp, 'docs', 'note.md'));
     expect(decision.allowed).toBe(false);
     expect(decision.reason).toBe('multiple-active-changes');
     expect(decision.hint).toContain('change select');
   });
 
-  it('fails closed when the pointer points at a missing or archived change', async () => {
+  it('指针指向已归档的 change、路径也不在 module 里：fail closed', async () => {
     await writeChange(tmp, 'alpha', 'build', { module: 'src/alpha' });
     await writeChange(tmp, 'beta', 'build', { module: 'src/beta' });
     await writeChange(tmp, 'gone', 'build', { archived: true, module: 'src/gone' });
     await selectCurrentChange(tmp, 'gone', { source: 'manual' });
 
-    const decision = await evaluateHook(tmp, 'write', path.join(tmp, 'src', 'alpha', 'x.ts'));
+    const decision = await evaluateHook(tmp, 'write', path.join(tmp, 'docs', 'note.md'));
     expect(decision.allowed).toBe(false);
     expect(decision.reason).toBe('stale-current-change');
     expect(decision.hint).toContain('alpha');
