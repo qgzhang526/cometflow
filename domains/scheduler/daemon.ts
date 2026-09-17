@@ -38,6 +38,11 @@ export interface DaemonOptions {
   maxAttempts?: number;
   /** 单任务超时（默认 30 分钟）：没有它，挂起的 agent 会永久阻塞 daemon。 */
   taskTimeoutMs?: number;
+  /**
+   * 并发槽位（默认 1）。ADR 0028：单元是 capability spec（同一 `spec_ref` 不并行），
+   * 且**写保护守卫在位时不开放**——目前传 >1 会被明确拒绝（不是静默降级）。
+   */
+  concurrency?: number;
 }
 
 export const DEFAULT_TASK_TIMEOUT_MS = 30 * 60_000;
@@ -114,7 +119,9 @@ export type DaemonLoopStopReason =
   | 'needs-human'
   | 'lease-held'
   /** `manual` 模式：只做一次回收/快照/状态投影，不进循环。 */
-  | 'manual-single-pass';
+  | 'manual-single-pass'
+  /** 并发槽位 >1 时的拒绝（ADR 0028）：不静默降级，直接说清为什么不开放。 */
+  | 'concurrency-not-open';
 
 export interface DaemonLoopResult {
   reason: DaemonLoopStopReason;
@@ -181,6 +188,35 @@ export async function runDaemonLoop(options: DaemonLoopOptions): Promise<DaemonL
   }
   const budget = new Budget({ budgetMs: remainingMs });
   const intervalMs = options.intervalMs ?? 60_000;
+
+  /**
+   * 并发槽位（ADR 0028）：**先拒绝，不静默降级**。
+   *
+   * 并发单元是 capability spec（同一 `spec_ref` 不并行），而写保护守卫是按 current-change 指针
+   * fail-closed 的——并发跑两个 change 时指针只能指一个，另一个的写入会被守卫拒绝。
+   * 所以在守卫支持按 module 归属之前，>1 一律拒绝，并说明怎么才能开：
+   *   卸载守卫，或等守卫扩容。
+   */
+  const concurrency = options.concurrency ?? 1;
+  if (concurrency > 1) {
+    log(
+      [
+        'daemon',
+        'concurrency-not-open',
+        'requested=' + concurrency,
+        '并发单元是 capability spec，且写保护守卫按 current-change 指针 fail-closed；',
+        '装了守卫就先 cometflow hook uninstall . --platform claude-code，或等守卫支持按 module 归属（ADR 0028）',
+      ].join(' '),
+    );
+    await reportState(
+      { schema: 'cometflow.queue.v1', tasks: (await mergeTodoView(options.projectRoot)).tasks },
+      0,
+      'stopped',
+      { ran: false, reason: 'concurrency-not-open', task: null },
+      'concurrency-not-open',
+    );
+    return { reason: 'concurrency-not-open', detail: 'requested=' + concurrency, iterations: 0 };
+  }
 
   /**
    * 单实例租约（C3 前置）：一个项目同时只有一个调度器。

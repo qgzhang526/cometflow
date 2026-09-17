@@ -22,6 +22,8 @@ export interface SchedulerStartOptions {
   agentId?: string;
   /** 页面上的「启动」= 常驻：把期望状态写进项目配置，serve 重启后会自动恢复。 */
   persistAutostart?: boolean;
+  /** 并发槽位（ADR 0028：>1 目前会被拒绝并说明原因）。 */
+  concurrency?: number;
   now?: Date;
 }
 
@@ -87,6 +89,7 @@ export function createSchedulerHost(deps: { jobs: JobManager }): SchedulerHost {
           idleCpuThreshold: config.scheduler?.idleCpuThreshold,
           scheduleStartMinutes: config.scheduler?.scheduleStartMinutes,
           scheduleEndMinutes: config.scheduler?.scheduleEndMinutes,
+          concurrency: options.concurrency ?? config.scheduler?.concurrency,
           model: await resolveModel(options.projectRoot, agentId),
           runner: getBuiltInAgentRunner(agentId),
           // 内嵌的日志出口就是任务中心：与 CLI 的 stdout 一一对应。

@@ -27,6 +27,11 @@ export interface SchedulerConfig {
    * 不读也不写这个开关。
    */
   autostart?: boolean;
+  /**
+   * 并发槽位（默认 1）。ADR 0028：并发单元是 capability spec，且写保护守卫在位时不开放——
+   * 目前 >1 会在启动时被明确拒绝（不是静默降级）。
+   */
+  concurrency?: number;
 }
 
 export interface ScopeConfig {

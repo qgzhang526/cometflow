@@ -575,6 +575,7 @@ daemon
   .option('--safety-bundle', 'Create a git bundle snapshot before running')
   .option('--max-attempts <n>', 'Give up on a task after N failed starts', (value) => Number.parseInt(value, 10))
   .option('--task-timeout <ms>', 'Per-task timeout in milliseconds', (value) => Number.parseInt(value, 10))
+  .option('--concurrency <n>', 'Concurrent slots; >1 is refused until the write guard supports module attribution (ADR 0028)', (value) => Number.parseInt(value, 10))
   .action(async (targetPath = '.', options) => {
     await daemonStartCommand(targetPath, options);
   });

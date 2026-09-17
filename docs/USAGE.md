@@ -992,6 +992,13 @@ cometflow daemon queue retry <goal:task> [path] # 只把这一条重新排队（
 - **待办是推导出来的**（S3）：`plans` 里 `frozen/approved` 的任务 − 已有归档 change 的 `(goal, task)`，
   再叠加运行时覆盖（在跑的租约、尝试次数、上次结论）。优先级是
   **change 账本（交付）> 运行时覆盖 > 计划推导**；每行在界面上都标明来源。
+- **依赖排序**（C2）：计划里的 `depends_on` 是调度准入的一部分——前序任务**已交付**（有归档 change）
+  才轮到它。未满足时该条仍算待办，但带 `blocked_by` 标记，界面上显示「等待 T1 交付」，
+  调度器会跳过它（`next` 也按"可调度"取）。依赖是链式的，环由 `plan validate` 先拦。
+- **并发**（ADR 0028）：`--concurrency` / `scheduler.concurrency` 目前只接受 1；
+  >1 会**明确拒绝**（`concurrency-not-open`）并说明原因——并发单元是 capability spec，
+  而写保护守卫按 current-change 指针 fail-closed，装了守卫就必然互踩。要开并发先卸载守卫
+  （`cometflow hook uninstall . --platform claude-code`），或等守卫支持按 module 判定归属。
 - 同一个任务上已有别的 change（非 daemon 命名）时，daemon 让开并把它标成「在飞」，不做重复劳动；
   它自己上次没跑完的 change 则按 phase 续作。
 - 队列文件 `.cometflow/runtime/queue.json` 不再决定「该不该跑」，它是**运行时覆盖 + 上次快照**；

@@ -566,6 +566,10 @@ export interface QueueTask {
   /** 驱动这条任务的 change 名与最近结论（P4：调度视角与交付账本的关联）。 */
   change?: string | null;
   verdict?: string | null;
+  /** 计划里的任务依赖（同 goal 内的任务 id）。 */
+  depends_on?: string[];
+  /** 未满足的依赖：非空表示"还在等前序任务交付"，调度器会跳过它。 */
+  blocked_by?: string[];
 }
 
 export interface SchedulerQueue {

@@ -135,7 +135,16 @@
       <h2>下一个待办</h2>
       <span class="grow" />
       <!-- S3 之后待办是合并视图：每行都能回答「从哪来」。 -->
-      <StatusBadge tone="brand" :text="'待交付 ' + pendingCount + ' · 已交付 ' + deliveredCount" />
+      <StatusBadge
+        tone="brand"
+        :text="
+          '待交付 ' +
+          pendingCount +
+          (blockedCount > 0 ? '（等依赖 ' + blockedCount + '）' : '') +
+          ' · 已交付 ' +
+          deliveredCount
+        "
+      />
     </div>
     <p v-if="data?.next === null" class="muted">没有排队中的任务。</p>
     <table v-else>
@@ -179,6 +188,10 @@
               :tone="task.status === 'done' ? 'ok' : task.status === 'failed' ? 'err' : task.status === 'running' ? 'brand' : 'warn'"
               :text="task.status"
             />
+            <!-- 依赖（C2）：前序没交付就不调度——把"为什么还没轮到它"直接写在行上。 -->
+            <span v-if="(task.blocked_by?.length ?? 0) > 0" class="badge warn" style="margin-left: 6px">
+              等待 {{ task.blocked_by?.join(', ') }} 交付
+            </span>
           </td>
           <!-- 「从哪来」：derived=推导出的待办，overlay=运行时记录，delivered=change 账本。 -->
           <td class="muted">
@@ -236,6 +249,8 @@ const retrying = ref('');
 /** S3：面板看的是合并视图（推导 + 运行时覆盖 + 交付账本），不是 `queue.json` 那一份。 */
 const tasks = computed(() => data.value?.tasks ?? []);
 const pendingCount = computed(() => tasks.value.filter((task) => task.status === 'queued').length);
+/** 待交付里有多少条在等前序任务（依赖，C2）：一眼看出是"卡在顺序上"还是"没人做"。 */
+const blockedCount = computed(() => tasks.value.filter((task) => (task.blocked_by?.length ?? 0) > 0).length);
 const deliveredCount = computed(() => tasks.value.filter((task) => task.delivered).length);
 
 /** 暂停 / 继续 / 停止：写控制文件（ADR 0026），进程仍归启动它的终端。 */

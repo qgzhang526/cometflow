@@ -31,6 +31,10 @@ export interface QueueTask {
   spec_ref?: string | null;
   spec_anchor?: string | null;
   spec_hash?: string | null;
+  /** 计划里的任务依赖（同 goal 内的任务 id）：前序必须已交付才可调度。 */
+  depends_on?: string[];
+  /** 未满足的依赖（调度器据此跳过它，界面据此显示「等待 X 交付」）。 */
+  blocked_by?: string[];
 }
 
 export interface SchedulerQueue {
@@ -96,11 +100,18 @@ export function queueFromPlan(plan: TaskPlan): QueueTask[] {
     spec_ref: task.spec_ref ?? null,
     spec_anchor: task.spec_anchor ?? null,
     spec_hash: task.spec_hash ?? null,
+    depends_on: task.depends_on ?? [],
   }));
 }
 
+/**
+ * 下一条**可调度**的任务：`queued` 且依赖已满足。
+ *
+ * 依赖用 `blocked_by` 表达（而不是新增一个状态）：状态词表保持 `queued/running/done/failed`，
+ * "为什么还没轮到它"是另一个维度，界面可以同时显示两者（既在待办里，又在等前序交付）。
+ */
 export function nextQueuedTask(queue: SchedulerQueue): QueueTask | null {
-  return queue.tasks.find((task) => task.status === "queued") ?? null;
+  return queue.tasks.find((task) => task.status === 'queued' && (task.blocked_by?.length ?? 0) === 0) ?? null;
 }
 
 export function markQueueTask(
