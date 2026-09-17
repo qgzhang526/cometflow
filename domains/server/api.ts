@@ -1501,6 +1501,8 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
       );
       sendOk(res, {
         tasks,
+        // 调度顺序（ADR 0029）：显式清单 + 提示。顺序属于推导，界面据此回答"为什么它先跑"。
+        order: view.order,
         queue,
         derived,
         next: nextQueuedTask({ schema: 'cometflow.queue.v1', tasks: view.tasks }),

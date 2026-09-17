@@ -3,6 +3,7 @@ import path from 'node:path';
 import { stringify } from 'yaml';
 import { readTextFile, pathExists } from '../../platform/fs/read-file.js';
 import type { GoalRecord, GoalSyncResult } from './types.js';
+import { parseScheduleOrder } from './schedule-order.js';
 
 const GOAL_HEADING = /^###\s+(G\d+)[：:]?\s*(.*)$/u;
 const BULLET = /^\s*-\s+/u;
@@ -112,10 +113,13 @@ export function parseGoals(markdown: string): GoalRecord[] {
 export async function syncGoals(projectRoot: string): Promise<GoalSyncResult> {
   const missionPath = path.join(projectRoot, 'COMETFLOW.md');
   if (!(await pathExists(missionPath))) {
-    return { goals: [], written: [] };
+    return { goals: [], written: [], order: { listed: [], warnings: [] } };
   }
   const markdown = await readTextFile(missionPath);
   const goals = parseGoals(markdown);
+  // 调度顺序（ADR 0029）在这里只做**校验与回显**：顺序本身由调度器读 COMETFLOW.md 时生效，
+  // 不投影成goal 文件的一部分（改顺序不需要重新 sync，也不需要重冻结计划）。
+  const order = parseScheduleOrder(markdown, goals.map((goal) => goal.id));
   const goalsDir = path.join(projectRoot, '.cometflow', 'goals');
   const written: string[] = [];
   const { promises: fs } = await import('node:fs');
@@ -127,7 +131,7 @@ export async function syncGoals(projectRoot: string): Promise<GoalSyncResult> {
     written.push(filePath);
   }
 
-  return { goals, written };
+  return { goals, written, order };
 }
 
 export function goalProjectionDir(projectRoot: string): string {

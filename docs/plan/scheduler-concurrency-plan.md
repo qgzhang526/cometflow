@@ -1,6 +1,6 @@
 # 调度器并发与精细化排序
 
-状态：**C1–C5 已实施**（2026-09-17；C5 见 §1「模块级并发排除」）
+状态：**C1–C6 已实施**（2026-09-18；C5 见 §1「模块级并发排除」，C6 见 §1「goal 级调度顺序」）
 来源：[daemon-drives-change-plan.md](./daemon-drives-change-plan.md) §9 的四条前置条件
 关联：ADR [0016](../decisions/0016-bounded-repair-loop.md)（有界修复）、
 [0018](../decisions/0018-current-change-routing.md)（current-change 路由）、
@@ -23,6 +23,7 @@ P4 把 daemon 变成了交付流水线，但**并发与排序刻意没做**：�
 | C3 | **并发上限**（`--concurrency N`） | 想并行只能起多个 daemon → 回到 C1 的风险 | ✅ 已实施（约束：不同单元；见 C5） |
 | C4 | **指针与写保护的配合** | 多 change 并发时 `current-change` 只能指一个，ADR 0018 的 fail closed 会拒掉 agent 的写入 | ✅ 已实施（守卫按 module 判归属，[ADR 0028](../decisions/0028-concurrency-policy.md)） |
 | C5 | **module 级排除** | 守卫的归属判定要求"一条路径只落在一个 module 里"；module 相等 / 嵌套 / 未声明时不能并行 | ✅ 已实施（冲突的串行，不再整体拒绝并发） |
+| C6 | **goal 级调度顺序** | 顺序来自 plan 文件名字典序（`G10` 排在 `G2` 前），goal 之间没有"谁先"的表达 | ✅ 已实施（[ADR 0029](../decisions/0029-schedule-order.md)：显式清单优先，编号兜底） |
 
 ### C1｜原子领取 + change 级互斥（已实施）
 
@@ -108,6 +109,33 @@ P4 把 daemon 变成了交付流水线，但**并发与排序刻意没做**：�
 **验证**：`daemon-modules.test.ts` 10 例——`modulesConflict` 的六种组合、跳过语义（含"自己的
 change 不算冲突"）、端到端五种并发度（不相交 2 / 嵌套 1 / 相同 1 / 未声明 1 / 没装守卫时嵌套 2），
 两条串行的任务都真的交付；回归那一步断言改成 `unit=module`。
+
+### C6｜goal 级调度顺序（已实施：显式清单优先，编号兜底）
+
+在它之前，"先跑哪个 goal"是 `readPlans` 的**文件名字典序**决定的：plan 文件叫
+`<goal>.task-plan.yaml`，所以 `G10` 排在 `G2` 前面；而且 goal 之间根本没有表达顺序的地方
+（`depends_on` 只管 goal 内部）。
+
+顺序改成 COMETFLOW.md 里的一处显式清单（[ADR 0029](../decisions/0029-schedule-order.md)）：
+
+```markdown
+## 调度顺序
+
+- G3
+- G7
+```
+
+- **列出的按清单顺序**，**没列出的按编号升序兜底排在后面**（`G10` 解析成 10，修掉字典序）；
+- **新加的 goal 不用标**：不写进清单就自动末位；要插队就挪到第一行；
+- **已完成的 goal 天然不占位**：交付由 change 账本判 `done`，它不再参与领取，清单里的位置是惰性的；
+- 列了不存在的 id / 重复列：给 warning 并忽略，不静默吞掉拼写错误；
+- 顺序**不冻进 plan**：`deriveTodoList` 每次推导重读 COMETFLOW.md，改顺序不需要重新 freeze；
+- 顺序**不越过准入**：`blocked_by` 与 module 排除优先，顺序只在能领的候选里决定先后。
+
+**验证**：`goal-schedule-order.test.ts`（解析：清单顺序 / 缺省 / 未知 id / 重复 / 无清单 = 全兜底；
+排序：清单优先、编号兜底、`G10` 在 `G2` 之后、全序确定性）、
+`daemon-order.test.ts`（注入式 runner 观测**领取顺序**：清单顺序生效、未列出的排最后、
+已交付 goal 不占位），回归补一步（`goal sync` 打印生效顺序、`daemon queue rebuild` 打印同一份）。
 
 ### 单实例租约（C3 的前置，已完成）
 

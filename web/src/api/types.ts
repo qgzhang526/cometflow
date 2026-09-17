@@ -595,6 +595,11 @@ export interface SchedulerResponse {
   >;
   /** 未消费的控制指令（pause / resume / stop），idle 表示没有。 */
   control?: { action: 'pause' | 'resume' | 'stop' | 'idle'; requested_at: string; requested_by: string } | null;
+  /**
+   * goal 级调度顺序（ADR 0029）：`## 调度顺序` 里显式列出的 goal + 可读提示。
+   * 没列出的按编号升序排在后面，所以这里不需要把"全部顺序"返回一遍。
+   */
+  order?: { listed: string[]; warnings: string[] };
   /** 内嵌调度器（ADR 0027）：本进程里有没有在跑、配置里是否标了常驻。 */
   embedded?: { running: boolean; autostart: boolean };
   next: QueueTask | null;

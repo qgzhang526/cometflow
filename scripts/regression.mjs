@@ -665,6 +665,25 @@ check(
   fileContains(path.join(project, '.cometflow', 'runtime', 'queue.json'), 'delivered'),
 );
 
+// 调度顺序（ADR 0029）：顺序写在 COMETFLOW.md 的 `## 调度顺序` 里，**位置即顺序**。
+// `goal sync` 回显它、daemon 的队列推导也读同一份文档——所以改顺序不需要重新 freeze。
+writeFileSync(
+  path.join(project, 'COMETFLOW.md'),
+  readFileSync(path.join(project, 'COMETFLOW.md'), 'utf8') + '\n## 调度顺序\n\n- G2\n- G1\n',
+);
+const orderSync = expectOk('goal sync（带 ## 调度顺序）', ['goal', 'sync', '.'], project);
+check(
+  'goal sync 回显生效顺序',
+  orderSync.stdout.includes('调度顺序：G2 → G1'),
+  orderSync.stdout.trim().slice(-120),
+);
+const orderedQueue = expectOk('daemon queue rebuild（顺序来自清单）', ['daemon', 'queue', 'rebuild', '.'], project);
+check(
+  '队列推导打印同一份顺序（同一份文档）',
+  orderedQueue.stdout.includes('调度顺序：G2 → G1'),
+  orderedQueue.stdout.trim().slice(0, 120),
+);
+
 console.log('');
 if (failures > 0) {
   console.error('regression: FAILED（' + failures + '/' + steps + ' 步失败）');

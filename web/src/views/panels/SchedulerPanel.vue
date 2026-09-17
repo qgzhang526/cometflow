@@ -96,6 +96,33 @@
     </template>
   </div>
 
+  <!--
+    goal 级调度顺序（ADR 0029）：顺序写在 COMETFLOW.md 的 `## 调度顺序` 里，位置即顺序。
+    这一块是把"当前生效的顺序"直接摊开——不然读者得自己在脑子里按文件名排序。
+  -->
+  <div class="card">
+    <div class="row">
+      <h2>调度顺序</h2>
+      <span class="grow" />
+      <StatusBadge
+        :tone="orderListed.length > 0 ? 'brand' : 'gray'"
+        :text="orderListed.length > 0 ? '显式 ' + orderListed.length + ' 个' : '按编号'"
+      />
+    </div>
+    <p class="muted">
+      写在 <code>COMETFLOW.md</code> 的 <code>## 调度顺序</code> 段落里，<b>位置即顺序</b>：
+      列出的按清单走，没列出的（含新加的 goal）按编号升序排在后面。
+      顺序不冻进计划——改它不需要重新 <code>plan freeze</code>；已完成 goal 不参与领取，留在清单里也无害。
+      要插队就把那一条挪到清单第一行。
+    </p>
+    <p v-if="orderListed.length > 0">
+      <b>{{ orderListed.join(' → ') }}</b>
+      <span class="muted"> → 其余按编号升序</span>
+    </p>
+    <p v-else class="muted">没有显式清单：当前按 goal 编号升序（<code>G2</code> 在 <code>G10</code> 之前）。</p>
+    <p v-for="warning in orderWarnings" :key="warning" class="muted">警告：{{ warning }}</p>
+  </div>
+
   <div class="card">
     <div class="row">
       <h2>控制</h2>
@@ -173,13 +200,15 @@
     <table v-else>
       <thead>
         <tr>
-          <th>目标</th><th>任务</th><th>标题</th><th>调度状态</th><th>来源</th>
+          <th>顺序</th><th>目标</th><th>任务</th><th>标题</th><th>调度状态</th><th>来源</th>
           <th>交付（change）</th><th>尝试</th><th>恢复</th>
           <th v-if="hasDaemonQueue">更新时间</th>
         </tr>
       </thead>
       <tbody>
-        <tr v-for="task in tasks" :key="task.id">
+        <!-- 顺序列 = 调度器实际会领取的先后（ADR 0029：清单在前，其余按编号）。 -->
+        <tr v-for="(task, index) in tasks" :key="task.id">
+          <td class="muted">#{{ index + 1 }}</td>
           <td><b>{{ task.goal }}</b></td>
           <td>{{ task.task }}</td>
           <td>{{ task.title }}</td>
@@ -252,6 +281,9 @@ const pendingCount = computed(() => tasks.value.filter((task) => task.status ===
 /** 待交付里有多少条在等前序任务（依赖，C2）：一眼看出是"卡在顺序上"还是"没人做"。 */
 const blockedCount = computed(() => tasks.value.filter((task) => (task.blocked_by?.length ?? 0) > 0).length);
 const deliveredCount = computed(() => tasks.value.filter((task) => task.delivered).length);
+/** 调度顺序（ADR 0029）：显式清单与提示都来自 COMETFLOW.md 的 `## 调度顺序`。 */
+const orderListed = computed(() => data.value?.order?.listed ?? []);
+const orderWarnings = computed(() => data.value?.order?.warnings ?? []);
 
 /** 暂停 / 继续 / 停止：写控制文件（ADR 0026），进程仍归启动它的终端。 */
 async function control(action: 'pause' | 'resume' | 'stop'): Promise<void> {
