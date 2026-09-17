@@ -18,6 +18,7 @@ import {
   type OccupiedModule,
 } from './daemon-concurrency.js';
 import { listChangeStates } from '../workflow/change-list.js';
+import { createKeyedSerializer } from '../../platform/async/serialize.js';
 import { idleGovernorAllows, type SchedulerMode } from './idle-governor.js';
 import { buildRollbackGuidance, captureGitSafetySnapshot } from './git-safety.js';
 import {
@@ -304,20 +305,8 @@ export async function runDaemonLoop(options: DaemonLoopOptions): Promise<DaemonL
    * 并发下多个任务会同时收尾，各自「读内存队列 → 改自己那行 → 落盘」；没有这把锁，
    * 后写的快照会覆盖前一次更新的状态（丢 update）。串行化的是**写入**，不是执行。
    */
-  let writeChain: Promise<void> = Promise.resolve();
-  const withQueueWrite = async <T>(mutate: () => Promise<T>): Promise<T> => {
-    const previous = writeChain;
-    let release!: () => void;
-    writeChain = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    await previous;
-    try {
-      return await mutate();
-    } finally {
-      release();
-    }
-  };
+  const queueWrites = createKeyedSerializer();
+  const withQueueWrite = <T>(mutate: () => Promise<T>): Promise<T> => queueWrites('queue', mutate);
 
   /** 执行一条**已领取**的任务：并发下每个槽各跑一份，队列写入走互斥。 */
   const executeTask = async (task: QueueTask): Promise<void> => {
