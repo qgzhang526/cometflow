@@ -995,12 +995,15 @@ cometflow daemon queue retry <goal:task> [path] # 只把这一条重新排队（
 - **依赖排序**（C2）：计划里的 `depends_on` 是调度准入的一部分——前序任务**已交付**（有归档 change）
   才轮到它。未满足时该条仍算待办，但带 `blocked_by` 标记，界面上显示「等待 T1 交付」，
   调度器会跳过它（`next` 也按"可调度"取）。依赖是链式的，环由 `plan validate` 先拦。
-- **并发**（ADR 0028，C3）：`--concurrency N` / `scheduler.concurrency` 可以真并行了，但有两条硬约束——
-  ①**归属不能有歧义**：没装守卫时天然满足；装了守卫时要求每个待办**实现**任务的 spec 都声明 `module`，
-  且这些 module **两两不相交**（守卫按 module 判归属：落在唯一一个 module 内就归它，
-  谁都不落在里面、或同时落在多个里才回落到 current-change 指针与 fail closed）。
-  不满足会在启动时被拒并指出差在哪，不静默降级；
-  ②**并发单元是 capability spec**：同一 `spec_ref` 的任务永不并行（并行改同一块契约/模块是必然冲突）。
+- **并发**（ADR 0028，C3/C5）：`--concurrency N` / `scheduler.concurrency` 真并行，两条约束——
+  ①**同一单元不并行**：并发单元默认是 capability spec（同一 `spec_ref` 永不并行，并行改同一块契约是必然冲突）；
+  ②**归属不能有歧义**：装了写保护守卫时，并发单元换成 **module 归属**——守卫按 module 判写入归属，
+  所以 module 相等（都写 `src/api`）、互相包含（`src` vs `src/api`）、或没声明 module 的**那几条任务串行**
+  （谁都不落在里面、或同时落在多个里，守卫会回落到 current-change 指针与 fail closed）。
+  **形态是"领取时跳过它、先跑别人的"，不是"整个项目不许并发"**：不同 module 的任务照常并行，
+  冲突的候选等前一条交付/归档后再领。日志会点名"谁在等谁"（`daemon N skip ... module=...`）；
+  没槽在跑而候选全被挡时，停止原因是 `waiting-on-active-change`（去看那个 change：归档 / `change unblock` /
+  让 module 两两不相交），而不是伪装成"队列空了"。没装守卫的项目不受 ② 约束（还是按 `spec_ref` 去重）。
   `stop` / `pause` / `needs-human` 只停止**领取**新任务，已经跑起来的槽会跑完（不抢占）。
 - 同一个任务上已有别的 change（非 daemon 命名）时，daemon 让开并把它标成「在飞」，不做重复劳动；
   它自己上次没跑完的 change 则按 phase 续作。

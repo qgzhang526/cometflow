@@ -38,6 +38,11 @@ export interface QueueTask {
   blocked_by?: string[];
   /** capability（并发单元用：同一 capability 的任务不并行，见 ADR 0028）。 */
   capability?: string | null;
+  /**
+   * spec 声明的代码模块边界（由冻结计划带入，与 change 的 `module` 同源）。
+   * 装了写保护守卫时，并发排除按它判：module 相等 / 互相包含 / 未声明都要串行（ADR 0028 修订）。
+   */
+  module?: string | null;
 }
 
 export interface SchedulerQueue {
@@ -116,6 +121,7 @@ export function queueFromPlan(plan: TaskPlan): QueueTask[] {
     spec_hash: task.spec_hash ?? null,
     depends_on: task.depends_on ?? [],
     capability: task.capability ?? null,
+    module: task.module ?? null,
   }));
 }
 

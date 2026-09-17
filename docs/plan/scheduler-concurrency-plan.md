@@ -1,6 +1,6 @@
 # 调度器并发与精细化排序
 
-状态：**C1 已实施，C2–C4 待实施**（2026-09-17）
+状态：**C1–C5 已实施**（2026-09-17；C5 见 §1「模块级并发排除」）
 来源：[daemon-drives-change-plan.md](./daemon-drives-change-plan.md) §9 的四条前置条件
 关联：ADR [0016](../decisions/0016-bounded-repair-loop.md)（有界修复）、
 [0018](../decisions/0018-current-change-routing.md)（current-change 路由）、
@@ -13,15 +13,16 @@ P4 把 daemon 变成了交付流水线，但**并发与排序刻意没做**：�
 第一个 `queued`、没有优先级。这不是"方案就绪只是没排期"，而是方案本身没写——因为并发会把
 下面四件事打穿，必须先补。
 
-## 1. 四条前置条件与实施步骤
+## 1. 前置条件与实施步骤
 
 | # | 前置条件 | 不补的后果 | 状态 |
 |---|---|---|---|
 | C1 | **任务领取原子化** | 两个 daemon（CLI / serve 内嵌 / 不同机器）读到同一份队列，双双选中同一个任务，各跑一遍 agent | ✅ 已实施 |
 | C1 | **change 级互斥** | 人手工 `change run G1-T1` 的同时 daemon 也在推它 → 两个 agent 改同一块代码 | ✅ 已实施 |
 | C2 | **排序语义** | 顺序 = 计划文件顺序；`depends_on` 依赖图**已经存在但调度器完全没用** | ✅ 已实施 |
-| C3 | **并发上限**（`--concurrency N`） | 想并行只能起多个 daemon → 回到 C1 的风险 | ✅ 已实施（两条约束：无守卫 + 不同 spec_ref） |
-| C4 | **指针与写保护的配合** | 多 change 并发时 `current-change` 只能指一个，ADR 0018 的 fail closed 会拒掉 agent 的写入 | ✅ 决策完成（[ADR 0028](../decisions/0028-concurrency-policy.md)） |
+| C3 | **并发上限**（`--concurrency N`） | 想并行只能起多个 daemon → 回到 C1 的风险 | ✅ 已实施（约束：不同单元；见 C5） |
+| C4 | **指针与写保护的配合** | 多 change 并发时 `current-change` 只能指一个，ADR 0018 的 fail closed 会拒掉 agent 的写入 | ✅ 已实施（守卫按 module 判归属，[ADR 0028](../decisions/0028-concurrency-policy.md)） |
+| C5 | **module 级排除** | 守卫的归属判定要求"一条路径只落在一个 module 里"；module 相等 / 嵌套 / 未声明时不能并行 | ✅ 已实施（冲突的串行，不再整体拒绝并发） |
 
 ### C1｜原子领取 + change 级互斥（已实施）
 
@@ -60,17 +61,19 @@ P4 把 daemon 变成了交付流水线，但**并发与排序刻意没做**：�
   只停止领取，已领取的槽跑完（不抢占）；
 - **并发单元去重**：`concurrencyUnit()` = `spec_ref`（起草类任务回退到 capability），
   同一单元已在跑时这一轮不领它——同一份契约/模块不会被两个 agent 同时改；
-- **准入**：`--concurrency > 1` 时探测写保护守卫，装了则**拒绝启动**并说明解除方式（ADR 0028）；
+- **准入**：`--concurrency > 1` 时探测写保护守卫，**装了不拒绝**——并发单元从 `spec_ref` 换成
+  module 归属，冲突的任务串行（C5；第一轮的行为是拒绝启动，第三轮改掉了）；
 - **队列写入互斥**：`withQueueWrite()` 串行化"改内存队列 + 落盘"，并发收尾不会互相覆盖；
 - **锁粒度**：`change run` 的锁改成 per-change scope（`runtime/locks/change-run-<name>.lock`），
   不同 change 可以并行跑——这一点是被 `daemon-slots` 的并发用例逼出来的（项目级一把锁会把它们排成串行）。
 
 **验证**：`daemon-slots.test.ts` 用注入式 runner 记录"同时运行数"：
 两个 capability 的任务 → 观测到 2；同一 spec_ref 的两条任务 → 观测到 1（串行）；
-回归新增一步：装了守卫时 `--concurrency 2` 被拒（标记 `concurrency-not-open`）。
+装了 claude-code 守卫且 module 不相交 → 仍然观测到 2。
+回归那一步：装了守卫时 `--concurrency 2` 照开，日志给出 `unit=module`（第三轮前的断言是"被拒"）。
 
-**仍未做**：写好方案里提到的"按 goal 排序 / 优先级 / 抢占"，以及装了守卫时的并发
-（需要守卫支持按 module 归属，落点在 ADR 0023 的守卫本体）。
+**仍未做**：goal 级排序 / 优先级（顺序仍 = 计划文件名字典序 → 计划内任务顺序），以及抢占
+（明确不做，见 §3）。
 
 ### C4｜指针与写保护（已实施：守卫按 module 判归属）
 
@@ -85,7 +88,26 @@ P4 把 daemon 变成了交付流水线，但**并发与排序刻意没做**：�
 验证：`hook-guard-module.test.ts`（module 归属/歧义/未认领三种）、`daemon-slots.test.ts`
 （装了守卫仍观测到并发 2）、`current-change.test.ts`（三条用例按新契约调整）、回归 148 步。
 
-**仍未做**：module 嵌套的并发（嵌套视为歧义，必须串行）、goal 级优先级、跨项目并发。
+**仍未做**：goal 级优先级、跨项目并发（module 嵌套与"同 module 不并行"由 C5 收口）。
+
+### C5｜模块级并发排除（已实施）
+
+第二轮把并发准入做成了"**全部**待办实现任务的 module 声明齐全且两两不相交，才允许开并发"。
+不对称在"一条不合格就整体不许开"：一个 capability 的两个任务共用一个 module（相等）、
+老计划没带 `module`、spec 没写 front-matter——任一条就让 `--concurrency 2` 彻底不可用。
+
+第三轮把它改成**领取时的排除**（[ADR 0028 第三轮修订](../decisions/0028-concurrency-policy.md)）：
+
+- **并发单元 = module 归属**（装了守卫时；没装守卫仍是 `spec_ref`）。冲突判据是"路径归属是否唯一"：
+  module 相等、互相包含、任一侧未声明 —— 三种都串行；
+- **跳过而不是卡住**：`nextClaimableTask` 遇到被占的候选继续往后看，让不同 module 的候选先跑；
+- **占用集合** = 在飞 change 的账本（含人手工开的）∪ 本进程已领取的槽；候选人自己的 change 不算冲突；
+- **停止原因新增 `waiting-on-active-change`**：没有槽在跑、候选全被挡时，区分"队列空了"与
+  "要等的 change 还没收尾"（要人去看：归档 / unblock / 让 module 不相交）；`concurrency-not-open` 删除。
+
+**验证**：`daemon-modules.test.ts` 10 例——`modulesConflict` 的六种组合、跳过语义（含"自己的
+change 不算冲突"）、端到端五种并发度（不相交 2 / 嵌套 1 / 相同 1 / 未声明 1 / 没装守卫时嵌套 2），
+两条串行的任务都真的交付；回归那一步断言改成 `unit=module`。
 
 ### 单实例租约（C3 的前置，已完成）
 

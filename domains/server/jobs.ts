@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { appendJobLog, listJobRecords, removeJob, writeJobRecord } from './job-store.js';
+import { createKeyedSerializer } from '../../platform/async/serialize.js';
 
 export type JobStatus = 'queued' | 'running' | 'succeeded' | 'failed';
 export type JobKind =
@@ -71,6 +72,15 @@ export class JobManager {
   private projectRoots = new Map<string, string>();
   /** 落盘是异步的：跟踪在途写入，便于测试与优雅停机等待落盘完成。 */
   private pending = new Set<Promise<void>>();
+  /**
+   * 同一个 job 的落盘必须**按发起顺序**执行。
+   *
+   * 记录是"内存先改、异步落盘"，而且状态一路往前走（queued → running → succeeded + result）。
+   * 这些写入并发跑时，先发起的那次可能后 rename：磁盘上留下的就是**旧快照**（没有 result），
+   * 而且此后再无写入来修正它——重启后任务中心就再也看不到那次跑出了什么。
+   * 串行化后即使链上有多次写，每次也都是"读当前对象"写出去，落盘内容单调向前。
+   */
+  private serialize = createKeyedSerializer();
 
   constructor(
     private options: {
@@ -89,11 +99,13 @@ export class JobManager {
   }
 
   private async persist(job: JobRecord, options: { log?: string } = {}): Promise<void> {
-    const root = this.projectRoots.get(job.projectId) ?? (await this.options.resolveProjectRoot?.(job.projectId)) ?? null;
-    if (root === null) return;
-    this.projectRoots.set(job.projectId, root);
-    await writeJobRecord(root, job);
-    if (options.log !== undefined) await appendJobLog(root, job.id, options.log);
+    await this.serialize(job.id, async () => {
+      const root = this.projectRoots.get(job.projectId) ?? (await this.options.resolveProjectRoot?.(job.projectId)) ?? null;
+      if (root === null) return;
+      this.projectRoots.set(job.projectId, root);
+      await writeJobRecord(root, job);
+      if (options.log !== undefined) await appendJobLog(root, job.id, options.log);
+    });
   }
 
   create(projectId: string, kind: JobKind, meta: { goal?: string; change?: string } = {}): JobRecord {
