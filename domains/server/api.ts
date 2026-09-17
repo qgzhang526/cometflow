@@ -1470,6 +1470,9 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
       const queue = view.overlay;
       const derived: SchedulerQueue = { schema: 'cometflow.queue.v1', tasks: view.derived };
       const config = await readProjectConfig(root);
+      // 前置检查的当前档位跟着调度面板一起返回：它是 daemon 能不能开工的前提，
+      // 放在面板上只读回显，写入点仍然只有设置页（避免两个 config 写入点）。
+      const preflight = config.verification?.unattended_preflight ?? 'fail';
       // 预算用量是跨重启累计的：只读展示它，「改/重置」仍走 CLI `daemon budget --reset`。
       const budget = await readBudgetUsage(root);
       // 调度器的状态投影（C5）：没有它，界面答不出「无人值守到底有没有在工作」。
@@ -1497,6 +1500,7 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
         derived,
         next: nextQueuedTask({ schema: 'cometflow.queue.v1', tasks: view.tasks }),
         scheduler: config.scheduler ?? null,
+        preflight,
         budget,
         daemon,
         control,

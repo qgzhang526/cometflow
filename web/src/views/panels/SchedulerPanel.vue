@@ -112,6 +112,12 @@
     <p class="muted">
       暂停 / 停止在 daemon 的下一轮生效；启动仍然在终端里跑
       <code>cometflow daemon start . --mode always</code>。队列是可以随意重建的派生视图，不需要先停调度器再改。
+      <br />
+      验收前置检查：<b>{{ data?.preflight ?? 'fail' }}</b>
+      <span v-if="(data?.preflight ?? 'fail') === 'fail'">（验收判不出来的任务不执行、直接失败并停机）</span>
+      <span v-else-if="data?.preflight === 'warn'">（判不出来照常执行，只在结论里记一笔）</span>
+      <span v-else>（不做前置检查）</span>
+      —— 改它去<RouterLink :to="'/project/' + (project.currentId ?? '') + '/settings'">设置页的「验收」</RouterLink>。
     </p>
   </div>
 
