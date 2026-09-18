@@ -30,7 +30,12 @@
           <td class="muted">{{ finding.subject === '' ? '—' : finding.subject }}</td>
           <td>{{ finding.message }}</td>
           <td>
-            <button v-if="targetPanel(finding)" class="ghost" @click="emit('jump', targetPanel(finding)!)">
+            <button
+              v-if="targetFor(finding)"
+              class="ghost"
+              :title="'去「' + describeTarget(targetFor(finding)!) + '」处理'"
+              @click="emit('jump', targetFor(finding)!)"
+            >
               去处理
             </button>
           </td>
@@ -44,26 +49,19 @@
 import { computed } from 'vue';
 import StatusBadge from './StatusBadge.vue';
 import type { Finding } from '../api/types';
-import type { PanelId } from '../router';
+import { describeTarget, targetForFinding, type PanelTarget } from '../utils/finding-targets';
 
 const props = defineProps<{ findings: Finding[] }>();
-const emit = defineEmits<{ refresh: []; jump: [panel: PanelId] }>();
+const emit = defineEmits<{ refresh: []; jump: [target: PanelTarget] }>();
 
 const errorCount = computed(() => props.findings.filter((finding) => finding.severity === 'error').length);
 const warningCount = computed(() => props.findings.filter((finding) => finding.severity === 'warning').length);
 
 /**
- * 把 finding 映射到能处理它的面板。
- *
+ * 映射到能处理它的**面板 + 页签 + 对象**（见 `utils/finding-targets.ts`）。
  * 只做「有明确去处」的映射：映射不准的按钮比没有按钮更糟（点进去发现处理不了）。
- * 说不出该去哪里的就返回 null，界面不显示按钮。
  */
-function targetPanel(finding: Finding): PanelId | null {
-  if (finding.source === 'spec-verify') return 'specs';
-  if (finding.subject.startsWith('specs/')) return 'specs';
-  if (finding.code.includes('change')) return 'changes';
-  if (finding.code.includes('hook')) return 'assets';
-  if (finding.code.includes('plan')) return 'plans';
-  return null;
+function targetFor(finding: Finding): PanelTarget | null {
+  return targetForFinding(finding);
 }
 </script>

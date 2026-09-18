@@ -1,5 +1,15 @@
 <template>
   <div class="card">
+    <!--
+      从问题清单跳过来的落地说明：**为什么在这、接下来点什么**。
+      在这之前「去处理」只切到「规格」面板的默认页签，用户到了也不知道该干嘛。
+    -->
+    <div v-if="arrived !== null" class="finding">
+      来自问题清单：<b>{{ arrived.subject ?? '整个项目' }}</b>
+      <template v-if="arrived.reason"> —— {{ arrived.reason }}</template>
+      <span class="muted">（已切到「{{ describeTarget(arrived) }}」）</span>
+      <button class="ghost" @click="arrived = null">知道了</button>
+    </div>
     <div class="tabs">
       <button
         v-for="tab in TABS"
@@ -14,12 +24,12 @@
 
     <KindsTab v-if="activeTab === 'kinds'" />
     <ScaffoldTab v-else-if="activeTab === 'scaffold'" />
-    <FilesTab v-else-if="activeTab === 'files'" @open="openSpec" @versions="showVersions" />
+    <FilesTab v-else-if="activeTab === 'files'" :focus="focusPath" @open="openSpec" @versions="showVersions" />
     <ChecksTab v-else-if="activeTab === 'checks'" />
     <VersionsTab v-else-if="activeTab === 'versions'" ref="versionsTab" />
     <SpecGraphTab v-else-if="activeTab === 'graph'" @open="openSpec" />
     <ImportTab v-else-if="activeTab === 'import'" />
-    <IntegrityTab v-else />
+    <IntegrityTab v-else :focus="focusPath" />
   </div>
 
   <ModalCard v-if="editing !== null" :title="editingPath" wide @close="closeEditor">
@@ -67,8 +77,10 @@ import { computed, nextTick, ref, watch } from 'vue';
 import ModalCard from '../../components/ModalCard.vue';
 import { errorMessage } from '../../api/client';
 import { resumeRefresh, suspendRefresh } from '../../composables/useRefresh';
+import { useNavigationStore } from '../../stores/navigation';
 import { useProjectStore } from '../../stores/project';
 import { useToastStore } from '../../stores/toasts';
+import { describeTarget, type PanelTarget } from '../../utils/finding-targets';
 import KindsTab from './specs/KindsTab.vue';
 import ScaffoldTab from './specs/ScaffoldTab.vue';
 import FilesTab from './specs/FilesTab.vue';
@@ -95,8 +107,13 @@ const TABS = [
 
 const project = useProjectStore();
 const toasts = useToastStore();
+const navigation = useNavigationStore();
 
 const activeTab = ref<(typeof TABS)[number]['id']>('kinds');
+/** 问题清单指向的那份 spec：影响与门禁 / 版本页签用它把那条挑出来。 */
+const focusPath = ref('');
+/** 落地横幅的内容（从问题清单跳过来时非空）。 */
+const arrived = ref<PanelTarget | null>(null);
 const editingPath = ref('');
 const editing = ref<string | null>(null);
 const saving = ref(false);
@@ -263,4 +280,34 @@ watch(activeTab, async (tab) => {
   versionsTab.value?.focus(pendingFocus.value ?? '');
   pendingFocus.value = null;
 });
+
+/**
+ * 应用一次「带着意图的跳转」（问题清单的「去处理」）。
+ *
+ * 页签 id 由这里校验：映射表写错时静默忽略，绝不跳到一个不存在的页签。
+ * `focusPath` 交给「影响与门禁」把那条差异挑出来——用户不用在列表里自己找。
+ */
+function applyTarget(target: PanelTarget): void {
+  arrived.value = target;
+  focusPath.value = target.subject ?? '';
+  const tab = TABS.find((entry) => entry.id === target.tab);
+  if (tab === undefined) return;
+  if (tab.id === 'versions') {
+    // 版本页签已有过滤机制（文件页签的「版本」按钮走的就是它）。
+    showVersions(focusPath.value);
+    return;
+  }
+  activeTab.value = tab.id;
+}
+
+const firstTarget = navigation.consume('specs');
+if (firstTarget !== null) applyTarget(firstTarget);
+watch(
+  () => navigation.pending,
+  (value) => {
+    if (value === null || value.panel !== 'specs') return;
+    const target = navigation.consume('specs');
+    if (target !== null) applyTarget(target);
+  },
+);
 </script>

@@ -61,3 +61,34 @@ tsc / pnpm web:typecheck / pnpm build / pnpm package-e2e → 全通过
 - 不做前端状态管理重构（Pinia store 边界不动）；
 - `ChangesPanel` 只拆出列表卡：详情卡与四个页签的耦合（selected / pointer / resume / verify / archive）
   还没降到值得拆的程度，硬拆只会变成一堆 props 透传。
+
+## 6. 后续补丁：问题清单的「去处理」要落到能处理它的那一页（2026-09-18）
+
+用户报的具体缺陷：`cometflow-ui-demo` 的总览里有一条 error `stale-spec-lock`
+（「spec 与 spec-lock 不一致」），点「去处理」只切到「规格」面板的**默认页签**（12-kind 状态）——
+那里既看不到差异、也没有「建立基线」按钮，手动找到「影响与门禁」之后也不知道该点哪个。
+
+根因是旧映射只产出一个 `PanelId`：`if (finding.source === 'spec-verify') return 'specs'`。
+现在映射到 `(panel, tab, subject)`：
+
+| code | 落点 | 落地后能看到什么 |
+|---|---|---|
+| `stale-spec-lock` / `missing-spec-lock` | 规格 · 影响与门禁 | 「建立基线（spec lock）」按钮 + 差异表里那份 spec 排最前并标「问题清单指向」+ 意图横幅说明两条出路 |
+| `missing-spec-version` / `missing-version-blob` | 规格 · 版本 | 复用版本页签的过滤，只看那一份 |
+| `anchor-drift` / `acceptance-drift` / `duplicate-anchor` / `spec-is-draft` | 规格 · Spec 文件 | 列表把那一份排最前并标记（草稿行上就有「批准定稿」） |
+| `change-*` / `multiple-active-changes` / `pending-change-transition` | 变更 | rebase / 选当前 change / 收尾 |
+| `hook-*` | 资产 · Hook 预览 | 写保护状态与安装动作 |
+| 并发写策略三条 | 设置 | 策略与到期日 |
+| `no-plans` / `plan-integrity` | 计划 | 拆解 / 重新冻结 |
+| `invalid-specs` | 规格 · 影响与门禁 | 「跨文件引用校验」的逐条结论 |
+| 临时文件 / 证据占用 | 不给按钮 | 这些总览自己就能处理，点了也是原地 |
+
+实现：`utils/finding-targets.ts`（纯映射 + 单测）、`stores/navigation.ts`（跨面板的意图传递，
+因为面板是 `<component :is>` 动态挂的、切换靠路由）、`SpecsPanel` 消费意图并渲染横幅、
+`IntegrityTab` / `FilesTab` 按 `subject` 聚焦。顺带把 `PANELS` 从 `router.ts` 挪到 `panels.ts`：
+路由要 `createWebHashHistory()`（依赖 `location`），而面板标签是纯数据、必须能在 node 里单测。
+
+验证（真实 serve + 合成项目：`spec lock` 之后手改一行 spec 制造不一致）：点 error 行的「去处理」→
+落在「规格 · 影响与门禁」，横幅写明对象与两条出路，差异表第一行是 `specs/core/spec.md` 且带
+「问题清单指向」；点「建立基线（spec lock）」后 `spec verify` 变 0 finding、差异变「与基线一致」，
+再点同一行的「去处理」时引导文案切换成"已对齐"分支；`multiple-active-changes` 那条落到「变更」。

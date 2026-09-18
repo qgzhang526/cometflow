@@ -1283,6 +1283,14 @@ token: <random>
   - **问题清单**：与 `cometflow gate check . --findings` **同一份投影**（spec verify + doctor 两个来源，
     按 `code + subject` 去重，同一个判定不会显示两次），按级别分组并给出「去处理」跳转；
     顶部徽章由 error 数驱动（不再是只看 doctor 一个来源）。
+
+    **「去处理」落到能处理它的那一页**（面板 + 页签 + 对象，映射见 `utils/finding-targets.ts`），
+    而不是笼统地切到某个面板：`stale-spec-lock` → 规格 · 影响与门禁（那里有「建立基线（spec lock）」
+    与影响分析，落地时把那份 spec 挑到差异列表最前并说明两条出路），`missing-version-blob` → 规格 · 版本，
+    `anchor-drift` / `spec-is-draft` → 规格 · Spec 文件（对应行加「问题清单指向」标记），
+    `change-base-conflict` / `multiple-active-changes` → 变更，`hook-*` → 资产 · Hook 预览，
+    并发写策略 → 设置。落地页顶部有一条「来自问题清单：<对象> —— 这里能做什么」的横幅；
+    说不出去处的（临时文件、证据占用这类总览自己就能处理的）不给按钮——点进去发现处理不了比没有按钮更糟。
   - **质量与健康度**：与 `cometflow metrics . --json` 同源的指标（首次通过率、check 覆盖、
     验收可执行率、anchor 覆盖率、漂移、版本链），并**把当前生效的门禁阈值一起显示**——
     未配置时显示内置方向表，避免出现「看不见的约束」。

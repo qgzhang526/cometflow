@@ -9,8 +9,12 @@
     <table>
       <thead><tr><th>路径</th><th>kind</th><th>状态</th><th /></tr></thead>
       <tbody>
-        <tr v-for="entry in specs" :key="entry.path">
-          <td><b>{{ entry.path }}</b></td>
+        <tr v-for="entry in orderedSpecs" :key="entry.path">
+          <td>
+            <b>{{ entry.path }}</b>
+            <!-- 从问题清单跳过来时指名的那一份：先摆到最前，免得在一堆 spec 里自己找。 -->
+            <span v-if="entry.path === focus" class="badge err" style="margin-left: 6px">问题清单指向</span>
+          </td>
           <td>{{ entry.kind }}</td>
           <td>
             <StatusBadge
@@ -39,7 +43,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { errorMessage } from '../../../api/client';
 import { refreshCounter } from '../../../composables/useRefresh';
 import { useProjectStore } from '../../../stores/project';
@@ -49,11 +53,22 @@ import type { SpecEntry } from '../../../api/types';
 
 const emit = defineEmits<{ open: [path: string]; versions: [path: string] }>();
 
+/** 问题清单指向的那份 spec（空 = 没指定）：排最前并加标记。 */
+const props = defineProps<{ focus?: string }>();
+
 const project = useProjectStore();
 const toasts = useToastStore();
 const specs = ref<SpecEntry[]>([]);
 const newSpecPath = ref('');
 const busy = ref(false);
+
+const orderedSpecs = computed(() => {
+  const focus = props.focus;
+  if (focus === undefined || focus === '') return specs.value;
+  const hit = specs.value.find((entry) => entry.path === focus);
+  if (hit === undefined) return specs.value;
+  return [hit, ...specs.value.filter((entry) => entry.path !== focus)];
+});
 
 async function load(): Promise<void> {
   try {
