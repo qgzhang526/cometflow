@@ -1,4 +1,5 @@
 import { createRouter, createWebHashHistory } from 'vue-router';
+import { PANELS, type PanelId } from './panels';
 
 // 沿用 hash 路由：serve 静态托管时不需要额外的 rewrite 规则，刷新也不会 404。
 export const router = createRouter({
@@ -15,17 +16,6 @@ export const router = createRouter({
   ],
 });
 
-export const PANELS = [
-  { id: 'overview', label: '总览', icon: '📊' },
-  { id: 'goals', label: '目标', icon: '🎯' },
-  { id: 'specs', label: '规格', icon: '📐' },
-  { id: 'plans', label: '计划', icon: '🗺️' },
-  { id: 'changes', label: '变更', icon: '🔀' },
-  { id: 'evolve', label: '进化', icon: '🧬' },
-  { id: 'eval', label: '评估', icon: '🧪' },
-  { id: 'scheduler', label: '调度', icon: '🛰️' },
-  { id: 'assets', label: '资产', icon: '📦' },
-  { id: 'settings', label: '设置', icon: '⚙️' },
-] as const;
-
-export type PanelId = (typeof PANELS)[number]['id'];
+// 面板清单挪到 `panels.ts`（纯数据，可单测）；这里只是转出去，既有 import 不用改。
+export { PANELS };
+export type { PanelId };

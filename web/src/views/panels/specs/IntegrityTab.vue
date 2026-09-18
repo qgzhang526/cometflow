@@ -9,15 +9,32 @@
     </div>
 
     <h3>与基线的差异（spec diff）</h3>
+    <!--
+      从问题清单跳过来时（focus=出问题的那份 spec）：把那一条挑到最前，并说清两条出路。
+      「建立基线」= 承认当前内容为新基线（旧版仍在版本仓，可回放）；想先看波及面就看下面影响分析。
+    -->
+    <div v-if="focus !== undefined && focus !== ''" class="finding" :class="{ warning: focusedEntry === undefined }">
+      <template v-if="focusedEntry !== undefined">
+        问题清单指向的这份 spec 与基线不一致：<b>{{ focus }}</b>
+        —— 确认内容没问题就点上面的「建立基线（spec lock）」把它登记为新基线（旧版仍在版本仓，可回放）；
+        想先看会影响哪些冻结任务，看下面的「影响分析」。
+      </template>
+      <template v-else>
+        问题清单指向 <b>{{ focus }}</b>，但它不在下面的差异列表里（可能已经被对齐，或这份 spec 读不到）。
+      </template>
+    </div>
     <p class="muted">
       added {{ diff?.added.length ?? 0 }} · modified {{ diff?.modified.length ?? 0 }} · removed
       {{ diff?.removed.length ?? 0 }} · unchanged {{ diff?.unchanged.length ?? 0 }}
     </p>
-    <table v-if="changedEntries.length > 0">
+    <table v-if="orderedEntries.length > 0">
       <thead><tr><th>路径</th><th>变化</th><th>hash</th></tr></thead>
       <tbody>
-        <tr v-for="entry in changedEntries" :key="entry.kind + entry.path">
-          <td>{{ entry.path }}</td>
+        <tr v-for="entry in orderedEntries" :key="entry.kind + entry.path">
+          <td>
+            {{ entry.path }}
+            <span v-if="entry.path === focus" class="badge err" style="margin-left: 6px">问题清单指向</span>
+          </td>
           <td><StatusBadge :tone="entry.kind === 'modified' ? 'warn' : 'brand'" :text="entry.kind" /></td>
           <td><code>{{ shortHash(entry.hash) }}</code></td>
         </tr>
@@ -122,6 +139,9 @@ import { shortHash } from '../../../utils/format';
 const project = useProjectStore();
 const toasts = useToastStore();
 
+/** 问题清单指向的那份 spec（空 = 没有指定）：把它在差异列表里挑到最前并加标记。 */
+const props = defineProps<{ focus?: string }>();
+
 const verify = ref<SpecVerifyResult | null>(null);
 const diff = ref<SpecDiffResult | null>(null);
 const drift = ref<SpecDriftReport | null>(null);
@@ -139,6 +159,20 @@ const changedEntries = computed(() => {
     ...current.added.map((entry) => ({ kind: 'added', path: entry.path, hash: entry.hash })),
     ...current.removed.map((entry) => ({ kind: 'removed', path: entry.path, hash: entry.hash })),
   ];
+});
+
+/** 聚焦的那条差异（不在列表里就是 undefined：可能已对齐，或那份 spec 读不到）。 */
+const focusedEntry = computed(() =>
+  props.focus === undefined || props.focus === ''
+    ? undefined
+    : changedEntries.value.find((entry) => entry.path === props.focus),
+);
+
+/** 聚焦项排最前，其余保持原顺序——读者第一眼看到的就是"问题清单说的那条"。 */
+const orderedEntries = computed(() => {
+  const focus = focusedEntry.value;
+  if (focus === undefined) return changedEntries.value;
+  return [focus, ...changedEntries.value.filter((entry) => entry.path !== focus.path)];
 });
 
 function severityTone(severity: SpecDriftSeverity | 'none'): 'ok' | 'warn' | 'err' | 'brand' {

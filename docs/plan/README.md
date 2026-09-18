@@ -34,7 +34,7 @@
 | P4 Workflow 深度融合 | 让 daemon 驱动 change 生命周期（取任务 → 建 change → 执行 → 独立验收 → 归档 → 回写交付事实），队列降级为派生视图 + 运行时覆盖，控制语义走控制文件（ADR 0026） | **S1–S4 已实施**（2026-09-17，回归 145 步） | [daemon-drives-change-plan.md](./daemon-drives-change-plan.md) |
 | 调度并发与排序 | C1 原子领取 + change 级互斥 ✅；C2 依赖排序 ✅；C3 `--concurrency N` 槽位并发 ✅；C4 守卫按 module 判归属 ✅；C5 module 级排除（同 module / 嵌套 / 未声明 → 串行）✅；C6 goal 级调度顺序（COMETFLOW.md 的 `## 调度顺序` 清单优先、编号兜底）✅ | **C1–C6 均已实施**（2026-09-18） | [scheduler-concurrency-plan.md](./scheduler-concurrency-plan.md) |
 | 守卫扩容（ADR 0028 修订） | `hook-guard` 先按 module 判写入归属：落在唯一一个 build change 的 module 内即归它；未认领/歧义才回落到 current-change 指针与 fail closed | **已实施**（2026-09-17） | [0028-concurrency-policy.md](../decisions/0028-concurrency-policy.md) |
-| 前端优化（实时性 / 可读性 / 拆分） | 调度面板自动跟进度（SSE 区域补齐 + 按租约轮询）、机器词翻人话 + `last_skips` 投影（「为什么这条没被领」）、公共加载器 + 拆出决策卡 / 顺序卡 / 变更列表卡 | **已完成**（2026-09-18，回归 152 步） | [web-optimization-plan.md](./web-optimization-plan.md) |
+| 前端优化（实时性 / 可读性 / 拆分） | 调度面板自动跟进度（SSE 区域补齐 + 按租约轮询）、机器词翻人话 + `last_skips` 投影（「为什么这条没被领」）、公共加载器 + 拆出决策卡 / 顺序卡 / 变更列表卡；补丁：问题清单「去处理」落到能处理它的那一页（面板 + 页签 + 对象） | **已完成**（2026-09-18，回归 152 步） | [web-optimization-plan.md](./web-optimization-plan.md) |
 | 内嵌调度器与常驻 | serve 内嵌调度器（job 形式）+ 单实例租约 + `scheduler.autostart` 常驻恢复 + 页面启动按钮（ADR 0027，修订 0026） | **已实施**（2026-09-17） | [daemon-drives-change-plan.md](./daemon-drives-change-plan.md) |
 
 ## 阶段顺序原则

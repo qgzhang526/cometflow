@@ -74,8 +74,9 @@ import MetricsCard from '../../components/MetricsCard.vue';
 import StatusBadge from '../../components/StatusBadge.vue';
 import { errorMessage } from '../../api/client';
 import { refreshCounter } from '../../composables/useRefresh';
-import type { PanelId } from '../../router';
+import { useNavigationStore } from '../../stores/navigation';
 import { useProjectStore } from '../../stores/project';
+import type { PanelTarget } from '../../utils/finding-targets';
 import { useFindingsStore } from '../../stores/findings';
 import { useToastStore } from '../../stores/toasts';
 import type { GateResponse, MaintenancePlan, MetricsResponse } from '../../api/types';
@@ -85,6 +86,7 @@ const project = useProjectStore();
 const findingsStore = useFindingsStore();
 const toasts = useToastStore();
 const router = useRouter();
+const navigation = useNavigationStore();
 
 const status = computed(() => project.status);
 const activeChanges = computed(() => (status.value?.changes ?? []).filter((change) => !change.archived).length);
@@ -130,8 +132,13 @@ function onMaintenanceChanged(report: unknown): void {
   project.applyDoctorReport(report);
 }
 
-function jump(panel: PanelId): void {
-  void router.push('/project/' + (project.currentId ?? '') + '/' + panel);
+/**
+ * 「去处理」= 记下**要去哪一页、处理哪个对象**，再切面板。
+ * 目标面板在挂载（或已经挂着）时把这条意图取走，落到对应页签并聚焦那个 spec / change。
+ */
+function jump(target: PanelTarget): void {
+  navigation.request(target);
+  void router.push('/project/' + (project.currentId ?? '') + '/' + target.panel);
 }
 
 onMounted(reload);
