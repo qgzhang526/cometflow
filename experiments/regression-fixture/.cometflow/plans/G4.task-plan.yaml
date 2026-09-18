@@ -10,8 +10,8 @@ tasks:
     spec_anchor: GET /session
     acceptance_ids:
       - A1
-    spec_version: 1
-    spec_hash: 71f2404a5d83ca4190102b921adb77b7280b40d1b84e1aa61f710b252cd5d1d8
+    spec_version: 2
+    spec_hash: 4fda87bc4c9608d7aba266758d54c20ee58339397e3a7d5baff970a815905062
     depends_on: []
     module: src/session
     test_scope: src/session
@@ -20,4 +20,4 @@ tasks:
       - 相关测试通过
     status: frozen
     anchor_hash: 30bac60995669db3917bd76a229eaa517babdbb1b7bf65a37f96eb8d09ac145c
-plan_hash: 9da3e7f6c45a22bd27291f466524540cba370ae315258f80553f5e47bd45d318
+plan_hash: 4c56db2a0908cac5c486b52d16918036fbd8dd70698d7705d07549b4b9833696

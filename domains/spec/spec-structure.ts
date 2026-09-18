@@ -19,7 +19,7 @@ export interface FlowStep {
   apiRefs: ApiReference[];
 }
 
-export type SpecRefKind = 'model' | 'error' | 'config' | 'header' | 'status' | 'api';
+export type SpecRefKind = 'model' | 'rule' | 'error' | 'config' | 'header' | 'status' | 'api';
 
 /**
  * 一行里的一个可解析引用。
@@ -46,6 +46,13 @@ const REF_RULES: Array<{
   {
     kind: 'model',
     pattern: /^\s*(?:[-*]\s+)?(?:模型|实体)[:：]\s*([^\s，,]+)/u,
+    extract: (match) => valueSpan(match, 1),
+  },
+  {
+    // 领域规则引用（ADR 0030）：`- 规则：会话有效期`，值是 `## 规则：<name>` 里的 <name>。
+    // 它让"规则有没有人遵守"可以正反两向校验，而不需要给规则派任务。
+    kind: 'rule',
+    pattern: /^\s*(?:[-*]\s+)?规则[:：]\s*([^\s，,（(]+)/u,
     extract: (match) => valueSpan(match, 1),
   },
   {
@@ -196,6 +203,11 @@ export function normalizeApiHeading(heading: string): string {
 // Explicit cross-file references, written as "模型：Name" / "错误码：CODE" / "配置：key".
 export function extractModelRefs(content: string): string[] {
   return valuesOfKind(content, 'model');
+}
+
+/** 规则引用（`- 规则：<name>`）：见 ADR 0030 的反向引用完整性。 */
+export function extractRuleRefs(content: string): string[] {
+  return valuesOfKind(content, 'rule');
 }
 
 export function extractErrorCodeRefs(content: string): string[] {

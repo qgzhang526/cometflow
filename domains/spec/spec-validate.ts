@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { parseSpecFile } from './spec-parse.js';
+import { extractAnchorSection, parseSpecFile } from './spec-parse.js';
 import { listSpecFiles } from './spec-index.js';
 import { loadProjectContext, validateProjectContext } from '../project/context.js';
 import { pathExists, readTextFile } from '../../platform/fs/read-file.js';
@@ -22,6 +22,7 @@ import {
   extractProcesses,
   extractProtocolHeaders,
   extractProtocolStatusCodes,
+  extractRuleRefs,
   extractSectionErrorCodes,
   extractStatusRefs,
   normalizeApiHeading,
@@ -40,6 +41,9 @@ interface CrossRefIndex {
   protocolContent: string | null;
   protocolHeaders: Set<string>;
   protocolStatusCodes: Set<string>;
+  rulesContent: string | null;
+  /** `specs/rules.md` 里定义的规则名（`## 规则：<name>` 的 <name>）。 */
+  ruleNames: Set<string>;
 }
 
 function error(pathValue: string, code: string, message: string): SpecValidationFinding {
@@ -111,6 +115,20 @@ function checkConfigKeyRefs(content: string, relativePath: string, findings: Spe
       findings.push(warning(relativePath, 'missing-reference-target', '引用了配置键 ' + key + '，但 specs/config.md 不存在'));
     } else if (!index.configKeys.has(key)) {
       findings.push(error(relativePath, 'unresolved-config-reference', '引用的配置键未在 specs/config.md 定义: ' + key));
+    }
+  }
+}
+
+/**
+ * 规则引用的**正向**校验（ADR 0030）：写了 `- 规则：X` 就必须有这条规则。
+ * 与 `checkModelRefs` 同形：目标文件缺失降级为 warning，写错名字是 error。
+ */
+function checkRuleRefs(content: string, relativePath: string, findings: SpecValidationFinding[], index: CrossRefIndex): void {
+  for (const rule of extractRuleRefs(content)) {
+    if (!index.rulesContent) {
+      findings.push(warning(relativePath, 'missing-reference-target', '引用了规则 ' + rule + '，但 specs/rules.md 不存在'));
+    } else if (!index.ruleNames.has(rule)) {
+      findings.push(error(relativePath, 'unresolved-rule-reference', '引用的规则未在 specs/rules.md 定义: ' + rule));
     }
   }
 }
@@ -209,6 +227,7 @@ async function validateCapabilityFile(
     );
   }
   checkModelRefs(content, relativePath, findings, index);
+  checkRuleRefs(content, relativePath, findings, index);
   checkErrorCodeRefs(content, relativePath, findings, index);
   checkHeaderRefs(content, relativePath, findings, index);
   checkStatusRefs(content, relativePath, findings, index);
@@ -238,6 +257,7 @@ async function validateFlowFile(
     }
   }
   checkModelRefs(content, relativePath, findings, index);
+  checkRuleRefs(content, relativePath, findings, index);
   checkConfigKeyRefs(content, relativePath, findings, index);
 }
 
@@ -260,6 +280,7 @@ async function validateProcessFile(
   }
   checkConfigKeyRefs(content, relativePath, findings, index);
   checkModelRefs(content, relativePath, findings, index);
+  checkRuleRefs(content, relativePath, findings, index);
   for (const ref of extractApiReferences(content)) {
     const key = normalizeApiHeading(ref.method + ' ' + ref.path);
     if (!index.apiAnchors.has(key)) {
@@ -311,6 +332,82 @@ async function validateStructuralFile(
   }
 }
 
+/**
+ * 反向引用完整性（ADR 0030）：`models` 的实体与 `rules` 的规则必须被**行为层**
+ * （capability / flow / process）引用。
+ *
+ * 为什么需要它：正向检查只保证"引用到的东西存在"，而"声明了实体/规则却没人用"是**静默通过**的——
+ * 那意味着多了一份没人兑现的事实来源，正是 009「每个事实只有一个 owner」要防的情况。
+ * 为什么是 warning 而不是 error：为下一个迭代预留实体是常见且合理的做法，卡死 CI 只会逼人删注释。
+ * 为什么只查 models 与 rules：`errors` / `config` / `protocol` 里"暂未使用"是合法预留，
+ * `constraints` 是横切 NFR（由 gates 与人工判断）——查它们只会产生噪音。
+ */
+async function checkUnreferencedDeclarations(
+  projectRoot: string,
+  files: string[],
+  findings: SpecValidationFinding[],
+  index: CrossRefIndex,
+): Promise<void> {
+  const behaviorKinds = new Set<SpecKind>(['capability', 'flow', 'process']);
+  const modelRefs = new Set<string>();
+  const ruleRefs = new Set<string>();
+  for (const file of files) {
+    if (!behaviorKinds.has(kindForSpecFile(file))) continue;
+    let content: string;
+    try {
+      content = await readTextFile(path.join(projectRoot, file));
+    } catch {
+      continue;
+    }
+    for (const entity of extractModelRefs(content)) modelRefs.add(entity);
+    for (const rule of extractRuleRefs(content)) ruleRefs.add(rule);
+  }
+
+  /**
+   * 传递**一次**：被行为层引用的规则，它引用的实体也算被使用（009 允许 `rules → models`）。
+   * 没人引用的规则不能顺带把它的实体"洗白"——那正是这条检查要防的情况。
+   */
+  if (index.rulesContent !== null) {
+    for (const heading of extractHeadings(index.rulesContent)) {
+      const name = /^规则[:：]\s*(.+?)\s*$/u.exec(heading)?.[1];
+      if (name === undefined || !ruleRefs.has(name)) continue;
+      const section = extractAnchorSection(index.rulesContent, heading);
+      if (section === null) continue;
+      for (const entity of extractModelRefs(section.text)) modelRefs.add(entity);
+    }
+  }
+
+  const modelsPath = ROOT_KIND_FILES.models;
+  if (index.modelsContent !== null && modelsPath !== undefined) {
+    for (const entity of extractEntities(index.modelsContent)) {
+      if (modelRefs.has(entity.name)) continue;
+      findings.push(
+        warning(
+          modelsPath,
+          'unreferenced-model',
+          '实体 ' + entity.name + ' 没有被任何行为层引用（capability / flow / process）：补一条 `- 模型：' +
+            entity.name + '`，或删掉这个实体',
+        ),
+      );
+    }
+  }
+
+  const rulesPath = ROOT_KIND_FILES.rules;
+  if (index.rulesContent !== null && rulesPath !== undefined) {
+    for (const rule of index.ruleNames) {
+      if (ruleRefs.has(rule)) continue;
+      findings.push(
+        warning(
+          rulesPath,
+          'unreferenced-rule',
+          '规则 ' + rule + ' 没有被任何行为层引用（capability / flow / process）：补一条 `- 规则：' +
+            rule + '`，或删掉这条规则',
+        ),
+      );
+    }
+  }
+}
+
 export async function validateSpecs(projectRoot: string): Promise<SpecValidationResult> {
   const files = await listSpecFiles(projectRoot);
   const findings: SpecValidationFinding[] = [];
@@ -330,6 +427,7 @@ export async function validateSpecs(projectRoot: string): Promise<SpecValidation
   const errorsContent = await readRootKind(projectRoot, 'errors');
   const configContent = await readRootKind(projectRoot, 'config');
   const protocolContent = await readRootKind(projectRoot, 'protocol');
+  const rulesContent = await readRootKind(projectRoot, 'rules');
 
   const index: CrossRefIndex = {
     apiAnchors: new Set(),
@@ -343,6 +441,15 @@ export async function validateSpecs(projectRoot: string): Promise<SpecValidation
     protocolContent,
     protocolHeaders: new Set(protocolContent ? extractProtocolHeaders(protocolContent) : []),
     protocolStatusCodes: new Set(protocolContent ? extractProtocolStatusCodes(protocolContent) : []),
+    rulesContent,
+    // 规则名从 `## 规则：<name>` 标题取，与引用语法 `- 规则：<name>` 的值对齐。
+    ruleNames: new Set(
+      rulesContent
+        ? extractHeadings(rulesContent)
+            .map((heading) => /^规则[:：]\s*(.+?)\s*$/u.exec(heading)?.[1] ?? null)
+            .filter((name): name is string => name !== null)
+        : [],
+    ),
   };
 
   for (const relativePath of files) {
@@ -379,6 +486,9 @@ export async function validateSpecs(projectRoot: string): Promise<SpecValidation
         break;
     }
   }
+
+  // 反向引用：正向检查保证"引用到的东西存在"，这里保证"声明了的东西有人用"（ADR 0030）。
+  await checkUnreferencedDeclarations(projectRoot, files, findings, index);
 
   return { valid: findings.every((item) => item.severity !== 'error'), findings };
 }

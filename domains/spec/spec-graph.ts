@@ -8,6 +8,7 @@ import { parseModels } from './spec-model.js';
 import {
   extractConfigKeys,
   extractErrorCodes,
+  extractHeadings,
   extractProtocolHeaders,
   extractProtocolStatusCodes,
   extractRefSpans,
@@ -39,12 +40,18 @@ const KIND_REFERENCES: Array<{ from: SpecKind; to: SpecKind }> = [
   { from: 'process', to: 'config' },
   { from: 'rules', to: 'models' },
   { from: 'permissions', to: 'capability' },
+  // capability / flow / process → rules：行为层必须声明它遵守哪些领域规则（ADR 0030 的反向引用检查
+  // 就是按这条边建索引的——规则没人引用 = 悬空声明）。
+  { from: 'capability', to: 'rules' },
+  { from: 'flow', to: 'rules' },
+  { from: 'process', to: 'rules' },
 ];
 
 /** 引用类型 → 它归属的 kind（用于 kind 层聚合，以及判断「目标文件是否存在」）。 */
 const OWNER_KIND: Record<SpecRefKind, SpecKind> = {
   api: 'capability',
   model: 'models',
+  rule: 'rules',
   error: 'errors',
   config: 'config',
   header: 'protocol',
@@ -53,6 +60,7 @@ const OWNER_KIND: Record<SpecRefKind, SpecKind> = {
 
 const REF_LABEL: Record<SpecRefKind, string> = {
   model: '模型',
+  rule: '规则',
   error: '错误码',
   config: '配置',
   header: '协议头',
@@ -133,7 +141,7 @@ export interface SpecReferenceIndex {
   present: Map<SpecRefKind, Set<string>>;
   /** targetId → 目标来源（文件路径与展示名）。 */
   meta: Map<string, { path: string; label: string }>;
-  filesExist: { models: boolean; errors: boolean; config: boolean; protocol: boolean };
+  filesExist: { models: boolean; errors: boolean; config: boolean; protocol: boolean; rules: boolean };
   filesByKind: Map<SpecKind, string[]>;
   anchorsByFile: Map<string, SpecAnchorRange[]>;
   fileContents: Map<string, string>;
@@ -166,9 +174,11 @@ export async function buildSpecReferenceIndex(projectRoot: string): Promise<Spec
   const errorsContent = await readOptional(projectRoot, 'specs/errors.md');
   const protocolContent = await readOptional(projectRoot, 'specs/protocol.md');
   const configContent = await readOptional(projectRoot, 'specs/config.md');
+  const rulesContent = await readOptional(projectRoot, 'specs/rules.md');
 
   const present = new Map<SpecRefKind, Set<string>>([
     ['model', new Set<string>()],
+    ['rule', new Set<string>()],
     ['error', new Set<string>()],
     ['config', new Set<string>()],
     ['header', new Set<string>()],
@@ -179,6 +189,15 @@ export async function buildSpecReferenceIndex(projectRoot: string): Promise<Spec
   const filesByKind = new Map<SpecKind, string[]>();
   const anchorsByFile = new Map<string, SpecAnchorRange[]>();
   const fileContents = new Map<string, string>();
+  if (rulesContent !== null) {
+    // 规则目标 = `## 规则：<name>` 的 <name>，与引用语法 `- 规则：<name>` 的值对齐（ADR 0030）。
+    for (const heading of extractHeadings(rulesContent)) {
+      const name = /^规则[:：]\s*(.+?)\s*$/u.exec(heading)?.[1];
+      if (name === undefined) continue;
+      present.get('rule')!.add(name);
+      meta.set(targetId('rule', name), { path: 'specs/rules.md', label: name });
+    }
+  }
 
   if (modelsContent !== null) {
     for (const entity of parseModels(modelsContent).entities) {
@@ -248,6 +267,7 @@ export async function buildSpecReferenceIndex(projectRoot: string): Promise<Spec
       errors: errorsContent !== null,
       config: configContent !== null,
       protocol: protocolContent !== null,
+      rules: rulesContent !== null,
     },
     filesByKind,
     anchorsByFile,
@@ -275,7 +295,9 @@ export function unresolvedRefCode(
           ? index.filesExist.models
           : owner === 'config'
             ? index.filesExist.config
-            : index.filesExist.protocol;
+            : owner === 'rules'
+              ? index.filesExist.rules
+              : index.filesExist.protocol;
   if (!targetFileExists) return { code: 'missing-reference-target', severity: 'warning' };
   if (refKind === 'api') return { code: 'unresolved-api-reference', severity: 'warning' };
   return { code: 'unresolved-' + refKind + '-reference', severity: 'error' };

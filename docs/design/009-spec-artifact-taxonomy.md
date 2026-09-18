@@ -46,8 +46,9 @@ NightShift 用 8 类文件组织项目 spec：`NIGHTSHIFT.md`、`models.md`、`a
 | 引用方 | 可引用 | 说明 |
 |---|---|---|
 | `capability` | `models`、`errors`、`protocol` | 请求/响应体按字段名引用 models；错误码引用 errors；请求头/状态码引用 protocol |
-| `flow` | `capability`、`models`、`config` | 步骤引用 API 路径；后置条件引用实体与配置 |
-| `process` | `capability`、`models`、`config` | 输入/输出引用配置键与实体 |
+| `capability` | `models`、`errors`、`protocol`、`rules` | 请求/响应体按字段名引用 models；错误码引用 errors；请求头/状态码引用 protocol；**必须声明它遵守哪些领域规则**（`- 规则：<name>`） |
+| `flow` | `capability`、`models`、`config`、`rules` | 步骤引用 API 路径；后置条件引用实体与配置；分叉/轮询受规则约束时引用 rules |
+| `process` | `capability`、`models`、`config`、`rules` | 输入/输出引用配置键与实体；常驻循环受规则约束时引用 rules |
 | `rules` | `models` | DSL 对象引用 models 中的实体，不重述字段 |
 | `permissions` | `capability` | 权限矩阵按 API 路径引用 |
 | `constraints` | （不引用） | 独立 NFR；与 `project` 技术栈关联 |
@@ -63,6 +64,8 @@ NightShift 用 8 类文件组织项目 spec：`NIGHTSHIFT.md`、`models.md`、`a
 - 枚举以实体内或全局 `## 枚举` 定义，格式 `0=值A, 1=值B`；**只此一处**，其余文件引用枚举名。
 - 状态机以 `## 状态机：<Entity>` 定义 `状态 → [事件] → 状态` 迁移表；不再靠 flow 分支间接表达。
 - 反例：在 `capability` 请求体里内联 Go struct 重新声明字段。
+- **每个实体必须被行为层引用**（ADR 0030）：capability / flow / process 里写 `- 模型：<Name>`；
+  （被一条"本身被行为层引用的规则"引用也算，见 ADR 0030 的传递一次）。没人用的实体报 `unreferenced-model`（warning）。
 
 ### capability（接口契约）
 
@@ -85,6 +88,8 @@ NightShift 用 8 类文件组织项目 spec：`NIGHTSHIFT.md`、`models.md`、`a
 
 - 只保留：外部 DSL 字段/操作语义（`add/del/reset`）、匹配/判定语义等**领域不变量**。
 - 不含进程、不含指令类型表（指令对象归 models 或 capability）。
+- **每条规则必须被行为层引用**（ADR 0030）：capability / flow / process 里写 `- 规则：<name>` 声明"我遵守这条"。
+  没人引用的规则是悬空声明，`spec validate` 报 `unreferenced-rule`（warning）。
 
 ### protocol / errors / config（新增的第一等契约）
 
