@@ -59,6 +59,7 @@ describe('daemon state projection', () => {
       stopped_reason: null,
       last_decision: { ran: true, reason: 'task-done', task: 'G1:T1' },
       last_task: { id: 'G1:T1', result: 'done', elapsedMs: 1200, timedOut: false },
+      last_skips: [],
       queue: { queued: 1, running: 0, done: 1, failed: 0 },
       budget: { used_ms: 1200, total_ms: 60_000, remaining_ms: 58_800 },
     });

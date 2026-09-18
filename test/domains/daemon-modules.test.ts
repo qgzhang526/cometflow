@@ -10,6 +10,7 @@ import { generateTaskPlan } from '../../domains/task-plan/task-plan-generate.js'
 import { freezeTaskPlan } from '../../domains/task-plan/task-plan-freeze.js';
 import { writeTaskPlan } from '../../domains/task-plan/task-plan-store.js';
 import { installHook } from '../../domains/guard/hook-install.js';
+import { readDaemonState } from '../../domains/scheduler/daemon-state.js';
 
 /**
  * 模块级并发排除（ADR 0028 第三轮修订）。
@@ -92,6 +93,26 @@ async function runConcurrent(): Promise<{ max: number; runs: number; reason: str
     intervalMs: 0,
   });
   return { max: probe.maxInFlight(), runs: probe.runs(), reason: result.reason };
+}
+
+/** 冒充"人正在某个 module 上干活"的活跃 change：守卫与调度器都按 module 判归属。 */
+async function writeActiveChange(name: string, goal: string, task: string, module: string): Promise<void> {
+  const dir = path.join(root, 'changes', name);
+  await fs.mkdir(dir, { recursive: true });
+  await fs.writeFile(
+    path.join(dir, 'comet-state.yaml'),
+    [
+      'schema: cometflow.change.v1',
+      'name: ' + name,
+      'goal: ' + goal,
+      'task: ' + task,
+      'phase: build',
+      'status: active',
+      'module: ' + module,
+      'archived: false',
+      '',
+    ].join('\n'),
+  );
 }
 
 beforeEach(async () => {
@@ -223,5 +244,38 @@ describe('装在飞 change 的 module 与守卫下的并发（端到端）', () 
 
     const result = await runConcurrent();
     expect(result.max).toBe(2);
+  }, 60000);
+
+  /**
+   * 「为什么这条没被领」必须能在面板上问出答案：module 被**人手工开的** change 占着时，
+   * 停止原因是 `waiting-on-active-change`，状态投影里写明在等谁——过去这条只出现在 stdout。
+   */
+  it('module 被在飞 change 占着：停机原因点名，状态投影写明在等谁', async () => {
+    await writeProject([{ name: 'core', module: 'src/core' }]);
+    await installHook(root, 'claude-code');
+    // 冒充"人正在这个 module 上干活"：归属有歧义，调度器必须让开。
+    // 注意不能复用 G1:T1：那种情况会被判成"别人正在做同一条任务"（in-flight），
+    // 属于另一条规则（不做重复劳动），不是这里要验的 module 归属。
+    await writeActiveChange('human-core', 'G7', 'T7', 'src/core');
+
+    const probe = concurrencyProbe();
+    const result = await runDaemonLoop({
+      projectRoot: root,
+      agentId: 'mock',
+      mode: 'always',
+      runner: probe.runner,
+      concurrency: 2,
+      intervalMs: 0,
+    });
+
+    expect(result.reason).toBe('waiting-on-active-change');
+    expect(probe.runs()).toBe(0);
+    const state = await readDaemonState(root);
+    expect(state?.stopped_reason).toBe('waiting-on-active-change');
+    expect(state?.last_skips?.length).toBe(1);
+    expect(state?.last_skips?.[0]?.task).toBe('G1:T1');
+    expect(state?.last_skips?.[0]?.reason).toBe('module-conflict');
+    expect(state?.last_skips?.[0]?.holder).toBe('human-core');
+    expect(state?.last_skips?.[0]?.occupier_module).toBe('src/core');
   }, 60000);
 });

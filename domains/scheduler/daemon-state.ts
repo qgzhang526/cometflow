@@ -43,6 +43,25 @@ export interface DaemonLastTask {
   detail?: string | null;
 }
 
+/**
+ * 本轮**想领但没领成**的任务。
+ *
+ * 存在的理由是「为什么这条没被领」必须能问出答案：并发下一条任务可能是被 module 归属
+ * 或并发单元挡住的（C3–C5），而这些理由过去只出现在 daemon 的 stdout 日志里——
+ * 无人值守时没人盯着终端，面板上却只看到"队列里还有 queued"。
+ */
+export interface DaemonSkip {
+  /** 被跳过的任务（`goal:task`）。 */
+  task: string;
+  reason: 'unit-busy' | 'module-conflict';
+  /** 挡住它的那个执行者：module 冲突是 change 名（含人手工开的），单元占用是同单元的任务 id。 */
+  holder: string | null;
+  /** 候选自己声明的 module（没声明就是 null：归属不可判，按最坏情况独占）。 */
+  module: string | null;
+  /** 占用者声明的 module。 */
+  occupier_module: string | null;
+}
+
 export interface DaemonStateRecord {
   schema: typeof DAEMON_STATE_SCHEMA;
   /** daemon 进程的 pid：判断「这台机器上还有没有它在跑」的第一个线索。 */
@@ -58,6 +77,8 @@ export interface DaemonStateRecord {
   updated_at: string;
   last_decision: DaemonDecision | null;
   last_task: DaemonLastTask | null;
+  /** 本轮被跳过的候选（依赖没满足的不算：那是 blocked_by，队列行上已经写了）。 */
+  last_skips: DaemonSkip[];
   queue: DaemonQueueCounts;
   budget: { used_ms: number; total_ms: number; remaining_ms: number | null };
 }

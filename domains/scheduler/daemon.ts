@@ -30,7 +30,7 @@ import {
   reclaimExpiredLeases,
   writeQueue,
 } from './queue.js';
-import { countQueue, writeDaemonState, type DaemonLastTask } from './daemon-state.js';
+import { countQueue, writeDaemonState, type DaemonLastTask, type DaemonSkip } from './daemon-state.js';
 import type { SchedulerQueue } from './queue.js';
 
 export interface DaemonOptions {
@@ -156,6 +156,8 @@ export async function runDaemonLoop(options: DaemonLoopOptions): Promise<DaemonL
   let lastTask: DaemonLastTask | null = null;
   /** 最近一次「决策」：终局写投影时要保留它（停止原因与最近决策是两件事）。 */
   let lastDecision: { ran: boolean; reason: string; task: string | null } | null = null;
+  /** 本轮被跳过的候选：让"为什么这条没被领"在面板上问得出答案（不是只躺在 stdout 里）。 */
+  let lastSkips: DaemonSkip[] = [];
   const reportState = async (
     currentQueue: SchedulerQueue,
     iteration: number,
@@ -174,6 +176,7 @@ export async function runDaemonLoop(options: DaemonLoopOptions): Promise<DaemonL
         stopped_reason: stoppedReason,
         last_decision: lastDecision,
         last_task: lastTask,
+        last_skips: lastSkips,
         queue: countQueue(currentQueue),
         budget: {
           used_ms: (await readBudgetUsage(options.projectRoot)).used_ms,
@@ -448,6 +451,9 @@ export async function runDaemonLoop(options: DaemonLoopOptions): Promise<DaemonL
           : {}),
       });
       if (selection.kind !== 'claimable') {
+        // 记下"这一轮为什么没领它"：依赖没满足的不算（那是 blocked_by，队列行上已经写了），
+        // 这里只记并发单元的占用与 module 归属冲突——它们过去只出现在 stdout 日志里。
+        lastSkips = selection.kind === 'none' ? [] : selection.skipped.map(toDaemonSkip);
         await withQueueWrite(async () => {
           queue = claimed;
           await writeQueue(options.projectRoot, queue);
@@ -479,6 +485,8 @@ export async function runDaemonLoop(options: DaemonLoopOptions): Promise<DaemonL
         });
         await writeQueue(options.projectRoot, queue);
       });
+      // 领到了：上一轮的跳过记录已经过时。
+      lastSkips = [];
       return { kind: 'claimed', task: candidate };
     } finally {
       await claim.release();
@@ -491,18 +499,46 @@ export async function runDaemonLoop(options: DaemonLoopOptions): Promise<DaemonL
   const moduleById = new Map<string, OccupiedModule>();
   const unitsInFlight = (): Set<string> => new Set([...active.keys()].map((id) => unitById.get(id) ?? id));
 
-  /** 一条 module 冲突的说明：给日志和状态投影用（"在等谁"比"没得跑"有用得多）。 */
-  const describeSkip = (entry: ClaimSkip): string =>
-    entry.reason === 'unit-busy'
-      ? entry.task.id + ' 并发单元已被占用'
-      : entry.task.id +
-        ' 的 module 与在飞 change ' +
-        (entry.occupier?.change ?? '?') +
-        ' 冲突（module=' +
-        (entry.task.module ?? '(未声明)') +
-        ' vs ' +
-        (entry.occupier?.module ?? '(未声明)') +
-        '）';
+  /**
+   * 跳过 → 结构化记录（写进状态投影，面板据此解释"为什么这条没被领"）。
+   *
+   * 单元占用要落到**具体是哪个任务**：只写 `unit-busy` 等于没说——《谁在跑》从内存槽位反查。
+   */
+  const toDaemonSkip = (entry: ClaimSkip): DaemonSkip => {
+    if (entry.reason === 'unit-busy') {
+      const holder =
+        [...unitById.entries()].find(([, unit]) => unit === concurrencyUnit(entry.task))?.[0] ?? null;
+      return {
+        task: entry.task.id,
+        reason: 'unit-busy',
+        holder,
+        module: entry.task.module ?? null,
+        occupier_module: null,
+      };
+    }
+    return {
+      task: entry.task.id,
+      reason: 'module-conflict',
+      holder: entry.occupier?.change ?? null,
+      module: entry.task.module ?? null,
+      occupier_module: entry.occupier?.module ?? null,
+    };
+  };
+
+  /** 一条跳过的日志行（与状态投影同一份事实，只是给人看要排成一句话）。 */
+  const describeSkip = (entry: ClaimSkip): string => {
+    const skip = toDaemonSkip(entry);
+    return skip.reason === 'unit-busy'
+      ? skip.task + ' 的并发单元已被 ' + (skip.holder ?? '另一个槽') + ' 占用'
+      : skip.task +
+          ' 的 module 与在飞 change ' +
+          (skip.holder ?? '?') +
+          ' 冲突（module=' +
+          (skip.module ?? '(未声明)') +
+          ' vs ' +
+          (skip.occupier_module ?? '(未声明)') +
+          '）';
+  };
 
   while (!budget.isExhausted()) {
     // 控制语义（S4）：每轮先看有没有人按下暂停 / 停止。进程仍归 CLI/宿主持有，这里只读一个文件。
@@ -591,6 +627,12 @@ export async function runDaemonLoop(options: DaemonLoopOptions): Promise<DaemonL
       if (backoffReason !== null && backoffReason.kind === 'waiting') {
         // 有槽在跑：把跳过的原因说清楚，然后等一个槽空出来（同一 module 的任务自然排到后面）。
         for (const entry of backoffReason.skipped) log(['daemon', String(index), 'skip', describeSkip(entry)].join(' '));
+        // 同时写进投影：状态投影要能回答"此刻为什么没领新任务"，而不是只有日志里才有。
+        await reportState(queue, index, 'skipping', {
+          ran: false,
+          reason: 'waiting-on-active-change',
+          task: backoffReason.skipped[0]?.task.id ?? null,
+        });
       }
       await Promise.race(active.values());
       continue;

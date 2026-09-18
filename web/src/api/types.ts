@@ -596,6 +596,18 @@ export interface SchedulerResponse {
   /** 未消费的控制指令（pause / resume / stop），idle 表示没有。 */
   control?: { action: 'pause' | 'resume' | 'stop' | 'idle'; requested_at: string; requested_by: string } | null;
   /**
+   * 单实例租约：**有没有调度器在跑**的活证据（每 10s 心跳、60s 过期）。
+   * 状态投影的 `updated_at` 只在决策时写，任务跑几十分钟也不会动，不能当心跳用。
+   */
+  lease?: {
+    owner: string;
+    mode: string;
+    agent: string;
+    started_at: string;
+    heartbeat_at: string;
+    fresh: boolean;
+  } | null;
+  /**
    * goal 级调度顺序（ADR 0029）：`## 调度顺序` 里显式列出的 goal + 可读提示。
    * 没列出的按编号升序排在后面，所以这里不需要把"全部顺序"返回一遍。
    */
@@ -630,6 +642,17 @@ export interface SchedulerResponse {
       verdict?: string | null;
       detail?: string | null;
     } | null;
+    /**
+     * 本轮想领但没领成的候选：并发单元被占 / module 归属冲突。
+     * 依赖没满足的不在这里（那是队列行上的 `blocked_by`）。
+     */
+    last_skips?: Array<{
+      task: string;
+      reason: 'unit-busy' | 'module-conflict';
+      holder: string | null;
+      module: string | null;
+      occupier_module: string | null;
+    }>;
     queue: { queued: number; running: number; done: number; failed: number };
     budget: { used_ms: number; total_ms: number; remaining_ms: number | null };
   } | null;

@@ -400,6 +400,47 @@ describe('V4：调度预算可见 + 冗余端点清理', () => {
     expect(['fail', 'warn', 'off']).toContain(body.data.preflight);
   });
 
+  /**
+   * 「现在到底有没有调度器在跑」由**租约**回答（ADR 0027），不是状态投影的时间戳：
+   * 一个任务能跑几十分钟，拿 updated_at 当心跳会把"正在跑"误判成"停了"。
+   * 面板靠这个字段决定要不要轮询——CLI 起的 daemon 直接写项目文件、不发 SSE。
+   */
+  it('调度响应带租约状态：没有租约 / 活着 / 已过期三种都说得清', async () => {
+    const absent = await get<{ lease: unknown }>('/scheduler/queue');
+    expect(absent.body.data.lease).toBeNull();
+
+    const leasePath = path.join(projectRoot, '.cometflow', 'runtime', 'daemon.lease.json');
+    await fs.mkdir(path.dirname(leasePath), { recursive: true });
+    const writeLease = async (heartbeatAt: string): Promise<void> => {
+      await fs.writeFile(
+        leasePath,
+        JSON.stringify({
+          schema: 'cometflow.daemon-lease.v1',
+          owner: '4242@testhost',
+          pid: 4242,
+          host: 'testhost',
+          mode: 'always',
+          agent: 'mock',
+          started_at: '2026-09-18T00:00:00.000Z',
+          heartbeat_at: heartbeatAt,
+        }),
+      );
+    };
+
+    await writeLease(new Date().toISOString());
+    const fresh = await get<{ lease: { owner: string; mode: string; fresh: boolean } | null }>('/scheduler/queue');
+    expect(fresh.body.data.lease?.owner).toBe('4242@testhost');
+    expect(fresh.body.data.lease?.mode).toBe('always');
+    expect(fresh.body.data.lease?.fresh).toBe(true);
+
+    // 超过 60s 没心跳 = 崩溃遗留：字段还在，但 fresh=false，界面据此停止轮询并说"已过期"。
+    await writeLease(new Date(Date.now() - 5 * 60_000).toISOString());
+    const stale = await get<{ lease: { fresh: boolean } | null }>('/scheduler/queue');
+    expect(stale.body.data.lease?.fresh).toBe(false);
+
+    await fs.rm(leasePath, { force: true });
+  });
+
   it('/spec-index 与 /config/project 保留（CLI/脚本投影，界面不消费）', async () => {
     // V4 的决策是「标注保留」而不是删除：两者都有 USAGE 文档与既有测试覆盖（serve-api.test.ts），
     // 删掉它们是移除对外表面，不是清理噪音。这里钉住它们仍然可用，避免哪天被顺手删掉。
