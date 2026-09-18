@@ -7,19 +7,6 @@
       <button @click="emit('reload')">刷新</button>
     </div>
 
-    <!-- 当前 change 指针：多个活跃 change 时，写入门禁靠它判断「这次写入属于谁」。 -->
-    <p class="muted">
-      当前 change 指针：
-      <template v-if="pointer !== null">
-        <b>{{ pointer.change }}</b>
-        <span v-if="!pointerResolved" class="badge err">已失效（指向已归档或不存在的 change）</span>
-        <button class="ghost" :disabled="busy" @click="emit('clearCurrent')">清除</button>
-      </template>
-      <template v-else>
-        未设置<span v-if="activeCount > 1">（当前有 {{ activeCount }} 个活跃 change，写入门禁会 fail closed）</span>
-      </template>
-    </p>
-
     <div class="toolbar">
       <input v-model="draftName" placeholder="change 名称（如 auth-login）" />
       <select v-model="draftGoal" @change="emit('changeGoal')">
@@ -79,8 +66,6 @@ defineProps<{
   goals: GoalRecord[];
   tasks: Array<{ id: string; title: string }>;
   pointer: CurrentChangePointer | null;
-  pointerResolved: boolean;
-  activeCount: number;
   emptyHint: string;
   selectedName: string;
   busy: boolean;
@@ -91,7 +76,6 @@ const emit = defineEmits<{
   reload: [];
   select: [name: string];
   setCurrent: [name: string];
-  clearCurrent: [];
   changeGoal: [];
   create: [];
 }>();

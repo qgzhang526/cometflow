@@ -11,10 +11,23 @@ import type { PanelTarget } from '../utils/finding-targets';
  */
 export const useNavigationStore = defineStore('navigation', () => {
   const pending = ref<PanelTarget | null>(null);
+  /**
+   * 最近一次**已被取走**的跳转：落地横幅读它。
+   *
+   * 与 `pending` 分开是因为生命周期不同：`pending` 是"还没人接"的一次性意图（面板取走即清），
+   * 而横幅要一直显示到用户看完——由用户点「知道了」或下一次跳转覆盖。
+   */
+  const arrival = ref<PanelTarget | null>(null);
 
   function request(target: PanelTarget): void {
     // 每次都是新对象：连着两次跳同一个面板（不同 subject）也能触发 watch。
     pending.value = { ...target };
+    /**
+     * 横幅在**点击那一刻**就挂上，而不是等面板取走——只有需要落到某个页签的面板才会调
+     * `consume`（例如「变更」不需要），否则"去变更"这一类落点就没有落地说明。
+     * 用户离开目标面板时由 ProjectView 清掉（见那里的 watch）。
+     */
+    arrival.value = { ...target };
   }
 
   /** 面板取走属于自己的那次跳转（取走即清，避免下次挂载又应用一遍）。 */
@@ -25,5 +38,9 @@ export const useNavigationStore = defineStore('navigation', () => {
     return current;
   }
 
-  return { pending, request, consume };
+  function dismissArrival(): void {
+    arrival.value = null;
+  }
+
+  return { pending, arrival, request, consume, dismissArrival };
 });

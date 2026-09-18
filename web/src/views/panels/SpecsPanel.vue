@@ -1,15 +1,5 @@
 <template>
   <div class="card">
-    <!--
-      从问题清单跳过来的落地说明：**为什么在这、接下来点什么**。
-      在这之前「去处理」只切到「规格」面板的默认页签，用户到了也不知道该干嘛。
-    -->
-    <div v-if="arrived !== null" class="finding">
-      来自问题清单：<b>{{ arrived.subject ?? '整个项目' }}</b>
-      <template v-if="arrived.reason"> —— {{ arrived.reason }}</template>
-      <span class="muted">（已切到「{{ describeTarget(arrived) }}」）</span>
-      <button class="ghost" @click="arrived = null">知道了</button>
-    </div>
     <div class="tabs">
       <button
         v-for="tab in TABS"
@@ -80,7 +70,7 @@ import { resumeRefresh, suspendRefresh } from '../../composables/useRefresh';
 import { useNavigationStore } from '../../stores/navigation';
 import { useProjectStore } from '../../stores/project';
 import { useToastStore } from '../../stores/toasts';
-import { describeTarget, type PanelTarget } from '../../utils/finding-targets';
+import type { PanelTarget } from '../../utils/finding-targets';
 import KindsTab from './specs/KindsTab.vue';
 import ScaffoldTab from './specs/ScaffoldTab.vue';
 import FilesTab from './specs/FilesTab.vue';
@@ -112,8 +102,6 @@ const navigation = useNavigationStore();
 const activeTab = ref<(typeof TABS)[number]['id']>('kinds');
 /** 问题清单指向的那份 spec：影响与门禁 / 版本页签用它把那条挑出来。 */
 const focusPath = ref('');
-/** 落地横幅的内容（从问题清单跳过来时非空）。 */
-const arrived = ref<PanelTarget | null>(null);
 const editingPath = ref('');
 const editing = ref<string | null>(null);
 const saving = ref(false);
@@ -288,7 +276,6 @@ watch(activeTab, async (tab) => {
  * `focusPath` 交给「影响与门禁」把那条差异挑出来——用户不用在列表里自己找。
  */
 function applyTarget(target: PanelTarget): void {
-  arrived.value = target;
   focusPath.value = target.subject ?? '';
   const tab = TABS.find((entry) => entry.id === target.tab);
   if (tab === undefined) return;

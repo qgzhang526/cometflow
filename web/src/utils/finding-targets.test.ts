@@ -37,6 +37,8 @@ describe('targetForFinding', () => {
     expect(targetForFinding(finding('change-base-conflict', 'G1-T1'))?.panel).toBe('changes');
     expect(targetForFinding(finding('change-state-integrity', 'G1-T1'))?.panel).toBe('changes');
     expect(targetForFinding(finding('multiple-active-changes', '', 'doctor'))?.panel).toBe('changes');
+    // 多活跃 change 的引导必须点出"选一个设为当前"，而不是笼统一句"去变更"。
+    expect(targetForFinding(finding('multiple-active-changes', '', 'doctor'))?.reason).toContain('设为当前');
   });
 
   it('hook / 并发策略各自去资产与设置', () => {
