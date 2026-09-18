@@ -36,11 +36,17 @@
       {{ onlyUncovered ? '所有验收项都有可执行 check。' : '还没有验收项：spec 里写「## Acceptance」并列出条目。' }}
     </p>
 
-    <h3>全部锚点（含没有被验收项覆盖的）</h3>
+    <h3>可绑定锚点（capability 的契约标题）</h3>
     <p class="muted">
       与 <code>cometflow spec anchors</code> 同一份投影。这里回答上面看不到的两个问题：
       哪些锚点<strong>没有</strong>验收项，以及哪些锚点<strong>没有被冻结任务绑定</strong>
       （anchor 覆盖率只算后者；未绑定的锚点等于「写了契约但没人实现」）。
+      <br />
+      只列 <strong>capability spec</strong>（<code>specs/&lt;capability&gt;/spec.md</code>）里的契约标题——
+      只有它们能被任务用 <code>spec_anchor</code> 绑定。其它 kind 的标题是<strong>文档结构</strong>
+      （flow 的 <code>## 前置条件 / ## 步骤 / ## 后置条件</code> 三段式骨架、models 的实体清单、
+      rules 的规则表、constraints 的各条约束……），既不参与绑定也不进覆盖率，所以不在这里列。
+      flow 的可绑定单位是它的步骤（<code>### 步骤N …</code>），属于 flow 自己的结构，不参与任务绑定。
     </p>
     <div class="row">
       <StatusBadge
@@ -71,7 +77,11 @@
         </tr>
         <tr v-if="anchorRows.length === 0">
           <td colspan="5" class="muted">
-            {{ onlyUnbound ? '所有锚点都被冻结任务绑定了。' : '还没有锚点：spec 里写「## &lt;锚点名&gt;」标题。' }}
+            {{
+              onlyUnbound
+                ? '所有锚点都被冻结任务绑定了。'
+                : '还没有可绑定锚点：在 capability spec 里写「## &lt;契约标题&gt;」（如 ## POST /login）。'
+            }}
           </td>
         </tr>
       </tbody>

@@ -2,6 +2,7 @@ import path from 'node:path';
 import { readTextFile } from '../../platform/fs/read-file.js';
 import { toPosix } from '../../platform/paths/relative.js';
 import { hashSpecText, normalizeSpecText } from './spec-hash.js';
+import { kindForSpecFile } from './kind.js';
 import type { AcceptanceItem, ParsedSpec, SpecAnchor } from './types.js';
 
 const ACCEPTANCE_HEADING = /^(##|###)\s+(acceptance|验收)\s*$/iu;
@@ -84,11 +85,20 @@ function anchorBodyText(layout: SpecLayout, position: number): string {
 export function parseSpecContent(content: string, source: string): ParsedSpec {
   const layout = analyze(content);
   const { lines, headings } = layout;
-  // 可绑定 anchor 的层级：优先二级标题（契约锚点，如 `## POST /x`）。
-  // 三级标题通常是 `### 请求` / `### 响应` 这类段落，会跨接口重名，
-  // 把它们当成 anchor 会导致 spec_anchor 冲突、任务绑错段落。
-  // 只有当整份文件没有二级标题时，才退化为三级标题作为 anchor。
-  const anchorLevel = headings.some((heading) => heading.level === 2) ? 2 : 3;
+  /**
+   * 可绑定 anchor 的层级：优先二级标题（契约锚点，如 `## POST /x`）。
+   *
+   * 三级标题通常是 `### 请求` / `### 响应` 这类段落，会跨接口重名，
+   * 把它们当成 anchor 会导致 spec_anchor 冲突、任务绑错段落。
+   * 只有当整份文件没有二级标题时，才退化为三级标题作为 anchor。
+   *
+   * **flow 是例外**：它的二级标题是 `## 前置条件` / `## 步骤` / `## 后置条件` 这三段式骨架
+   * （`spec validate` 会强制要求这三段），属于**结构容器**——与 `## Acceptance` 同类，
+   * 不是可绑定锚点。flow 真正的可绑定单位是步骤（`### 步骤N …`），所以这里直接用三级标题。
+   * （在这之前，三段骨架会被当成锚点，于是「验收覆盖」里出现一堆 `前置条件` / `步骤` / `后置条件`。）
+   */
+  const isFlow = kindForSpecFile(source) === 'flow';
+  const anchorLevel = isFlow ? 3 : headings.some((heading) => heading.level === 2) ? 2 : 3;
   const headingPosition = new Map<number, number>();
   headings.forEach((heading, position) => headingPosition.set(heading.index, position));
 

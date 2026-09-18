@@ -35,6 +35,7 @@
 | 调度并发与排序 | C1 原子领取 + change 级互斥 ✅；C2 依赖排序 ✅；C3 `--concurrency N` 槽位并发 ✅；C4 守卫按 module 判归属 ✅；C5 module 级排除（同 module / 嵌套 / 未声明 → 串行）✅；C6 goal 级调度顺序（COMETFLOW.md 的 `## 调度顺序` 清单优先、编号兜底）✅ | **C1–C6 均已实施**（2026-09-18） | [scheduler-concurrency-plan.md](./scheduler-concurrency-plan.md) |
 | 守卫扩容（ADR 0028 修订） | `hook-guard` 先按 module 判写入归属：落在唯一一个 build change 的 module 内即归它；未认领/歧义才回落到 current-change 指针与 fail closed | **已实施**（2026-09-17） | [0028-concurrency-policy.md](../decisions/0028-concurrency-policy.md) |
 | 前端优化（实时性 / 可读性 / 拆分） | 调度面板自动跟进度（SSE 区域补齐 + 按租约轮询）、机器词翻人话 + `last_skips` 投影（「为什么这条没被领」）、公共加载器 + 拆出决策卡 / 顺序卡 / 变更列表卡；补丁：问题清单「去处理」落到能处理它的那一页（面板 + 页签 + 对象） | **已完成**（2026-09-18，回归 152 步） | [web-optimization-plan.md](./web-optimization-plan.md) |
+| spec anchor 口径修正 | 只有 capability 的契约标题是 anchor：flow 的三段式骨架（前置条件/步骤/后置条件）与其它 kind 的结构标题不再计入「验收覆盖」与 `spec anchors`（与 `anchor_coverage_rate` 同口径） | **已完成**（2026-09-18，真实项目 22 行 → 5 行） | [spec-anchor-scope-plan.md](./spec-anchor-scope-plan.md) |
 | 内嵌调度器与常驻 | serve 内嵌调度器（job 形式）+ 单实例租约 + `scheduler.autostart` 常驻恢复 + 页面启动按钮（ADR 0027，修订 0026） | **已实施**（2026-09-17） | [daemon-drives-change-plan.md](./daemon-drives-change-plan.md) |
 
 ## 阶段顺序原则

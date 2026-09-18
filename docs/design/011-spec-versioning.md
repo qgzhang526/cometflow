@@ -67,9 +67,14 @@
 
 anchor 是任务绑定的最小单位，规则：
 
-- **可绑定 anchor = 二级标题**（例如 `## POST /api/auth/email-login`）；`### 请求`、`### 响应` 这类段落不是 anchor；
-- 整份文件没有二级标题时退化为三级标题（兼容以 `###` 组织结构的 spec）；
-- `## Acceptance` / `## 验收` 不是 anchor，它是验收项的容器；
+- **可绑定 anchor = capability spec 的契约标题**（二级标题，例如 `## POST /api/auth/email-login`）；`### 请求`、`### 响应` 这类段落不是 anchor；
+- 整份文件没有二级标题时退化为三级标题（兼容以 `###` 组织结构的 spec）；**flow 文档直接用三级标题**——
+  它的二级标题是三段式骨架（见下），可绑定单位是步骤 `### 步骤N …`；
+- **结构容器不是 anchor**：`## Acceptance` / `## 验收` 是验收项的容器；flow 的
+  `## 前置条件` / `## 步骤` / `## 后置条件` 是 `spec validate` 强制要求的三段式骨架。
+  把骨架当锚点会让「验收覆盖」里出现一堆 `前置条件` / `步骤` / `后置条件` 噪音；
+- **只有 capability 的锚点参与任务绑定与 `anchor_coverage_rate`**：其它 kind 的标题
+  （models 的实体清单、rules 的规则表、constraints 的各条约束……）是文档结构，不是绑定单位；
 - 同一文件内 anchor 标题必须唯一，重复即 `duplicate-anchor` 错误。
 
 每个 anchor 记录一个**正文哈希**：
