@@ -1,4 +1,7 @@
 import { reactive } from 'vue';
+import type { RefreshArea } from '../api/refresh-areas';
+
+export type { RefreshArea };
 
 /**
  * 外部变更（SSE）→ 面板刷新 的路由。
@@ -14,17 +17,6 @@ const timers = new Map<string, number>();
 const DEBOUNCE_MS = 250;
 
 let suspendDepth = 0;
-
-export type RefreshArea =
-  | 'overview'
-  | 'goals'
-  | 'specs'
-  | 'plans'
-  | 'changes'
-  | 'evolve'
-  | 'eval'
-  | 'config'
-  | 'workspace';
 
 function flush(area: string): void {
   counters[area] = (counters[area] ?? 0) + 1;

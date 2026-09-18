@@ -38,90 +38,9 @@
     </table>
   </div>
 
-  <div class="card">
-    <div class="row">
-      <h2>调度器最近一次决策</h2>
-      <span class="grow" />
-      <StatusBadge
-        v-if="data?.daemon"
-        :tone="data.daemon.phase === 'stopped' ? 'warn' : 'ok'"
-        :text="'phase ' + data.daemon.phase"
-      />
-      <StatusBadge v-else tone="gray" text="从未跑过" />
-    </div>
-    <!--
-      这一段是 C5 的落点：在它之前，界面只能显示队列与预算，
-      答不出「无人值守到底有没有在工作」。只读投影，不给任何控制按钮。
-    -->
-    <p v-if="!data?.daemon" class="muted">
-      这台机器上还没有 daemon 写过状态投影（<code>.cometflow/runtime/daemon-state.json</code>）：
-      下面的队列要么是按冻结计划推导的，要么是别的机器写下的。
-      启动无人值守：<code>cometflow daemon start . --mode always</code>。
-    </p>
-    <template v-else>
-      <div class="row" style="margin-bottom: 6px">
-        <StatusBadge tone="brand" :text="'mode ' + data.daemon.mode" />
-        <StatusBadge tone="gray" :text="'agent ' + data.daemon.agent" />
-        <span class="muted">
-          轮次 {{ data.daemon.iteration }} · pid {{ data.daemon.pid }} · 最近活动
-          {{ relativeTime(data.daemon.updated_at) }}
-        </span>
-      </div>
-      <p class="muted">
-        <template v-if="data.daemon.last_decision">
-          最近决策：{{ data.daemon.last_decision.ran ? '跑了 agent' : '没跑' }} ·
-          {{ data.daemon.last_decision.reason }}
-          <template v-if="data.daemon.last_decision.task"> · 任务 {{ data.daemon.last_decision.task }}</template>
-        </template>
-        <template v-else>最近决策：还没有记录。</template>
-        <template v-if="data.daemon.stopped_reason"> · 停止原因 {{ data.daemon.stopped_reason }}</template>
-      </p>
-      <p v-if="data.daemon.last_task" class="muted">
-        上一次任务：<b>{{ data.daemon.last_task.id }}</b> ·
-        {{ data.daemon.last_task.result }} · {{ data.daemon.last_task.elapsedMs }} ms
-        <template v-if="data.daemon.last_task.timedOut"> · 已超时</template>
-      </p>
-      <p class="muted">
-        队列计数：queued {{ data.daemon.queue.queued }} · running {{ data.daemon.queue.running }} ·
-        done {{ data.daemon.queue.done }} · failed {{ data.daemon.queue.failed }}
-        <template v-if="data.daemon.budget.total_ms > 0">
-          · 预算 {{ data.daemon.budget.used_ms }} / {{ data.daemon.budget.total_ms }} ms
-          （本次进程剩余 {{ data.daemon.budget.remaining_ms ?? '—' }} ms）
-        </template>
-      </p>
-      <p class="muted">
-        「是不是还在跑」不靠界面猜：上面的时间戳是它最后一次写状态的时间，
-        pid 只是线索——进程可能已经退出或换台机器在跑。
-      </p>
-    </template>
-  </div>
+  <DaemonDecisionCard :daemon="data?.daemon ?? null" :lease="data?.lease ?? null" :live="live" />
 
-  <!--
-    goal 级调度顺序（ADR 0029）：顺序写在 COMETFLOW.md 的 `## 调度顺序` 里，位置即顺序。
-    这一块是把"当前生效的顺序"直接摊开——不然读者得自己在脑子里按文件名排序。
-  -->
-  <div class="card">
-    <div class="row">
-      <h2>调度顺序</h2>
-      <span class="grow" />
-      <StatusBadge
-        :tone="orderListed.length > 0 ? 'brand' : 'gray'"
-        :text="orderListed.length > 0 ? '显式 ' + orderListed.length + ' 个' : '按编号'"
-      />
-    </div>
-    <p class="muted">
-      写在 <code>COMETFLOW.md</code> 的 <code>## 调度顺序</code> 段落里，<b>位置即顺序</b>：
-      列出的按清单走，没列出的（含新加的 goal）按编号升序排在后面。
-      顺序不冻进计划——改它不需要重新 <code>plan freeze</code>；已完成 goal 不参与领取，留在清单里也无害。
-      要插队就把那一条挪到清单第一行。
-    </p>
-    <p v-if="orderListed.length > 0">
-      <b>{{ orderListed.join(' → ') }}</b>
-      <span class="muted"> → 其余按编号升序</span>
-    </p>
-    <p v-else class="muted">没有显式清单：当前按 goal 编号升序（<code>G2</code> 在 <code>G10</code> 之前）。</p>
-    <p v-for="warning in orderWarnings" :key="warning" class="muted">警告：{{ warning }}</p>
-  </div>
+  <ScheduleOrderCard :order="data?.order" />
 
   <div class="card">
     <div class="row">
@@ -236,7 +155,14 @@
               />
               <span v-if="task.workflow.status === 'blocked'" class="badge err">blocked，需人工</span>
             </template>
-            <span v-else-if="task.verdict" class="muted">{{ task.verdict }}（无 change 记录）</span>
+            <!-- 结论也翻成人话：`verify-failed` 这类词裸着显示，读者得自己去查词表。 -->
+            <template v-else-if="task.verdict">
+              <StatusBadge
+                :tone="verdictLabel(task.verdict)?.tone ?? 'gray'"
+                :text="verdictLabel(task.verdict)?.text ?? task.verdict"
+              />
+              <span class="muted">（无 change 记录）</span>
+            </template>
             <span v-else class="muted">—</span>
           </td>
           <td>{{ task.attempts }}</td>
@@ -260,18 +186,26 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { RouterLink } from 'vue-router';
 import StatusBadge from '../../components/StatusBadge.vue';
 import { errorMessage } from '../../api/client';
+import { usePanelData } from '../../composables/usePanelData';
 import { useProjectStore } from '../../stores/project';
 import { useToastStore } from '../../stores/toasts';
 import type { SchedulerResponse } from '../../api/types';
 import { relativeTime } from '../../utils/format';
+import { verdictLabel } from '../../utils/scheduler-labels';
+import DaemonDecisionCard from './scheduler/DaemonDecisionCard.vue';
+import ScheduleOrderCard from './scheduler/ScheduleOrderCard.vue';
 
 const project = useProjectStore();
 const toasts = useToastStore();
-const data = ref<SchedulerResponse | null>(null);
+// 加载/失败提示/跟着 SSE 重读这一套走公共入口；下面的轮询是本面板特有的（见 live）。
+const { data, reload: load, loading } = usePanelData(
+  () => project.projectApi<SchedulerResponse>('/scheduler/queue'),
+  { errorTitle: '读取调度队列失败', area: 'scheduler' },
+);
 const controlBusy = ref(false);
 const retrying = ref('');
 
@@ -281,9 +215,6 @@ const pendingCount = computed(() => tasks.value.filter((task) => task.status ===
 /** 待交付里有多少条在等前序任务（依赖，C2）：一眼看出是"卡在顺序上"还是"没人做"。 */
 const blockedCount = computed(() => tasks.value.filter((task) => (task.blocked_by?.length ?? 0) > 0).length);
 const deliveredCount = computed(() => tasks.value.filter((task) => task.delivered).length);
-/** 调度顺序（ADR 0029）：显式清单与提示都来自 COMETFLOW.md 的 `## 调度顺序`。 */
-const orderListed = computed(() => data.value?.order?.listed ?? []);
-const orderWarnings = computed(() => data.value?.order?.warnings ?? []);
 
 /** 暂停 / 继续 / 停止：写控制文件（ADR 0026），进程仍归启动它的终端。 */
 async function control(action: 'pause' | 'resume' | 'stop'): Promise<void> {
@@ -354,13 +285,40 @@ const budgetUnused = computed(() => {
   return at === '' || at.startsWith('1970-01-01');
 });
 
-async function load(): Promise<void> {
-  try {
-    data.value = await project.projectApi<SchedulerResponse>('/scheduler/queue');
-  } catch (error) {
-    toasts.error('读取调度队列失败', errorMessage(error));
+/** 轮询间隔：本地接口、几 KB 响应，4s 足够跟上无人值守的进度，也不会白烧 CPU。 */
+const LIVE_POLL_MS = 4000;
+/** 没在跑时每 5 个 tick（20s）探一次：**从终端起的调度器要能被自动发现**，不用手点刷新。 */
+const IDLE_POLL_TICKS = 5;
+let pollTimer: number | null = null;
+let pollTick = 0;
+
+/**
+ * 「现在有没有调度器在跑」用**租约**判断，不用状态投影的时间戳。
+ *
+ * 投影只在决策时写（一个任务能跑几十分钟），拿它当心跳会把"正在跑"当成"停了"；
+ * 租约每 10s 心跳、60s 过期，正是这个问题需要的粒度。CLI 起的 daemon 直接写项目文件、
+ * 不发 SSE，所以这里必须自己轮询；内嵌调度器虽然发 job 事件，但它跑的是同一个循环，
+ * 按同一把尺子处理更简单。
+ */
+const live = computed(() => data.value?.lease?.fresh === true || data.value?.embedded?.running === true);
+
+/**
+ * 常驻轮询：即时刷新由 usePanelData 订阅 'scheduler' 区域完成（页面动作会广播），
+ * 但**外部进程**（终端里 `daemon start`）只写项目文件、不发事件，只能靠轮询。
+ * 所以这里不停轮询，只是没在跑时降频——停了轮询就永远发现不了"刚刚起了一个调度器"。
+ */
+function stopPolling(): void {
+  if (pollTimer !== null) {
+    window.clearInterval(pollTimer);
+    pollTimer = null;
   }
 }
 
-onMounted(load);
+onMounted(() => {
+  pollTimer = window.setInterval(() => {
+    pollTick += 1;
+    if (live.value || pollTick % IDLE_POLL_TICKS === 0) void load();
+  }, LIVE_POLL_MS);
+});
+onUnmounted(stopPolling);
 </script>

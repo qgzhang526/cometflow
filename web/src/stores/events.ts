@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import { api, apiUrl, eventStreamUrl, hasToken, tokenRejected } from '../api/client';
+import { areaForPath } from '../api/refresh-areas';
 import { signalRefresh } from '../composables/useRefresh';
 import type { JobEvent } from '../api/types';
 import { useJobsStore } from './jobs';
@@ -9,20 +10,6 @@ import { useProjectStore } from './project';
 export type ConnectionState = 'idle' | 'connecting' | 'open' | 'reconnecting' | 'offline';
 
 const MAX_BACKOFF_MS = 15000;
-
-/** 把 SSE 的 path 收敛成面板级刷新区域。 */
-function areaForPath(path: string | undefined): string {
-  if (path === undefined) return 'overview';
-  if (path.startsWith('/api/config')) return 'config';
-  if (path.startsWith('/api/goals') || path.startsWith('/api/mission') || path.startsWith('/api/context')) return 'goals';
-  if (path.startsWith('/api/specs')) return 'specs';
-  if (path.startsWith('/api/plans')) return 'plans';
-  if (path.startsWith('/api/changes')) return 'changes';
-  if (path.startsWith('/api/evolutions')) return 'evolve';
-  // current-change 指针在 Changes 面板展示（也能从资产页的 Hook 预览里改），所以归到 changes。
-  if (path.startsWith('/api/current-change')) return 'changes';
-  return 'overview';
-}
 
 export const useEventStore = defineStore('events', () => {
   const connection = ref<ConnectionState>('idle');

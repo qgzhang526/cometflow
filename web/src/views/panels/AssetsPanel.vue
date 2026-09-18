@@ -178,6 +178,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import ModalCard from '../../components/ModalCard.vue';
 import StatusBadge from '../../components/StatusBadge.vue';
 import { errorMessage } from '../../api/client';
+import { refreshCounter } from '../../composables/useRefresh';
 import { useProjectStore } from '../../stores/project';
 import { useToastStore } from '../../stores/toasts';
 import type {
@@ -351,4 +352,17 @@ onMounted(() => {
 watch(needsPointer, (blocked) => {
   if (blocked && activeChanges.value.length === 0) void loadActiveChanges();
 });
+
+/**
+ * 外部变更（SSE 'assets'）→ 重读三个来源：bundle 分发、skill 导入、hook 安装/卸载
+ * 都会改仓库里的文件，面板上的清单与 Hook 状态因此可能已经过期。
+ */
+watch(
+  () => refreshCounter('assets'),
+  () => {
+    void loadSkills();
+    void loadBundle();
+    void loadHookStatus();
+  },
+);
 </script>

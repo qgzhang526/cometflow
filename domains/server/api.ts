@@ -99,6 +99,7 @@ import type { SchedulerQueue } from '../scheduler/queue.js';
 import { readBudgetUsage } from '../scheduler/budget.js';
 import { readDaemonState } from '../scheduler/daemon-state.js';
 import { readDaemonControl, writeDaemonControl } from '../scheduler/daemon-control.js';
+import { isLeaseFresh, readDaemonLease } from '../scheduler/daemon-lease.js';
 import { mergeTodoView, rebuildQueue, resetQueue, retryQueueTask } from '../scheduler/daemon-todo.js';
 import { runLocalEval } from '../eval/eval-service.js';
 import { collectFindings } from '../gates/findings.js';
@@ -1479,6 +1480,25 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
       // 读不到就是从未跑过 daemon，界面据此显式说明，而不是拿空队列糊弄。
       const daemon = await readDaemonState(root);
       const control = await readDaemonControl(root);
+      /**
+       * 单实例租约（ADR 0027）：**「现在到底有没有调度器在跑」的唯一活证据**。
+       *
+       * 状态投影的 `updated_at` 只在决策时写（一个任务能跑几十分钟），拿它当心跳
+       * 会把"正在跑"误判成"停了"；租约每 10s 心跳一次、60s 过期，正好是这个问题要的粒度。
+       * 面板靠它决定要不要轮询——CLI 起的 daemon 直接写项目文件、不发 SSE。
+       */
+      const leaseRecord = await readDaemonLease(root);
+      const lease =
+        leaseRecord === null
+          ? null
+          : {
+              owner: leaseRecord.owner,
+              mode: leaseRecord.mode,
+              agent: leaseRecord.agent,
+              started_at: leaseRecord.started_at,
+              heartbeat_at: leaseRecord.heartbeat_at,
+              fresh: isLeaseFresh(leaseRecord),
+            };
       // 内嵌调度器（ADR 0027）的两个状态：本进程里有没有在跑、配置里是不是标了常驻。
       const embedded = {
         running: ctx.scheduler?.running().includes(projectId) ?? false,
@@ -1511,6 +1531,7 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
         budget,
         daemon,
         control,
+        lease,
         embedded,
       });
       return true;
