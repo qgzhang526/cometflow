@@ -437,7 +437,8 @@ cometflow spec index [path]                 # 生成 .cometflow/spec-index/*.yam
 
 ### 5.2 Spec Anchor 与 Acceptance
 
-**anchor** = capability spec 中的二级标题（如 `## POST /api/auth/email-login`），任务通过它绑定 spec。若整份文件没有二级标题，则退化为三级标题：
+**anchor** = capability spec 中的**契约标题**（二级标题，如 `## POST /api/auth/email-login`），任务通过它绑定 spec。
+若整份文件没有二级标题，则退化为三级标题：
 
 ```markdown
 ---
@@ -459,6 +460,16 @@ capability: auth
 - `## POST /api/auth/email-login` 是一个 anchor（建议用 `METHOD /path` 形式，便于交叉引用校验）；`### 请求`、`### 响应` 属于它的正文，不是独立 anchor。
 - `## Acceptance`（或 `## 验收`）段落内的 `- A1：...` / `- A1: ...` 会被提取为验收项。
 - `plan freeze` 时把 anchor 的 acceptance 提取为 `A1..An`，并连同 `spec_version`、`spec_hash`、`anchor_hash` 一起锁定。
+
+**哪些标题不是 anchor**（它们不参与任务绑定，也不进 `anchor_coverage` 覆盖率）：
+
+- `## Acceptance` / `## 验收`：验收项容器；
+- **非 capability 文档的结构标题**：flow 的 `## 前置条件 / ## 步骤 / ## 后置条件` 三段式骨架
+  （`spec validate` 强制要求这三段；flow 的可绑定单位是**步骤** `### 步骤N …`）、
+  models 的实体清单、rules 的规则表、constraints 的各条约束……
+- 因此「验收覆盖」页签里的**可绑定锚点**表只列 capability 的契约标题（与 `cometflow spec anchors`、
+  指标 `anchor_coverage_rate` 同一口径）。曾经把 flow 的三段骨架当锚点，那张表里会混进
+  `前置条件 / 步骤 / 后置条件` 这类噪音——已修。
 
 ### 5.3 跨文件引用规则
 

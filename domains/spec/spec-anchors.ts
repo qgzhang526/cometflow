@@ -85,7 +85,16 @@ export async function collectSpecAnchors(projectRoot: string): Promise<SpecAncho
   const bindings = await collectBoundAnchorBindings(projectRoot);
 
   const rows: SpecAnchorEntry[] = [];
-  for (const file of files) {
+  /**
+   * 只有 **capability spec** 的契约标题是"可绑定锚点"：任务用 `spec_anchor` 指向它，
+   * 覆盖率也只看它（`domains/metrics/spec-health.ts` 同一口径）。
+   *
+   * 其它 kind 的标题是**文档结构**——flow 的三段式骨架、models 的实体清单、rules 的规则表、
+   * constraints 的各条约束……它们不参与任务绑定，列进来只会让「未绑定锚点」变成噪音
+   * （实测：某项目 22 行里 16 行是这类结构标题，唯一被误报的"缺口"其实没人需要绑定）。
+   */
+  const bindable = files.filter((file) => kindByPath.get(file) === 'capability');
+  for (const file of bindable) {
     const parsed = await parseSpecFile(projectRoot, file);
     for (const anchor of parsed.anchors) {
       // 与 CLI 同口径：锚点自己有验收项就用它，否则回退到文件级。

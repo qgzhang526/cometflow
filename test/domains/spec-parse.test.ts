@@ -57,6 +57,41 @@ describe('spec kernel', () => {
     expect(parsed.anchors.map((anchor) => anchor.heading)).toEqual(['步骤1 开始']);
   });
 
+  /**
+   * flow 的三段式骨架（`## 前置条件 / ## 步骤 / ## 后置条件`）是**结构容器**，不是锚点——
+   * 与 `## Acceptance` 同类。它真正的可绑定单位是步骤（`### 步骤N …`）。
+   * 在这之前三段骨架会被当成锚点，于是「验收覆盖」里出现一堆 `前置条件` / `步骤` / `后置条件`。
+   */
+  it('flow 文件只把步骤当锚点，三段式骨架不算', () => {
+    const content = [
+      '# 会话刷新流程',
+      '',
+      '## 前置条件',
+      '',
+      '- 客户端已持有会话令牌',
+      '',
+      '## 步骤',
+      '',
+      '### 步骤1 读取会话',
+      '',
+      '- 调用 `GET /session`',
+      '',
+      '### 步骤2 判断是否需要重新登录',
+      '',
+      '- 临近过期则提示重新登录',
+      '',
+      '## 后置条件',
+      '',
+      '- 会话状态已确认',
+      '',
+    ].join('\n');
+    const parsed = parseSpecContent(content, 'specs/flows/session-refresh.md');
+    expect(parsed.anchors.map((anchor) => anchor.heading)).toEqual([
+      '步骤1 读取会话',
+      '步骤2 判断是否需要重新登录',
+    ]);
+  });
+
   it('attaches acceptance items to the nearest preceding anchor', () => {
     const content = [
       '## POST /a',

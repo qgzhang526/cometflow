@@ -120,6 +120,14 @@ describe('V3：锚点平铺', () => {
       expect(entry.anchor).not.toBe('');
       // 可执行验收数不会超过有效验收数。
       expect(entry.checked).toBeLessThanOrEqual(entry.acceptance);
+      /**
+       * 只有 capability spec 的契约标题是"可绑定锚点"（任务用 `spec_anchor` 指向它），
+       * 与 `anchor_coverage_rate` 同口径。其它 kind 的标题是文档结构——flow 的三段式骨架、
+       * models 的实体清单、constraints 的各条约束……它们不参与绑定，不该出现在这张表里
+       * （曾经的事故：flow 的 `前置条件 / 步骤 / 后置条件` 被当成锚点，"验收覆盖"里一堆噪音）。
+       */
+      expect(entry.kind).toBe('capability');
+      expect(entry.path.startsWith('specs/flows/')).toBe(false);
     }
     // 夹具里有冻结任务绑定 anchor（覆盖率 0.75），所以必然存在「被绑定」的锚点。
     expect(body.data.totals.bound).toBeGreaterThan(0);
