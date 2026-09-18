@@ -1,4 +1,17 @@
 <template>
+  <!--
+    当前 change 指针单独一张卡（原来是列表卡里的一行灰字）：doctor 的
+    `multiple-active-changes` 就靠它解决——候选直接列成按钮，后果写在上面。
+  -->
+  <CurrentChangeCard
+    :active-changes="activeChanges"
+    :pointer="pointer"
+    :pointer-resolved="pointerResolved"
+    :busy="busy"
+    @set-current="setCurrent"
+    @clear-current="clearCurrent"
+  />
+
   <ChangeListCard
     v-model:show-archived="showArchived"
     v-model:draft-name="draft.name"
@@ -8,8 +21,6 @@
     :goals="goals"
     :tasks="tasks"
     :pointer="pointer"
-    :pointer-resolved="pointerResolved"
-    :active-count="activeCount"
     :empty-hint="emptyHint"
     :selected-name="selectedName"
     :busy="busy"
@@ -17,7 +28,6 @@
     @reload="reload"
     @select="select"
     @set-current="setCurrent"
-    @clear-current="clearCurrent"
     @change-goal="onGoalChange"
     @create="createChange"
   />
@@ -235,6 +245,7 @@ import ChangeEvidenceTab from './changes/ChangeEvidenceTab.vue';
 import ChangeJournalTab from './changes/ChangeJournalTab.vue';
 import ChangeListCard from './changes/ChangeListCard.vue';
 import ChangeScopeTab from './changes/ChangeScopeTab.vue';
+import CurrentChangeCard from './changes/CurrentChangeCard.vue';
 import type {
   ChangeArchiveOutcome,
   ChangeRebaseOutcome,
@@ -288,6 +299,8 @@ const visibleChanges = computed(() =>
   showArchived.value ? changes.value : changes.value.filter((change) => !change.archived),
 );
 const activeCount = computed(() => changes.value.filter((change) => !change.archived).length);
+/** 活跃 change 的完整记录（"当前 change"卡要把它们列成可点的候选，所以不能只有数量）。 */
+const activeChanges = computed(() => changes.value.filter((change) => !change.archived));
 const archivedCount = computed(() => changes.value.filter((change) => change.archived).length);
 /** 只有已归档 change 时不要报「暂无变更」，否则用户会以为记录丢了。 */
 const emptyHint = computed(() =>

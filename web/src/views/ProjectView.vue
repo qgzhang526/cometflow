@@ -39,6 +39,8 @@
     <main class="content">
       <div v-if="project.error" class="card finding">[error] {{ project.error }}</div>
       <PanelBoundary @retry="panelEpoch += 1">
+        <!-- 带着意图跳过来的落地说明（问题清单的「去处理」）：任何面板都该有一句"到了该干嘛"。 -->
+        <ArrivalBanner />
         <!-- key 里带 projectId：切换项目时面板必须重新挂载，否则面板自己取的数据（findings/metrics/
              维护预告、变更列表……）会停在上一个项目的快照上，而 store 里的 status/doctor 已经换了。 -->
         <component :is="activeComponent" :key="projectId + ':' + activePanel + ':' + panelEpoch" />
@@ -55,9 +57,11 @@ import { RouterLink, useRoute } from 'vue-router';
 import JobCenter from '../components/JobCenter.vue';
 import StatusBadge from '../components/StatusBadge.vue';
 import PanelBoundary from '../components/PanelBoundary.vue';
+import ArrivalBanner from '../components/ArrivalBanner.vue';
 import { PANELS, type PanelId } from '../router';
 import { useJobsStore } from '../stores/jobs';
 import { useFindingsStore } from '../stores/findings';
+import { useNavigationStore } from '../stores/navigation';
 import { useProjectStore } from '../stores/project';
 import { useToastStore } from '../stores/toasts';
 import { errorMessage } from '../api/client';
@@ -80,6 +84,7 @@ const project = useProjectStore();
 const jobs = useJobsStore();
 const findings = useFindingsStore();
 const toasts = useToastStore();
+const navigation = useNavigationStore();
 
 const COMPONENTS: Record<PanelId, Component> = {
   overview: OverviewPanel,
@@ -102,6 +107,15 @@ const activePanel = computed<PanelId>(() => {
 });
 const activeComponent = computed(() => COMPONENTS[activePanel.value]);
 const runningCount = computed(() => jobs.forProject(project.currentId).filter((job) => job.status === 'running' || job.status === 'queued').length);
+
+/**
+ * 离开目标面板就收掉落地横幅：它是"这一次跳转"的说明，不是常驻提示。
+ * （留在别的面板上会比没有更让人困惑。）
+ */
+watch(activePanel, (panel) => {
+  const arrival = navigation.arrival;
+  if (arrival !== null && arrival.panel !== panel) navigation.dismissArrival();
+});
 
 watch(
   projectId,

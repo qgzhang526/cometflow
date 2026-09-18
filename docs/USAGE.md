@@ -1303,7 +1303,10 @@ token: <random>
     已归档 change 的实现范围基线）；超过阈值的 journal 只轮转不删除。同样有预告值护栏——不匹配时
     连轮转都不做。
 - **current-change 指针**：多个活跃 change 时写入门禁会 `fail closed`（reason `multiple-active-changes`）。
-  Changes 面板顶部显示当前指针，每行可「设为当前」、指针本身可「清除」（等价 `cometflow change select`）；
+  「变更」面板顶部有一张**「当前 change（写保护路由）」卡**：把活跃 change 直接列成可点的
+  「设为当前 <name> · <phase>」（等价 `cometflow change select <name>`），并写清后果——
+  没设指针时 agent 的写入会被拒绝；**指定之后 doctor 那条 `multiple-active-changes` 会从 warning 降级为 info**，
+  不跑 agent 的话可以先放着。卡片下沿还说明了遗留 change 的两条出路（走完流程归档 / 人工删目录）。
   资产面板的 Hook 预览在这两种拒绝原因（`multiple-active-changes` / `stale-current-change`）下就地给出
   change 下拉与「设为当前并重新检查」，把「被拒」变成一步可操作的动作。
 - **Evolve 回滚指引**：每个提案卡有「回滚指引」按钮，弹窗内容与 `cometflow evolve rollback <name>` 同源

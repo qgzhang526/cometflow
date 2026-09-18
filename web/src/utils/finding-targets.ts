@@ -58,10 +58,18 @@ export function targetForFinding(finding: Finding): PanelTarget | null {
     // change 侧的问题：基线冲突、状态不一致、多活跃 change、事务残留。
     case 'change-base-conflict':
     case 'change-state-integrity':
-    case 'multiple-active-changes':
     case 'pending-change-transition':
     case 'incomplete-spec-transaction':
       return { panel: 'changes', subject, reason: '在「变更」里 rebase / 选当前 change / 收尾那条 change' };
+    /**
+     * 多活跃 change 的解法只有一条：**指定当前 change**（写保护守卫靠它判断写入属于谁）。
+     * 落地页把活跃 change 列成可点的「设为当前」，并说明"不跑 agent 可以先放着"。
+     */
+    case 'multiple-active-changes':
+      return {
+        panel: 'changes',
+        reason: '在「当前 change」卡里选一个设为当前（你正在做的那个）；遗留的收尾，不跑 agent 可以先放着',
+      };
     case 'hook-guard-missing':
     case 'hook-entry-missing':
     case 'hook-guard-outdated':

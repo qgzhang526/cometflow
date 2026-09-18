@@ -92,3 +92,25 @@ tsc / pnpm web:typecheck / pnpm build / pnpm package-e2e → 全通过
 落在「规格 · 影响与门禁」，横幅写明对象与两条出路，差异表第一行是 `specs/core/spec.md` 且带
 「问题清单指向」；点「建立基线（spec lock）」后 `spec verify` 变 0 finding、差异变「与基线一致」，
 再点同一行的「去处理」时引导文案切换成"已对齐"分支；`multiple-active-changes` 那条落到「变更」。
+
+## 7. 后续补丁二：多活跃 change 的「怎么办」（2026-09-18）
+
+同一类问题的另一条 finding：`multiple-active-changes`（「4 active changes；未指定 current-change，
+hook 会拒绝归属不明的写入，运行 `cometflow change select <name>`」）。落到「变更」之后依然不知道
+**该选哪个、这些遗留 change 怎么办**。
+
+- 落地横幅改成**通用组件**（`components/ArrivalBanner.vue`，挂在 `ProjectView` 上）：
+  之前横幅写在 `SpecsPanel` 内部、且只在面板 `consume` 时设置，于是"去变更"这类不需要页签逻辑的落点
+  没有落地说明。现在点击那一刻就挂上，离开目标面板时自动收掉。
+- 「变更」面板新增**「当前 change（写保护路由）」卡**（`changes/CurrentChangeCard.vue`）：
+  活跃 change 列成一排「设为当前 `<name>` · `<phase>`」按钮，写清后果（没指针 → agent 写入被拒；
+  设好 → 那条 finding 从 warning 降级为 info；不跑 agent 可以先不管）。
+- `multiple-active-changes` 的引导语不再是笼统的"去变更"，而是"选一个设为当前"。
+
+验证（合成项目 4 个活跃 change、无指针）：点「去处理」→ 落在「变更」，横幅与卡片都在；
+点「设为当前 shape-change」→ `.cometflow/current-change.json` 写入 `shape-change`、卡片徽章变「已设置」，
+回总览后该 finding 从 warning 变 **info**、顶部徽章变 `0 error / 0 warning`。
+
+**登记一个缺口**：产品目前**没有「废弃 change」入口**——遗留的半成品 change 只能走完流程归档
+（空的 change 归档不应用 spec 变更，但 build 阶段会真的跑一次 agent），或人工删 `changes/<name>/`。
+这属于 `change` 生命周期该补的一条命令（`change abandon`？），本轮只做引导，不在界面上放删除按钮。
