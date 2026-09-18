@@ -49,3 +49,13 @@
 - 每个阶段完成后，更新本 README 的状态列。
 - 每个阶段必须有明确验收标准，并以测试和提交记录作为完成证据。
 - 计划变更先改文档，再改代码。
+
+## 分支与 PR 卫生
+
+- 每批改动从 `main` 切一条临时分支，命名 `codex/<主题>`（用户明确要求别的名字时照办）；
+- 流程固定：本地验证链（`npx vitest run` → `node scripts/regression.mjs` → `tsc` / `pnpm web:typecheck` /
+  `pnpm build` / `pnpm package-e2e`）→ PR（base `main`）→ 等 CI 5/5 → 合并；
+- **PR 合并后立刻删掉那条临时分支**（远端 + 本地）。判定标准是"分支尖端已是 `origin/main` 的祖先"
+  （`git merge-base --is-ancestor <sha> origin/main`），不是"PR 显示已合并"——后者在 force-push 过的分支上会骗人；
+- 长期分支只有 `main`。工作区里的其余检出（例如 `codex/daemon-drives-change` 这类历史跟随分支）一旦
+  收口就切换回 `main` 或换新分支，不要让它长期挂着。
