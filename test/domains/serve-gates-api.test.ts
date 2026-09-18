@@ -105,7 +105,14 @@ describe('V3：锚点平铺', () => {
         checked: number;
         bound_tasks: string[];
       }>;
-      totals: { anchors: number; bound: number; unbound: number; acceptance: number; checked: number };
+      totals: {
+        anchors: number;
+        bound: number;
+        unbound: number;
+        acceptance: number;
+        checked: number;
+        structural: number;
+      };
     }>('/spec/anchors');
     expect(status).toBe(200);
 
@@ -132,6 +139,12 @@ describe('V3：锚点平铺', () => {
     // 夹具里有冻结任务绑定 anchor（覆盖率 0.75），所以必然存在「被绑定」的锚点。
     expect(body.data.totals.bound).toBeGreaterThan(0);
     expect(body.data.entries.some((entry) => entry.bound_tasks.length > 0)).toBe(true);
+    /**
+     * 不参与绑定的结构标题数量也要给出来：只列可绑定锚点时，用户看「未绑定」无法判断
+     * 是"该绑没绑"还是"本来就不用绑"——这个数字就是那句"另有 N 个结构标题不参与绑定"。
+     */
+    expect(body.data.totals.structural).toBeGreaterThan(0);
+    expect(Number.isInteger(body.data.totals.structural)).toBe(true);
   });
 });
 

@@ -82,7 +82,7 @@ afterAll(async () => {
 describe('spec kernel API', () => {
   it('exposes acceptance coverage with executable checks', async () => {
     const { status, body } = await get<{
-      anchors: Array<{ path: string; anchor: string; acceptance: Array<{ id: string; check: string | null }> }>;
+      anchors: Array<{ path: string; kind: string; anchor: string; acceptance: Array<{ id: string; check: string | null }> }>;
       total: number;
       checked: number;
       unchecked: number;
@@ -95,6 +95,12 @@ describe('spec kernel API', () => {
     const auth = body.data.anchors.find((entry) => entry.path === 'specs/auth/spec.md');
     expect(auth?.anchor).toBe('POST /login');
     expect(auth?.acceptance[0].check).toContain('src/auth/index.ts');
+    /**
+     * 每组锚点带 kind：界面据此区分「契约锚点（capability，需绑定）」与「结构标题（不参与绑定）」。
+     * 之前两类都显示成普通分组，用户分不清"没有绑定任务"是不是缺口。
+     */
+    expect(body.data.anchors.every((entry) => typeof entry.kind === 'string')).toBe(true);
+    expect(auth?.kind).toBe('capability');
   });
 
   it('exposes the integrity gate', async () => {

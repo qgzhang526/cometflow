@@ -10,11 +10,23 @@
     <p class="muted">
       验收项必须可执行（ADR 0013）。没有 check 的项只能靠独立 Verifier 或人工判定——
       在 spec 的验收项下加一行 <code>- check: &lt;command&gt;</code> 即可纳入自动判定。
+      <br />
+      下面按锚点分组，锚点分两类：<strong>契约锚点</strong>（capability spec 里的
+      <code>## POST /login</code> 这类标题——要派任务、要独立验收）与<strong>结构标题</strong>
+      （flow 的步骤、models 的实体、rules 的规则……只做展示与跨文件引用校验，
+      <strong>不参与任务绑定与覆盖率</strong>）。两类用徽章区分，别把结构标题的"没有绑定任务"当成缺口。
     </p>
 
     <div v-for="group in groups" :key="group.path + '#' + group.anchor" class="check-group">
       <div class="row">
         <b>{{ group.path }}#{{ group.anchor }}</b>
+        <StatusBadge
+          v-if="group.kind === 'capability'"
+          tone="brand"
+          text="契约锚点 · 需绑定"
+          title="会被 plan generate 派成任务；`未绑定` 才是缺口"
+        />
+        <StatusBadge v-else tone="gray" :text="group.kind + ' 结构 · 不参与绑定'" />
         <span class="grow" />
         <span class="muted">{{ group.items.length }} 项</span>
       </div>
@@ -47,6 +59,8 @@
       （flow 的 <code>## 前置条件 / ## 步骤 / ## 后置条件</code> 三段式骨架、models 的实体清单、
       rules 的规则表、constraints 的各条约束……），既不参与绑定也不进覆盖率，所以不在这里列。
       flow 的可绑定单位是它的步骤（<code>### 步骤N …</code>），属于 flow 自己的结构，不参与任务绑定。
+      换句话说：<strong>这张表里出现的每一条都需要绑定</strong>，
+      「未绑定」＝缺口；被排除的结构标题不在这里出现（数量见上方统计）。
     </p>
     <div class="row">
       <StatusBadge
@@ -55,6 +69,9 @@
       />
       <span class="muted">
         验收项 {{ anchors?.totals.acceptance ?? 0 }} · 可执行 {{ anchors?.totals.checked ?? 0 }}
+        <template v-if="(anchors?.totals.structural ?? 0) > 0">
+          · 另有 {{ anchors?.totals.structural }} 个结构标题<strong>不参与绑定</strong>
+        </template>
       </span>
       <span class="grow" />
       <label class="muted"><input v-model="onlyUnbound" type="checkbox" /> 只看未绑定</label>
@@ -72,7 +89,8 @@
           </td>
           <td>
             <span v-if="entry.bound_tasks.length > 0" class="muted">{{ entry.bound_tasks.join(', ') }}</span>
-            <span v-else class="badge warn">未绑定</span>
+            <!-- 这张表里全是「需要绑定」的锚点，所以「未绑定」就是缺口：写了契约但没人实现。 -->
+            <span v-else class="badge warn" title="写了契约但没有任务去实现它——这才是缺口">未绑定</span>
           </td>
         </tr>
         <tr v-if="anchorRows.length === 0">
@@ -115,6 +133,8 @@ const groups = computed(() => {
   return anchors
     .map((entry) => ({
       path: entry.path,
+      // kind 由后端给（前端不重复实现 kind 判定规则）：分组标题据此标「需绑定 / 不参与绑定」。
+      kind: entry.kind,
       anchor: entry.anchor,
       items: onlyUncovered.value ? entry.acceptance.filter((item) => !item.check) : entry.acceptance,
     }))

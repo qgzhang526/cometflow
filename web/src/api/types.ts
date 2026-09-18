@@ -371,6 +371,8 @@ export interface AcceptanceItem {
 
 export interface AcceptanceCheckAnchor {
   path: string;
+  /** spec kind：区分「契约锚点（capability，需绑定）」与「结构标题（不参与绑定）」。 */
+  kind: string;
   anchor: string;
   acceptance: AcceptanceItem[];
 }
@@ -992,7 +994,15 @@ export interface SpecAnchorEntry {
 
 export interface SpecAnchorsProjection {
   entries: SpecAnchorEntry[];
-  totals: { anchors: number; bound: number; unbound: number; acceptance: number; checked: number };
+  totals: {
+    anchors: number;
+    bound: number;
+    unbound: number;
+    acceptance: number;
+    checked: number;
+    /** 不参与绑定的结构标题数（其它 kind 的标题），界面用它把"不需要绑定"写出来。 */
+    structural: number;
+  };
 }
 
 /** 任务 → spec 追溯（`plan trace` 的投影 + 同一份数据的结构化视图）。 */
