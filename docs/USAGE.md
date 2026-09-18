@@ -477,15 +477,22 @@ capability: auth
 
 | 引用方 | 可引用 | 写法 |
 |---|---|---|
-| `capability` | `models` / `errors` / `protocol` | `模型：User`、`错误码：INVALID_CODE`、`协议头：User-Agent`、`状态码：401` |
-| `flow` | `capability` / `models` / `config` | 步骤里 `调用 POST /api/auth/email-login`、`配置：PORT` |
-| `process` | `capability` / `models` / `config` | 同上 |
+| `capability` | `models` / `errors` / `protocol` / `rules` | `模型：User`、`错误码：INVALID_CODE`、`协议头：User-Agent`、`状态码：401`、`规则：会话有效期` |
+| `flow` | `capability` / `models` / `config` / `rules` | 步骤里 `调用 POST /api/auth/email-login`、`配置：PORT`、`规则：<name>` |
+| `process` | `capability` / `models` / `config` / `rules` | 同上 |
 | `rules` | `models` | `实体：KeywordRule` |
 | `permissions` | `capability` | 矩阵首列写 `POST /api/xxx` |
 | `constraints` | 不引用 | 独立 NFR |
 
 `spec validate` 会据此报出 `unresolved-model-reference` / `unresolved-error-reference` /
-`unresolved-config-reference` / `unresolved-api-reference` 等错误或警告。
+`unresolved-config-reference` / `unresolved-api-reference` / `unresolved-rule-reference` 等错误或警告。
+
+**反向也要查**（ADR 0030）：`models` 的每个实体、`rules` 的每条规则都必须被**行为层**
+（capability / flow / process）引用——声明了却没人用就是悬空的事实来源，`spec validate` 报
+`unreferenced-model` / `unreferenced-rule`（**warning**，不挡门禁：为下个迭代预留实体是合法需求）。
+修法二选一：在引用它的行为层 spec 里补一行 `- 模型：<Name>` / `- 规则：<name>`，或删掉这条声明。
+（`rules → models` 的内部引用只在"那条规则本身被行为层引用"时才传递一次；`errors` / `config` /
+`protocol` / `constraints` 不查反向——"暂未使用"对它们是合法预留。）
 
 错误码有两个合法来源：`specs/errors.md`，或小项目 `specs/protocol.md` 的 `## 错误码` 表（两者都会被解析，`unresolved-error-reference` 表示两边都查不到）。
 

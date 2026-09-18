@@ -170,6 +170,12 @@ for (const entry of gates.results) {
       'graph 与 spec validate 同源（无 unresolved-* finding）',
       !(validateResult.stdout + validateResult.stderr).includes('unresolved-'),
     );
+    // ADR 0030 的反向引用检查：夹具自身必须是"模范"——声明的实体与规则都被行为层引用。
+    check(
+      '夹具没有悬空声明（unreferenced-*）',
+      !(validateResult.stdout + validateResult.stderr).includes('unreferenced-'),
+      (validateResult.stdout ?? '').trim().slice(0, 160),
+    );
   }
 }
 
@@ -682,6 +688,19 @@ check(
   '队列推导打印同一份顺序（同一份文档）',
   orderedQueue.stdout.includes('调度顺序：G2 → G1'),
   orderedQueue.stdout.trim().slice(0, 120),
+);
+
+// 反向引用完整性（ADR 0030）：声明的实体必须被行为层引用，否则 spec validate 报 warning——
+// 注意**不挡门禁**（还是 `spec validate: OK`），因为"为下个迭代预留实体"是合法需求。
+writeFileSync(
+  path.join(project, 'specs', 'models.md'),
+  readFileSync(path.join(project, 'specs', 'models.md'), 'utf8') + '\n## 实体：Orphan\n',
+);
+const reverseRefs = expectOk('spec validate（新增一个没人引用的实体）', ['spec', 'validate', '.'], project);
+check(
+  '悬空实体报 unreferenced-model，且不阻断（validate: OK）',
+  reverseRefs.stdout.includes('unreferenced-model') && reverseRefs.stdout.includes('spec validate: OK'),
+  reverseRefs.stdout.trim().slice(-160),
 );
 
 console.log('');

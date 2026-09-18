@@ -130,6 +130,83 @@ describe('spec cross-file references', () => {
     await fs.rm(tmp, { recursive: true, force: true });
   });
 
+  /**
+   * 反向引用完整性（ADR 0030）：正向检查保证"引用到的东西存在"，
+   * 反向检查保证"声明了的东西有人用"——否则 models 的实体、rules 的规则就是悬空的事实来源。
+   */
+  describe('反向引用：声明了却没人用', () => {
+    it('实体没有被任何行为层引用 → warning（不是 error：预留是合法需求）', async () => {
+      const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'cometflow-xref-'));
+      await writeProject(tmp, {
+        'COMETFLOW.md': COMETFLOW,
+        'specs/models.md': '# 数据模型\n\n## 实体：Orphan\n',
+        'specs/auth/spec.md': '# auth\n\n## POST /login\n\n## Acceptance\n\n- A1：ok\n',
+      });
+      const result = await validateSpecs(tmp);
+      const finding = result.findings.find((entry) => entry.code === 'unreferenced-model');
+      expect(finding?.severity).toBe('warning');
+      expect(finding?.message).toContain('Orphan');
+      // 只是 warning：validate 仍然算通过（不挡 CI）。
+      expect(result.valid).toBe(true);
+      await fs.rm(tmp, { recursive: true, force: true });
+    });
+
+    it('规则没有被任何行为层引用 → warning；补一条 `- 规则：X` 就消失', async () => {
+      const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'cometflow-xref-'));
+      const rules = '# 领域规则\n\n## 规则：会话有效期\n\n- 语义：过期即拒绝\n';
+      await writeProject(tmp, {
+        'COMETFLOW.md': COMETFLOW,
+        'specs/rules.md': rules,
+        'specs/auth/spec.md': '# auth\n\n## POST /login\n\n## Acceptance\n\n- A1：ok\n',
+      });
+      const before = await validateSpecs(tmp);
+      expect(before.findings.some((entry) => entry.code === 'unreferenced-rule')).toBe(true);
+
+      await fs.writeFile(
+        path.join(tmp, 'specs/auth/spec.md'),
+        '# auth\n\n## POST /login\n\n- 规则：会话有效期\n\n## Acceptance\n\n- A1：ok\n',
+      );
+      const after = await validateSpecs(tmp);
+      expect(after.findings.some((entry) => entry.code === 'unreferenced-rule')).toBe(false);
+      await fs.rm(tmp, { recursive: true, force: true });
+    });
+
+    it('引用了不存在的规则 → error（正向）', async () => {
+      const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'cometflow-xref-'));
+      await writeProject(tmp, {
+        'COMETFLOW.md': COMETFLOW,
+        'specs/rules.md': '# 领域规则\n\n## 规则：会话有效期\n',
+        'specs/auth/spec.md': '# auth\n\n## POST /login\n\n- 规则：不存在\n\n## Acceptance\n\n- A1：ok\n',
+      });
+      const result = await validateSpecs(tmp);
+      expect(result.findings.some((entry) => entry.code === 'unresolved-rule-reference')).toBe(true);
+      expect(result.valid).toBe(false);
+      await fs.rm(tmp, { recursive: true, force: true });
+    });
+
+    it('传递一次：被引用的规则所引用的实体算已使用；没人引用的规则不算', async () => {
+      const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'cometflow-xref-'));
+      await writeProject(tmp, {
+        'COMETFLOW.md': COMETFLOW,
+        'specs/models.md': '# 数据模型\n\n## 实体：ViaRule\n\n## 实体：ViaOrphanRule\n',
+        'specs/rules.md':
+          '# 领域规则\n\n## 规则：被遵守\n\n- 模型：ViaRule\n\n## 规则：没人遵守\n\n- 模型：ViaOrphanRule\n',
+        'specs/auth/spec.md': '# auth\n\n## POST /login\n\n- 规则：被遵守\n\n## Acceptance\n\n- A1：ok\n',
+      });
+      const result = await validateSpecs(tmp);
+      const unreferenced = result.findings
+        .filter((entry) => entry.code === 'unreferenced-model')
+        .map((entry) => entry.message)
+        .join(' | ');
+      // 被"被遵守"这条规则引用的实体 → 传递算已使用。
+      expect(unreferenced).not.toContain('ViaRule ');
+      expect(unreferenced).not.toContain('实体 ViaRule ');
+      // 只被"没人遵守"的规则引用的实体 → 仍然悬空。
+      expect(unreferenced).toContain('ViaOrphanRule');
+      await fs.rm(tmp, { recursive: true, force: true });
+    });
+  });
+
   it('flags permissions matrix api references as warnings', async () => {
     const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'cometflow-xref-'));
     await writeProject(tmp, {

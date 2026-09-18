@@ -71,3 +71,14 @@
 验证（合成项目：给 flow 文件补一段 `## Acceptance`）：上半部分 capability 组显示蓝色「契约锚点 · 需绑定」、
 flow 组显示灰色「flow 结构 · 不参与绑定」；下半部分显示「未绑定 2 / 5 · 验收项 5 · 可执行 4 ·
 另有 16 个结构标题不参与绑定」，悬停「未绑定」给出缺口解释。
+
+## 8. 口径定案与反向引用完整性（ADR 0030）
+
+绑定口径最终**定为只认 capability**（`specs/<capability>/spec.md` 的契约标题）；将来支持纯前端项目时
+把 `pages`（`specs/pages.md`）纳入同一口径——它是同一性质的行为层文档。其它 kind 永不绑定。
+
+非绑定声明（models 的实体、rules 的规则）改由**反向引用完整性**保证不悬空，细节见
+[ADR 0030](../decisions/0030-spec-binding-scope.md)：`spec validate` 新增 `unreferenced-model` /
+`unreferenced-rule`（warning）与 `规则：<name>` 的引用语法（含正向的 `unresolved-rule-reference`）。
+夹具已按约定更新（会话 capability 在验收块里引用 `会话有效期` 规则），成为"模范"——回归的只读阶段
+专门断言它没有悬空声明。
