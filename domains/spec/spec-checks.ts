@@ -1,9 +1,12 @@
 import { listSpecFiles } from './spec-index.js';
+import { kindForSpecFile } from './kind.js';
 import { parseSpecFile } from './spec-parse.js';
 import type { AcceptanceItem } from './types.js';
 
 export interface AcceptanceCheckAnchor {
   path: string;
+  /** spec kind：界面据此区分「契约锚点（需绑定）」与「结构标题（不参与绑定）」。 */
+  kind: string;
   anchor: string;
   acceptance: AcceptanceItem[];
 }
@@ -38,7 +41,7 @@ export async function collectAcceptanceChecks(projectRoot: string): Promise<Acce
       total += items.length;
       unchecked += items.filter((item) => !item.check).length;
       checked += items.filter((item) => item.check).length;
-      anchors.push({ path: file, anchor: anchor.heading, acceptance: items });
+      anchors.push({ path: file, kind: kindForSpecFile(file), anchor: anchor.heading, acceptance: items });
     }
   }
 

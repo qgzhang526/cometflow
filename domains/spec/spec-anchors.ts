@@ -35,6 +35,13 @@ export interface SpecAnchorsProjection {
     unbound: number;
     acceptance: number;
     checked: number;
+    /**
+     * 不参与绑定的**结构标题**数量（其它 kind 的标题：flow 的步骤、models 的实体、rules 的规则……）。
+     *
+     * 存在的理由是界面要能**把"不需要绑定"说出来**：只列可绑定锚点时，用户看到"未绑定"无法
+     * 判断这是"该绑没绑"还是"本来就不用绑"——把被排除的数量一并给出，两类语义才分得开。
+     */
+    structural: number;
   };
 }
 
@@ -94,6 +101,11 @@ export async function collectSpecAnchors(projectRoot: string): Promise<SpecAncho
    * （实测：某项目 22 行里 16 行是这类结构标题，唯一被误报的"缺口"其实没人需要绑定）。
    */
   const bindable = files.filter((file) => kindByPath.get(file) === 'capability');
+  let structural = 0;
+  for (const file of files) {
+    if (kindByPath.get(file) === 'capability') continue;
+    structural += (await parseSpecFile(projectRoot, file)).anchors.length;
+  }
   for (const file of bindable) {
     const parsed = await parseSpecFile(projectRoot, file);
     for (const anchor of parsed.anchors) {
@@ -119,6 +131,7 @@ export async function collectSpecAnchors(projectRoot: string): Promise<SpecAncho
       unbound: rows.length - bound,
       acceptance: rows.reduce((total, row) => total + row.acceptance, 0),
       checked: rows.reduce((total, row) => total + row.checked, 0),
+      structural,
     },
   };
 }
