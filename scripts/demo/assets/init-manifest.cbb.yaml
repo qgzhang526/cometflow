@@ -1,0 +1,47 @@
+# 交互式 `cometflow init --interactive` 在 CBB 演示项目上的产物（12-kind 裁剪结果）。
+#
+# 产生方式：在真实终端里对 cbb-emergency-access 跑一遍 `cometflow init . --interactive`，
+# 按顺序回答：前端=无 / 后端=Node.js / 数据库=SQLite / 网络=y / 运行时配置=y /
+#             跨模块场景=y / 常驻进程=y / 领域规则=y / 鉴权=roles / 独立错误码目录=y
+# 得到 10 类 present、2 类 absent（pages 因前端复用现有平台而缺席，capability 由拆解派生）。
+#
+# 为什么要单独存一份：`init --interactive` 必须跑在真实终端里（每次提问新建 readline 实例，
+# 用管道喂答案会在第二问之后静默退出），脚本没法可靠地驱动它。
+schema: cometflow.init-manifest.v1
+kinds:
+  project:
+    status: present
+    reason: always
+  models:
+    status: present
+    reason: database != none
+  pages:
+    status: absent
+    reason: frontend == none
+  constraints:
+    status: present
+    reason: non-functional constraints apply to all projects
+  capability:
+    status: absent
+    reason: derived from goals, not init
+  protocol:
+    status: present
+    reason: "network: yes"
+  errors:
+    status: present
+    reason: dedicated error catalogue requested
+  config:
+    status: present
+    reason: "runtime config: yes"
+  flow:
+    status: present
+    reason: "cross-api scenario: yes"
+  process:
+    status: present
+    reason: "background process: yes"
+  rules:
+    status: present
+    reason: "domain dsl: yes"
+  permissions:
+    status: present
+    reason: "auth: roles"
