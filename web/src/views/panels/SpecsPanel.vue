@@ -60,11 +60,21 @@
       <button class="primary" :disabled="saving" @click="saveSpec">保存</button>
     </template>
   </ModalCard>
+
+  <ConfirmDialog
+    v-if="pendingClose !== null"
+    title="有未保存的改动"
+    :message="pendingClose"
+    confirm-text="放弃改动并关闭"
+    @cancel="pendingClose = null"
+    @confirm="discardAndClose"
+  />
 </template>
 
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue';
 import ModalCard from '../../components/ModalCard.vue';
+import ConfirmDialog from '../../components/ConfirmDialog.vue';
 import { errorMessage } from '../../api/client';
 import { resumeRefresh, suspendRefresh } from '../../composables/useRefresh';
 import { useNavigationStore } from '../../stores/navigation';
@@ -104,6 +114,10 @@ const activeTab = ref<(typeof TABS)[number]['id']>('kinds');
 const focusPath = ref('');
 const editingPath = ref('');
 const editing = ref<string | null>(null);
+/** 打开时服务端返回的原文：用来判断有没有未保存的改动。 */
+const editingOriginal = ref('');
+/** 非 null 时显示「有未保存改动」的二次确认；内容就是提示文案。 */
+const pendingClose = ref<string | null>(null);
 const saving = ref(false);
 const versionsTab = ref<{ focus: (specPath: string) => void } | null>(null);
 const pendingFocus = ref<string | null>(null);
@@ -120,6 +134,7 @@ async function openSpec(specPath: string): Promise<void> {
     const data = await project.projectApi<{ content: string }>('/specs/content', { query: { path: specPath } });
     editingPath.value = specPath;
     editing.value = data.content;
+    editingOriginal.value = data.content;
     diff.value = null;
     suspendRefresh();
     void loadProposals(specPath);
@@ -204,9 +219,11 @@ async function undoToPrevious(): Promise<void> {
       method: 'POST',
       body: { ref: editingPath.value + '@' + previous.spec_version },
     });
-    const data = await project.projectApi<{ content: string }>('/specs/content', { query: { path: editingPath.value } });
-    editing.value = data.content;
-    diff.value = null;
+      const data = await project.projectApi<{ content: string }>('/specs/content', { query: { path: editingPath.value } });
+      editing.value = data.content;
+      // 撤销也是一次服务端写入：基线要跟上，否则会被当成「有未保存改动」。
+      editingOriginal.value = data.content;
+      diff.value = null;
     toasts.success('已撤销到 v' + previous.spec_version, '当前内容已登记为 v' + (restored.spec_version ?? '?'));
   } catch (error) {
     toasts.error('撤销失败', errorMessage(error));
@@ -233,7 +250,20 @@ async function saveProposal(): Promise<void> {
 }
 
 function closeEditor(): void {
+  if (editing.value !== null && editing.value !== editingOriginal.value) {
+    pendingClose.value = '这份 spec 有未保存的改动，关闭后不会保留。';
+    return;
+  }
   editing.value = null;
+  editingOriginal.value = '';
+  resumeRefresh();
+}
+
+/** 确认放弃改动：关掉编辑器。 */
+function discardAndClose(): void {
+  pendingClose.value = null;
+  editing.value = null;
+  editingOriginal.value = '';
   resumeRefresh();
 }
 
@@ -247,6 +277,9 @@ async function saveSpec(): Promise<void> {
       body: { content: editing.value },
     });
     toasts.success('spec 已保存', editingPath.value + ' 已登记新版本');
+    // 保存成功后要把基线跟上：否则紧接着的 closeEditor 会拿旧基线比对，
+    // 误判成「有未保存的改动」，用户点「取消」就会看到「保存成功但弹窗不关」。
+    editingOriginal.value = editing.value ?? '';
     closeEditor();
   } catch (error) {
     toasts.error('保存失败', errorMessage(error));
