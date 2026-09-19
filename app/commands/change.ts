@@ -133,12 +133,17 @@ export async function changeSelectCommand(
 export async function changeRunCommand(
   name: string,
   targetPath: string,
-  options: { agent?: string; allowDrift?: boolean },
+  options: { agent?: string; allowDrift?: boolean; model?: string },
 ): Promise<void> {
   const projectRoot = root(targetPath);
   const agentId = options.agent ?? (await resolveAgentId(projectRoot));
   const runner = getBuiltInAgentRunner(agentId);
-  const outcome = await runChange(projectRoot, name, runner, { allowDrift: options.allowDrift === true });
+  // model 不在这里解析：runChange 会回退到 `.cometflow/config.yaml`（agents.<id>.model / model），
+  // 这样 CLI、Web、daemon 三条驱动路径的口径一致。这里只透传显式指定值。
+  const outcome = await runChange(projectRoot, name, runner, {
+    allowDrift: options.allowDrift === true,
+    model: options.model,
+  });
   console.log('change ' + name + ' phase=' + outcome.state.phase + ' agentExit=' + outcome.agentExitCode);
   if (outcome.agentExitCode !== 0) process.exitCode = outcome.agentExitCode;
 }

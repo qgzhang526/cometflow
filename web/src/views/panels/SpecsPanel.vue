@@ -13,7 +13,7 @@
     </div>
 
     <KindsTab v-if="activeTab === 'kinds'" />
-    <ScaffoldTab v-else-if="activeTab === 'scaffold'" />
+    <ScaffoldTab v-else-if="activeTab === 'scaffold'" @open="openSpec" />
     <FilesTab v-else-if="activeTab === 'files'" :focus="focusPath" @open="openSpec" @versions="showVersions" />
     <ChecksTab v-else-if="activeTab === 'checks'" />
     <VersionsTab v-else-if="activeTab === 'versions'" ref="versionsTab" />

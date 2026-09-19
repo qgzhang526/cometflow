@@ -78,10 +78,16 @@
           <tr><th>已写入</th><td>{{ applied.written.join(', ') || '（无）' }}</td></tr>
           <tr><th>已跳过</th><td>{{ applied.skipped.join(', ') || '（无）' }}</td></tr>
           <tr><th>能力</th><td>{{ applied.capabilities.join(', ') || '（无）' }}</td></tr>
+          <tr v-if="applied.manifestChanged.length > 0">
+            <th>12-kind 校正</th>
+            <td>{{ applied.manifestChanged.join(', ') }}（按磁盘事实判为 present）</td>
+          </tr>
         </tbody>
       </table>
       <p class="muted">
-        导入后 spec 已落盘并登记版本；到「影响与门禁」跑一次校验，或切到「Spec 文件」查看生成的正文。
+        导入后 spec 已落盘、登记版本并刷新了 <code>spec-lock</code> 基线。产物是<strong>草案</strong>
+        （<code>status: draft</code>，草案不能参与 <code>plan freeze</code>）：切到「Spec 文件」对照原文审核后
+        点「批准定稿」，再走 <code>plan generate</code> 派生实现任务。
       </p>
     </template>
   </div>

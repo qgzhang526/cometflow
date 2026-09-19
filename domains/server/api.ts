@@ -8,8 +8,10 @@ import { syncGoals } from '../goal/goal-sync.js';
 import type { GoalRecord } from '../goal/types.js';
 import { initializeProject } from '../project/init.js';
 import {
+  changedKindStatuses,
   detectKindNeeds,
   readInitManifest,
+  reconcileInitManifest,
   scaffoldCapabilities,
   scaffoldKinds,
   scaffoldProject,
@@ -663,6 +665,9 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
     if (segments[0] === 'spec' && segments[1] === 'scaffold' && method === 'POST') {
       const body = await readJsonBody(req);
       const answers = (body.answers ?? {}) as ScaffoldAnswers;
+      // 校正前后各留一份快照：scaffoldProject 自己也会把磁盘事实合并进 manifest，
+      // 所以「这次按磁盘事实改了什么」只能靠对比得出（见 changedKindStatuses）。
+      const manifestBefore = await readInitManifest(root);
       // capability 骨架：root kind 由项目类型推导，capability 只能由调用方点名
       // （goal 的 scope 或外部标准），所以这里必须显式传入，不能自动推断。
       const capabilities = Array.isArray(body.capabilities)
@@ -694,8 +699,17 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
         result = await scaffoldProject(root, stack, answers);
       }
       const capabilityResult = capabilities.length > 0 ? await scaffoldCapabilities(root, capabilities) : null;
+      // 脚手架按技术栈推断 root kind，而 capability 永远推不出来（它由目标或外部标准决定）。
+      // 建完骨架后按磁盘事实校正一次，否则 12-kind 页会一直把已存在的 capability 报成 absent。
+      const manifest = await reconcileInitManifest(root);
+      const kinds = manifest.kinds ?? result.kinds;
       jobs.stateChanged(projectId, '/api/specs');
-      sendOk(res, { ...result, capabilities: capabilityResult });
+      sendOk(res, {
+        ...result,
+        kinds,
+        capabilities: capabilityResult,
+        manifestChanged: changedKindStatuses(manifestBefore?.kinds ?? null, kinds),
+      });
       return true;
     }
 
@@ -952,6 +966,9 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
       // 通过 Web 编辑 spec 同样是一次 canonical spec 变更：立即登记版本并刷新 lock，
       // 否则 spec verify 会立刻报 stale-spec-lock，活跃 change 的 CAS 基线也会失真。
       await refreshSpecBaseline(root, { note: 'web edit' });
+      // 新建 `specs/<cap>/spec.md` 就等于这个 capability 存在了：顺手校正 12-kind 状态，
+      // 否则那一行会一直保留「由目标派生」的旧判。
+      await reconcileInitManifest(root);
       jobs.stateChanged(projectId, '/api/specs');
       sendOk(res, { path: relativePath, created: absolute, hash: hashContent(content) });
       return true;
@@ -1202,13 +1219,15 @@ export async function handleApiRequest(ctx: ApiContext): Promise<boolean> {
       const body = await readJsonBody(req);
       const name = segments[1];
       const agentId = stringField(body.agent, 'opencode');
+      // 与 CLI 的 `--model` 对齐：显式给就用，不给就由 runChange 回退到 .cometflow/config.yaml。
+      const model = stringField(body.model, '') || undefined;
       const runner = getBuiltInAgentRunner(agentId);
       const job = jobs.create(projectId, 'change-run', { change: name });
       setImmediate(async () => {
         jobs.start(job.id);
         try {
-          jobs.log(job.id, 'change run: agent=' + agentId);
-          const outcome = await runChange(root, name, runner);
+          jobs.log(job.id, 'change run: agent=' + agentId + (model === undefined ? '' : ' model=' + model));
+          const outcome = await runChange(root, name, runner, { model });
           jobs.log(job.id, 'change run finished: phase=' + outcome.state.phase + ' exit=' + outcome.agentExitCode);
           jobs.complete(job.id, { state: outcome.state }, outcome.agentExitCode);
           jobs.stateChanged(projectId, '/api/changes/' + name);

@@ -217,6 +217,7 @@ change
   .command('run <name> [path]')
   .description('Run the Builder agent for a change in build phase')
   .option('--agent <agent>', 'Agent id: opencode or claude-code')
+  .option('--model <model>', 'Model override (defaults to .cometflow/config.yaml)')
   .option('--allow-drift', 'Proceed even if the git history drifted since the change was created')
   .action(async (name, targetPath = '.', options) => {
     await changeRunCommand(name, targetPath, options);

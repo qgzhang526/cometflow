@@ -1,9 +1,10 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { pathExists } from '../../platform/fs/read-file.js';
-import { capabilitySpecPath } from '../project/scaffold.js';
+import { capabilitySpecPath, reconcileInitManifest } from '../project/scaffold.js';
 import { readDocxBlocks, type DocBlock } from './docx.js';
 import { validateSpecs } from './spec-validate.js';
+import { refreshSpecBaseline } from './spec-version.js';
 import type { SpecValidationResult } from './types.js';
 
 // Normalized interface inventory. Every input form (CSV export, markdown table,
@@ -34,6 +35,8 @@ export interface SpecImportResult {
   written: string[];
   skipped: string[];
   issues: ImportIssue[];
+  /** 导入后按磁盘事实校正的 kind（通常只有 capability——它推不出来，见 reconcileInitManifest）。 */
+  manifestChanged: string[];
   validation: SpecValidationResult;
 }
 
@@ -398,12 +401,21 @@ async function writeImportedSpecs(
     written.push(relativePath);
   }
 
+  // 导入同样是 canonical spec 变更：落盘即登记版本、刷新基线。以前这里不记账，
+  // 结果是导入完 `spec verify` 立刻报 stale-spec-lock（界面文案却早写着「导入后 spec 已落盘并登记版本」）。
+  // 导入物一律是 `status: draft`，所以建了基线也冻不住——人工审核后仍要走 `spec approve`。
+  await refreshSpecBaseline(projectRoot, { note: 'spec import' });
+  // 表格导入产出的 capability 同样不在技术栈推断里：顺手按磁盘事实校正 12-kind 状态。
+  const manifest = await reconcileInitManifest(projectRoot);
+
   return {
     source,
     capabilities: [...grouped.keys()],
     written,
     skipped,
     issues,
+    manifestChanged: manifest.changed,
+    // validate 放在校正之后：报出来的问题要反映磁盘上的最终状态。
     validation: await validateSpecs(projectRoot),
   };
 }

@@ -1,0 +1,16 @@
+[
+  {
+    "server_id": "srv-prod-01",
+    "hostname": "prod-01",
+    "mgmt_endpoint": "https://mgmt.internal/prod-01",
+    "ssh_port": 22,
+    "status": "online"
+  },
+  {
+    "server_id": "srv-prod-02",
+    "hostname": "prod-02",
+    "mgmt_endpoint": "https://mgmt.internal/prod-02",
+    "ssh_port": 22,
+    "status": "offline"
+  }
+]

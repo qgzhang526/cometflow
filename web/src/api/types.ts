@@ -1040,6 +1040,8 @@ export interface SpecImportResult {
   written: string[];
   skipped: string[];
   issues: Array<{ line: number; reason: string }>;
+  /** 导入后按磁盘事实校正的 kind（通常只有 capability）：导入的 capability 不在技术栈推断里。 */
+  manifestChanged: string[];
 }
 
 /** current-change 指针（`GET /current-change`）：多活跃 change 时唯一能解除 hook fail closed 的入口。 */

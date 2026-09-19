@@ -15,7 +15,13 @@ import {
   specVersionsFor,
 } from '../../domains/spec/spec-version.js';
 import { loadProjectContext } from '../../domains/project/context.js';
-import { readInitManifest, scaffoldCapabilities, scaffoldProject } from '../../domains/project/scaffold.js';
+import {
+  changedKindStatuses,
+  readInitManifest,
+  reconcileInitManifest,
+  scaffoldCapabilities,
+  scaffoldProject,
+} from '../../domains/project/scaffold.js';
 import { importSpecsFromFile } from '../../domains/spec/spec-import.js';
 import { writeSpecIndex } from '../../domains/spec/spec-project.js';
 import { collectAcceptanceChecks } from '../../domains/spec/spec-checks.js';
@@ -232,6 +238,8 @@ export async function specScaffoldCommand(
   options: { interactive?: boolean; capabilities?: string[] },
 ): Promise<void> {
   const projectRoot = path.resolve(targetPath);
+  // 校正前后各留一份快照：scaffoldProject 自己也会合并磁盘事实，只看事后那次校正的返回值会漏报。
+  const manifestBefore = await readInitManifest(projectRoot);
   const context = await loadProjectContext(projectRoot);
   const stack = context
     ? { frontend: context.tech_stack.frontend, backend: context.tech_stack.backend, database: context.tech_stack.database }
@@ -249,6 +257,16 @@ export async function specScaffoldCommand(
     for (const filePath of capabilityResult.skipped) console.log('skipped ' + filePath);
     for (const name of capabilityResult.invalid) console.log('invalid capability name: ' + name);
     if (capabilityResult.invalid.length > 0) process.exitCode = 1;
+  }
+
+  // 上面的 scaffoldProject 是按技术栈推 root kind 的，推不出 capability（它由目标或外部标准
+  // 决定），所以建完骨架后按磁盘事实校正一次，否则 `spec scaffold --list` 会一直把已有
+  // capability 报成 absent。缺 init-manifest 时它什么都不做（不凭磁盘凭空造一份）。
+  const reconciled = await reconcileInitManifest(projectRoot);
+  if (reconciled.kinds !== null) {
+    for (const kind of changedKindStatuses(manifestBefore?.kinds ?? null, reconciled.kinds)) {
+      console.log('init-manifest updated: ' + kind + ' → ' + reconciled.kinds[kind].status);
+    }
   }
 }
 
@@ -353,6 +371,9 @@ export async function specImportCommand(
   for (const filePath of result.written) console.log('imported ' + filePath);
   for (const filePath of result.skipped) console.log('skipped ' + filePath + '（已存在，加 --force 覆盖）');
   for (const issue of result.issues) console.log('issue line ' + issue.line + ': ' + issue.reason);
+  // 导入即登记版本 + 刷新基线（与 Web 导入页签同源），并把 12-kind 状态按磁盘事实校正一次。
+  if (result.written.length > 0) console.log('spec lock: 已登记版本并刷新 .cometflow/spec-lock.json');
+  for (const kind of result.manifestChanged) console.log('init-manifest updated: ' + kind + ' → present');
 
   const findings = result.validation.findings.filter((finding) => finding.code !== 'deferred-kind-file');
   for (const finding of findings) {

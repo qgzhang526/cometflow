@@ -5,8 +5,10 @@ import { describe, expect, it } from 'vitest';
 import {
   INIT_MANIFEST_SCHEMA,
   capabilitySpecPath,
+  detectKindEvidence,
   detectKindNeeds,
   readInitManifest,
+  reconcileInitManifest,
   scaffoldCapabilities,
   scaffoldKinds,
   scaffoldProject,
@@ -162,6 +164,83 @@ describe('spec scaffold', () => {
 
     expect(capabilitySpecPath('a/b')).toBeNull();
     expect(capabilitySpecPath('.hidden')).toBeNull();
+    await fs.rm(tmp, { recursive: true, force: true });
+  });
+
+  it('reads kind presence from the files on disk', async () => {
+    const tmp = await tmpdir('cometflow-scaffold-');
+    await fs.mkdir(path.join(tmp, 'specs', 'flows'), { recursive: true });
+    await fs.writeFile(path.join(tmp, 'COMETFLOW.md'), '# 项目使命\n');
+    await fs.writeFile(path.join(tmp, 'specs', 'models.md'), '# 数据模型\n');
+    await fs.writeFile(path.join(tmp, 'specs', 'flows', 'login.md'), '# 场景：登录\n');
+
+    const evidence = await detectKindEvidence(tmp);
+    expect(evidence.project).toBe(true);
+    expect(evidence.models).toBe(true);
+    expect(evidence.flow).toBe(true);
+    // 没有文件就是没有：这里不下「本项目不需要」的结论，那是 init 的问答与人工裁量。
+    expect(evidence.capability).toBe(false);
+    expect(evidence.errors).toBe(false);
+    await fs.rm(tmp, { recursive: true, force: true });
+  });
+
+  it('reconciles capability from disk facts and leaves the other kinds alone', async () => {
+    const tmp = await tmpdir('cometflow-scaffold-');
+    await fs.mkdir(path.join(tmp, 'specs', 'auth'), { recursive: true });
+    await fs.writeFile(path.join(tmp, 'specs', 'auth', 'spec.md'), '# auth\n');
+    await fs.writeFile(path.join(tmp, 'COMETFLOW.md'), '# 项目使命\n');
+    const kinds = detectKindNeeds({ frontend: '无', backend: 'TypeScript', database: 'PostgreSQL' });
+    // 技术栈推不出 capability，它恒为 absent——这正是 12-kind 页会撒谎的根源。
+    expect(kinds.capability.status).toBe('absent');
+    await writeInitManifest(tmp, kinds);
+
+    const first = await reconcileInitManifest(tmp);
+    expect(first.changed).toEqual(['capability']);
+    const manifest = await readInitManifest(tmp);
+    expect(manifest?.kinds.capability.status).toBe('present');
+    expect(manifest?.kinds.capability.reason).toContain('磁盘');
+    // 其它 kind 原样：absent 是「本项目不需要」的显式决定，present 也照旧交给 spec validate 去报缺文件。
+    expect(manifest?.kinds.pages).toEqual({ status: 'absent', reason: 'frontend == none' });
+    expect(manifest?.kinds.models.status).toBe('present');
+
+    const manifestPath = path.join(tmp, '.cometflow', 'init-manifest.yaml');
+    const before = await fs.readFile(manifestPath, 'utf8');
+    const second = await reconcileInitManifest(tmp);
+    expect(second.changed).toEqual([]);
+    expect(await fs.readFile(manifestPath, 'utf8')).toBe(before);
+    await fs.rm(tmp, { recursive: true, force: true });
+  });
+
+  it('does not invent an init-manifest when there is none', async () => {
+    const tmp = await tmpdir('cometflow-scaffold-');
+    await fs.mkdir(path.join(tmp, 'specs', 'auth'), { recursive: true });
+    await fs.writeFile(path.join(tmp, 'specs', 'auth', 'spec.md'), '# auth\n');
+
+    const result = await reconcileInitManifest(tmp);
+    expect(result.kinds).toBeNull();
+    expect(result.changed).toEqual([]);
+    await expect(fs.access(path.join(tmp, '.cometflow', 'init-manifest.yaml'))).rejects.toThrow();
+    await fs.rm(tmp, { recursive: true, force: true });
+  });
+
+  it('scaffoldProject merges disk facts into an existing manifest instead of overwriting it', async () => {
+    const tmp = await tmpdir('cometflow-scaffold-');
+    await fs.mkdir(path.join(tmp, 'specs', 'auth'), { recursive: true });
+    await fs.writeFile(path.join(tmp, 'specs', 'auth', 'spec.md'), '# auth\n');
+    await fs.writeFile(path.join(tmp, 'specs', 'rules.md'), '# 领域规则\n');
+
+    const stack = { frontend: '无', backend: 'TypeScript', database: '无' };
+    const previous = detectKindNeeds(stack);
+    // 人把 rules 明确标成 present 并写了原因；技术栈与问答已经答不出这一条了。
+    previous.rules = { status: 'present', reason: '人工确认过需要领域规则' };
+    await writeInitManifest(tmp, previous);
+
+    const result = await scaffoldProject(tmp, stack);
+    // 磁盘上有 rules.md：旧判定（含 reason）优先，不被「没答 domainDsl」冲成 deferred。
+    expect(result.kinds.rules).toEqual({ status: 'present', reason: '人工确认过需要领域规则' });
+    expect(result.kinds.capability.status).toBe('present');
+    expect(result.kinds.pages.status).toBe('absent');
+    expect((await readInitManifest(tmp))?.kinds.rules.reason).toBe('人工确认过需要领域规则');
     await fs.rm(tmp, { recursive: true, force: true });
   });
 });

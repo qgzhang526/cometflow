@@ -114,8 +114,8 @@ cometflow eval / evolve / daemon   # 评估、进化、无人值守持续推进
 | `.cometflow/project-context.yaml` | 技术栈/运行环境投影 | `context sync`（机器生成） |
 | `.cometflow/goals/*.yaml` | 目标投影 | `goal sync`（机器生成） |
 | `.cometflow/plans/*.task-plan.yaml` | 任务计划与冻结的关联 | `plan generate/freeze` |
-| `.cometflow/spec-lock.json` | spec hash 基线 | `spec lock` |
-| `.cometflow/init-manifest.yaml` | 每个 spec kind 的 present/deferred/absent | `init` / `spec scaffold` |
+| `.cometflow/spec-lock.json` | spec hash 基线 | `spec lock`（导入、Web 编辑、`spec approve` 也会自动刷新） |
+| `.cometflow/init-manifest.yaml` | 每个 spec kind 的 present/deferred/absent。**磁盘事实优先**：文件在就判 present（`capability` 只能这样判），文件不在则保留原判（`absent` = 本项目不需要，`deferred` = 需要时再补） | `init` / `spec scaffold` |
 | `.cometflow/spec-index/*.yaml` | models/apis/flows/errors/config 投影 | `spec index` |
 | `.cometflow/runtime/queue.json` | 调度队列 | `daemon` |
 | `.cometflow/runtime/daemon-state.json` | 调度器最近一次决策的**投影**（只读展示在调度面板） | `daemon` |
@@ -341,11 +341,18 @@ my-project/
 
 > `capability` 不由 `init` 生成，也不会由工具凭空撰写内容：它由 `plan generate` 的 spec-authoring 任务起草，或由 `spec scaffold --capability <name>` 建骨架后填写。对照已定标准（工标/接口规范）开发时，直接把标准里的接口与工作流誊写进这些 spec 作为唯一真相源，再 `spec lock` 冻结、`plan generate` 派生实现任务。
 >
+> 12-kind 页里的 `capability` 行判的是「磁盘上有没有 capability spec」，不是「本项目需不需要」：
+> 同一份骨架入口（Web「脚手架」页签 / `spec scaffold --capability`）每跑一次都会按磁盘事实校正
+> `init-manifest`，所以建完骨架的那一行会变成 present，并在 CLI 回显 `init-manifest updated: capability → present`。
+>
 > 起草类任务（`kind: spec-authoring`）没有 acceptance，因此它**不适用**「验收必须先冻结」那条：
 > `change transition <name> confirm-acceptance` 对它直接放行。它真正的验收条件是产物本身——
 > `change verify` / `change archive` 会要求 `specs/<capability>/spec.md` 已存在且 `spec validate` 无 error
-> （产物应带 `status: draft`，由人确认后 `spec approve` 定稿）。提示词里会带上该 goal 的范围、
-> 成功标准与非目标，agent 不再是「凭一行标题写契约」。
+> （产物应带 `status: draft`，由人确认后 `spec approve` 定稿）。提示词里会带上四块输入，agent 不再是「凭一行标题写契约」：
+> 该 goal 的范围 / 成功标准 / 非目标；**可引用的事实**（已有 capability、模型实体与字段、
+> 错误码、协议头、状态码、配置键——取自与 `spec validate` 同源的事实索引，
+> 引用不在其中的值会过不了收口护栏）；**体例参照**（同一 goal 内一份邻居 capability spec 的全文）；
+> 以及产物的 `status: draft` 要求。
 > 「本项目不需要」也会留痕：`init-manifest.yaml` 记录 pending 状态，让 `spec validate` 能区分「有意缺席」与「遗漏」。
 
 ### 4.2 增量补 spec kind
@@ -410,7 +417,7 @@ order,GET,/api/orders/{id},机机,,orderId;status,NOT_FOUND,internal/order
 
 #### 其他来源（PDF、扫描件、图片）
 
-PDF 与扫描件需要 OCR，且表格结构容易串行，本项目暂不内置。正确姿势是先用对应工具抽成表格或文本，再走同一条 `spec import` 通道。不要让 agent 直接从 PDF 生成 spec 而跳过人工核对——标准一旦被抄错，后面所有实现都会错，所以流程固定为「抽取 → 导入为草稿 → 人工对照原文审核 → `spec lock` 冻结」。
+PDF 与扫描件需要 OCR，且表格结构容易串行，本项目暂不内置。正确姿势是先用对应工具抽成表格或文本，再走同一条 `spec import` 通道。不要让 agent 直接从 PDF 生成 spec 而跳过人工核对——标准一旦被抄错，后面所有实现都会错，所以流程固定为「抽取 → 导入为草稿（落盘即登记版本、刷新基线）→ 人工对照原文审核 → `spec approve` 定稿（草案不能参与 `plan freeze`）」。导入不会替你批准：`status: draft` 一直留到人点过「批准定稿」。
 
 ---
 
@@ -530,7 +537,10 @@ capability: auth
 | `spec_hash` | 冻结任务记录的文件级哈希 |
 | `anchor_hash` | 冻结任务记录的 anchor 正文哈希（不含标题与 Acceptance 段） |
 
-记账时机：`spec lock`（人工建立基线）、`plan freeze`（冻结任务）、`change archive`（归档写回 canonical spec）。归档会自动刷新 `spec-lock.json`，不会再出现「归档完 lock 立刻过期」。
+记账时机：`spec lock`（人工建立基线）、`plan freeze`（冻结任务）、`change archive`（归档写回 canonical spec）、
+以及**任何一次 canonical spec 变更**——表格导入、Web 编辑、`spec approve`。后三条会同时刷新 `spec-lock.json`：
+specs 变了却不动基线，`spec verify` 下一次就会报 `stale-spec-lock`，活跃 change 的 CAS 基线也会失真。
+归档同理，不会再出现「归档完 lock 立刻过期」。
 
 **anchor 规则**：可绑定的 anchor 是二级标题（如 `## POST /api/auth/email-login`）；`### 请求`、`### 响应` 是段落而非 anchor；`## Acceptance` 是验收容器。同一文件里 anchor 标题重复会直接报 `duplicate-anchor`。
 
@@ -869,7 +879,7 @@ cometflow change list [path] [--all] [--json]
 cometflow change resume <name> [path] [--json]
 cometflow change status <name> [path]
 cometflow change transition <name> <event> [path]
-cometflow change run <name> [path] [--agent opencode|claude-code|mock]
+cometflow change run <name> [path] [--agent opencode|claude-code|mock] [--model <model>]
 cometflow change verify <name> [path]
 cometflow change archive <name> [path]
 ```
@@ -889,7 +899,7 @@ archive ──archive-complete──► done + archived
 |---|---|---|
 | `change new` | 目标任务 `status=frozen` | 建 `changes/<name>/`，写 `brief.md` 与 `comet-state.yaml`（phase=shape） |
 | `change resume` | — | 按当前 phase 给出下一步事件与建议命令（断点续作） |
-| `change run` | `phase=build` | 用 Builder prompt 调外部 Agent；exit 0 → `verify` |
+| `change run` | `phase=build` | 用 Builder prompt 调外部 Agent；exit 0 → `verify`。模型取 `--model`，缺省回退 `.cometflow/config.yaml` 的 `agents.<id>.model` / `model`，都没有就交给 Agent 自己的默认值 |
 | `change verify` | `phase=verify` | 见 7.3；pass → `archive`，fail → 回到 `build` |
 | `change archive` | `phase=archive` | 把 `changes/<name>/specs/**` 落地到 `specs/**`（支持 `<capability>/spec.md`、`flows/<name>.md` 与根级 kind 文件），标记 archived |
 
@@ -1349,6 +1359,8 @@ token: <random>
 - **表格导入**：Specs 面板「导入」页签支持粘贴 CSV / TSV / Markdown 表格（Excel 导出直接可用），
   先「预览」再「导入」：预览只解析、不落盘，并列出会新写的能力、因已存在而跳过的能力、能力名非法的项与解析问题；
   勾选「覆盖」才会重写已有 capability spec。解析与分组规则与 `cometflow spec import <file>` 是同一份实现。
+  导入是一次 canonical spec 变更：落盘即登记版本、刷新 `spec-lock` 基线，并按磁盘事实校正 12-kind 状态
+  （结果里会列出「12-kind 校正」，通常是 `capability`）。产物一律是草案，要人对照原文审核后批准定稿。
 - **顶栏健康徽章**：顶栏显示当前项目的 `N error / M warning`，数据与总览「问题清单」是同一份（共享 store），
   点击回到总览。打开项目时就加载，切换项目不会残留上一个项目的数字。
 - **Eval 历史与对比**：评估面板列出该项目所有带报告的 `eval-run`（任务中心持久化，重启后仍在），
@@ -1380,7 +1392,12 @@ token: <random>
 - **Specs 面板 6 个页签**：12-kind 状态、脚手架、Spec 文件、验收覆盖、版本、影响与门禁。
 - **脚手架页签的 capability 入口**：root kind 由项目类型推导，capability 不由 init 生成、也无法推断，
   所以在同一页签里可以点名生成 `specs/<capability>/spec.md` 骨架（逗号分隔，可多个）。
-  幂等：已存在的文件只报「未覆盖」，非法名字（含路径分隔符 / 隐藏文件）单独列出且不落盘。
+  幂等：已存在的文件只报「未覆盖」，非法名字（含路径分隔符 / 隐藏文件）在输入处就标出来且不发请求。
+  页签下方列出**已有 capability**（带草案 / 已定稿状态），点一下直接打开正文编辑；已存在的名字
+  会提前提示「本次跳过」，不用等结果行。
+  每跑一次脚手架都会按磁盘事实校正 `init-manifest`：`capability` 是文件证据说了算
+  （`detectKindNeeds` 推不出它，旧行为会让 12-kind 页把已有 capability 一直报成 absent），
+  文件已存在且旧判定已是 present 的 kind 连 reason 一起保留，不被技术栈推断改写。
 - **Spec 文件页签的定稿状态**：每个 spec 显示「草案 / 已定稿」；草案带「批准定稿」按钮
   （等价 `cometflow spec approve <spec-file>`，带二次确认）。草案在 `plan freeze` 时会被拒，
   报错信息直接给出该命令。
@@ -1404,6 +1421,8 @@ token: <random>
   提案不改 canonical spec，归档时才应用；编辑器发现已有提案会提示并可与之对比）。
   - 验收覆盖：每个 anchor 的验收项与其可执行 check；没有 check 的项显式标注（ADR 0013）。
   - 版本：按 spec 列出历史版本（含 hash/时间/来源），可查看历史正文并一键恢复（恢复前先把当前内容记一版）。
+    页签自带「建立基线（spec lock）」——发现某份 spec 没有版本、或导入/脚手架之后基线过期时，
+    不必再切到「影响与门禁」；与那里的按钮是同一个端点，语义也一致（旧版仍在版本仓，可回放）。
   - 影响与门禁：与基线的 diff、锚点级影响分析（可选「预演某个 change 归档后」）、一致性门禁、
     冻结任务漂移、跨文件引用校验，以及「建立基线（spec lock）」。
 - **Changes 面板 4 个页签**（选中 change 后）：概览、范围、流水、证据。
@@ -1459,7 +1478,7 @@ pnpm build                   # tsc（CLI）+ vite build（Web）
 | GET | `/api/projects/<id>/config/project` | 项目层覆盖（不含全局默认） |
 | GET | `/api/projects/<id>/agents` | Agent 可用性 |
 | GET | `/api/projects/<id>/init-manifest` | 12-kind 状态 |
-| POST | `/api/projects/<id>/spec/scaffold` \| `/spec/validate` | 脚手架 / 校验（脚手架可带 `{capabilities: string[]}` 点名 capability 骨架；缺 stack 时用项目上下文推导 root kind） |
+| POST | `/api/projects/<id>/spec/scaffold` \| `/spec/validate` | 脚手架 / 校验（脚手架可带 `{capabilities: string[]}` 点名 capability 骨架；缺 stack 时用项目上下文推导 root kind；返回 `manifestChanged` 说明这次按磁盘事实校正了哪些 kind 状态） |
 | GET | `/api/projects/<id>/spec-index` | spec 投影 |
 | GET/POST | `/api/projects/<id>/specs` | 列 spec / 新建 spec 文件 |
 | GET/PUT | `/api/projects/<id>/specs/content?path=...` | 读写单个 spec |

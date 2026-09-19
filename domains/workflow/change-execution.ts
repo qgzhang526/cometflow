@@ -10,10 +10,16 @@ import { readGoalRecord } from '../goal/goal-sync.js';
 import { validateSpecs } from '../spec/spec-validate.js';
 import { extractAnchorSection, parseSpecContent } from '../spec/spec-parse.js';
 import { normalizeModulePath, parseSpecMeta } from '../spec/spec-meta.js';
+import { gatherSpecAuthoringHints, renderSpecAuthoringInputs } from './spec-authoring-inputs.js';
 import { hashSpecText } from '../spec/spec-hash.js';
 import { readSpecBlob, recordSpecVersion, refreshSpecBaseline } from '../spec/spec-version.js';
 import { readTextFile } from '../../platform/fs/read-file.js';
-import { readProjectConfig, type VerificationMode, type VerifierPolicy } from '../project/config.js';
+import {
+  readProjectConfig,
+  resolveModel,
+  type VerificationMode,
+  type VerifierPolicy,
+} from '../project/config.js';
 import { redactSecrets } from '../../platform/io/redact.js';
 import { acquireLock } from '../../platform/fs/file-lock.js';
 import { canonicalHash } from '../state/canonical-hash.js';
@@ -155,22 +161,37 @@ async function specAuthoringSection(projectRoot: string, state: ChangeState): Pr
   ];
 
   const goal = await readGoalRecord(projectRoot, state.goal);
+  // 先把 goal 的意图交底，再给事实面与体例：Agent 需要知道「要什么」，
+  // 也需要知道「这个仓库里已经有什么可以引用、写成什么样才算合格」。
   if (goal === null) {
     lines.push('', '## Goal', 'goal: ' + state.goal + '（未找到 goal 投影，运行 cometflow goal sync 补齐）');
-    return lines;
+  } else {
+    lines.push('', '## Goal');
+    lines.push('goal: ' + goal.id + ' · ' + goal.title);
+    if (goal.summary !== '') lines.push('summary: ' + goal.summary);
+    if (goal.scope.length > 0) lines.push('scope: ' + goal.scope.join(', '));
+    if (goal.success_criteria.length > 0) {
+      lines.push('success_criteria:');
+      for (const item of goal.success_criteria) lines.push('- ' + item);
+    }
+    if (goal.non_goals.length > 0) {
+      lines.push('non_goals:');
+      for (const item of goal.non_goals) lines.push('- ' + item);
+    }
   }
-  lines.push('', '## Goal');
-  lines.push('goal: ' + goal.id + ' · ' + goal.title);
-  if (goal.summary !== '') lines.push('summary: ' + goal.summary);
-  if (goal.scope.length > 0) lines.push('scope: ' + goal.scope.join(', '));
-  if (goal.success_criteria.length > 0) {
-    lines.push('success_criteria:');
-    for (const item of goal.success_criteria) lines.push('- ' + item);
+
+  // 输入面（事实 + 体例）与 goal 同级展开。取不到时静默跳过：
+  // 提示词少一段不该让起草任务本身失败，护栏在 change verify / archive。
+  try {
+    const hints = await gatherSpecAuthoringHints(projectRoot, {
+      capability: state.capability ?? null,
+      scope: goal?.scope ?? [],
+    });
+    lines.push('', ...renderSpecAuthoringInputs(hints));
+  } catch {
+    lines.push('', '## Existing facts you may reference', '（读取现有 spec 失败，起草前请自行确认可引用的模型 / 错误码 / 配置键）');
   }
-  if (goal.non_goals.length > 0) {
-    lines.push('non_goals:');
-    for (const item of goal.non_goals) lines.push('- ' + item);
-  }
+
   return lines;
 }
 
@@ -284,10 +305,18 @@ export async function runChange(
   const lock = await acquireLock(projectRoot, 'change run ' + name, { scope: 'change-run-' + name });
   try {
     const prompt = await buildChangePrompt(projectRoot, name);
-    await appendChangeEvent(projectRoot, name, 'run-started', { agent: runner.id }, { phase: state.phase });
-    // model 一路传下去：调度器带 `--model` 驱动 change 时，builder 必须真的用上它
-    // （verify 那条链早就在传 model，build 这条以前没有，属于静默忽略配置）。
-    const result = await runner.run({ prompt, cwd: projectRoot, model: options.model, timeoutMs: options.timeoutMs });
+    // 模型解析放在这里，而不是各调用方各写一遍：`change run`（CLI）、Web 的 run-change、
+    // daemon 三条路径都要拿到同一个默认值。过去只有 daemon 会解析 `.cometflow/config.yaml`，
+    // CLI 与 Web 是静默用 Agent 自己的默认模型——项目里配的 model 对它们等于没写。
+    const model = options.model ?? (await resolveModel(projectRoot, runner.id));
+    await appendChangeEvent(
+      projectRoot,
+      name,
+      'run-started',
+      { agent: runner.id, model: model ?? null },
+      { phase: state.phase },
+    );
+    const result = await runner.run({ prompt, cwd: projectRoot, model, timeoutMs: options.timeoutMs });
     if (result.exitCode !== 0) {
       await appendChangeEvent(projectRoot, name, 'run-completed', {
         agent: runner.id,
