@@ -1,6 +1,6 @@
 {
   "name": "@zqg/cometflow",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Spec-driven (SDD) autonomous agent development platform: agents implement, independent verifiers and gates decide, schedulers run unattended",
   "type": "module",
   "license": "MIT",

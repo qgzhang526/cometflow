@@ -1,6 +1,6 @@
 # CometFlow 使用说明
 
-> 适用版本：`@zqg/cometflow` 0.2.0（CLI 名 `cometflow`，Node >= 22）。
+> 适用版本：`@zqg/cometflow` 0.3.0（CLI 名 `cometflow`，Node >= 22）。
 > 本文上半部分讲**项目整体逻辑**，下半部分讲**怎么用它**。
 
 ---

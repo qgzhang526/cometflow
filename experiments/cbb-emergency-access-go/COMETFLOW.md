@@ -2,19 +2,19 @@
 
 CBB-应急运维接入（Emergency Access）：为被防火墙策略封锁了 SSH 的生产服务器，提供一条**显式授权、强认证、有时限、全审计**的应急运维通道，作为可被多个运维平台复用的公共构建块（CBB）。
 
-本仓库是**可被 Agent 重建的参考工程**：契约（本文 + `specs/`）与判据（`tests/acceptance.mjs`）先写，
-实现（`src/`）在 CometFlow 的 change / daemon 通道里产出。判据在实现产出前会失败，这是设计意图。
+本仓库是**可被 Agent 重建的参考工程**：契约（本文 + `specs/`）与判据（`tests/acceptance`）先写，
+实现（`internal/`）在 CometFlow 的 change / daemon 通道里产出。判据在实现产出前会失败，这是设计意图。
 
 ## 技术栈
 
 | 维度 | 值 |
 |------|-----|
 | 前端 | 无 |
-| 后端 | Node.js |
+| 后端 | Go |
 | 数据库 | SQLite |
 | 缓存 | 无 |
-| 测试框架 | node --test |
-| 构建工具 | 无（纯 ESM） |
+| 测试框架 | go test（标准库 testing；断言不引第三方库） |
+| 构建工具 | go build / go vet |
 
 ## 运行环境
 
@@ -22,7 +22,7 @@ CBB-应急运维接入（Emergency Access）：为被防火墙策略封锁了 SS
 |------|-----|
 | 操作系统 | Linux |
 | 部署方式 | 与现有配置管理平台同机部署 |
-| 语言版本 | Node 24+ |
+| 语言版本 | Go 1.25+（SQLite 驱动 modernc.org/sqlite v1.59 要求 1.25） |
 
 ## 模块归属
 
@@ -31,10 +31,12 @@ CBB-应急运维接入（Emergency Access）：为被防火墙策略封锁了 SS
 
 | 共享路径 | 说明 |
 |----------|------|
-| src/server.mjs | 服务入口：HTTP 路由、认证、响应包络（见 protocol.md「服务入口」） |
-| src/store.mjs | 存储层：实体表与 append-only 审计（见 models.md） |
+| cmd/server/main.go | 服务入口（进程形态）：HTTP 路由、认证、响应包络（见 protocol.md「服务入口」） |
+| internal/app | 接缝层：配置、外部依赖接口、服务句柄（模块形态的入口） |
+| internal/store | 存储层：实体表与 append-only 审计（见 models.md） |
 | tests | 判据执行器与夹具，不属于任何 capability 模块 |
-| package.json | 依赖清单与脚本；本项目零外部依赖，只允许用 Node 内置模块 |
+| go.mod | 依赖清单；只允许标准库，SQLite 驱动是唯一的例外（见 constraints.md） |
+| go.sum | 依赖校验和 |
 | metrics-baseline.json | 度量基线（`cometflow gate check --update-baseline` 生成），不是实现代码 |
 
 ## 调度顺序
