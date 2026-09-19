@@ -17,8 +17,10 @@
 | E_GRANT_NOT_FOUND | 授权不存在 | tunnel |
 | E_GRANT_EXPIRED | 授权已过期 | tunnel |
 | E_GRANT_ALREADY_USED | 一次性令牌已被消费 | tunnel |
+| E_GRANT_REVOKED | 授权已被吊销 | tunnel |
 | E_SOURCE_NOT_ALLOWED | 来源地址不在白名单 | tunnel |
 | E_CHANNEL_SETUP_FAILED | 临时通道建立失败 | tunnel |
 | E_CHANNEL_TEARDOWN_FAILED | 临时通道回收失败 | guard |
+| E_SESSION_NOT_FOUND | 会话不存在 | tunnel |
 | E_RATE_LIMITED | 触发熔断，短期内禁止再次申请 | access |
 | E_AUDIT_WRITE_FAILED | 审计写入失败 | audit |

@@ -214,13 +214,27 @@ describe('V3：表格导入（粘贴 → 预览 → 导入）', () => {
 
   it('确认导入后按预览写盘，同名 capability 不带 force 时被跳过', async () => {
     const { status, body } = await post<{
-      result: { capabilities: string[]; written: string[]; skipped: string[]; issues: unknown[] };
+      result: {
+        capabilities: string[];
+        written: string[];
+        skipped: string[];
+        issues: unknown[];
+        manifestChanged: string[];
+      };
     }>('/spec/import', { content: TABLE, source: 'test-table.md', dryRun: false });
     expect(status).toBe(200);
     expect(body.data.result.written).toEqual(['specs/webimport/spec.md']);
     expect(body.data.result.skipped).toEqual(['specs/auth/spec.md']);
     const written = await fs.readFile(path.join(projectRoot, 'specs', 'webimport', 'spec.md'), 'utf8');
     expect(written).toContain('POST /web-import');
+
+    // 导入同时收尾两件事：登记版本 + 刷新基线（否则 spec verify 立刻报 stale-spec-lock），
+    // 以及按磁盘事实校正 12-kind 状态（表格导入的 capability 不在技术栈推断里）。
+    const lock = JSON.parse(await fs.readFile(path.join(projectRoot, '.cometflow', 'spec-lock.json'), 'utf8')) as {
+      files: Array<{ path: string }>;
+    };
+    expect(lock.files.map((entry) => entry.path)).toContain('specs/webimport/spec.md');
+    expect(body.data.result.manifestChanged).toContain('capability');
   });
 
   it('内容为空 → 400（不给默认值，避免写出一份空 spec）', async () => {

@@ -2,6 +2,8 @@
 
 唯一数据字典：实体、字段、枚举、状态机。字段/枚举/状态只在此定义，其余 spec 只引用、不重述。
 
+ServerTarget 的台账由管理平台同步，运行时来源为 配置：targets.file（见 config.md）。
+
 ## 实体：ServerTarget
 
 | 字段 | 类型 | 必填 | 唯一 | 说明 |
@@ -85,7 +87,7 @@
 - SessionStatus：0=active, 1=ended
 - EndReason：0=user_closed, 1=idle_timeout, 2=ttl_expired, 3=revoked, 4=error
 - ChannelState：0=down, 1=up
-- EventType：0=request_created, 1=request_approved, 2=request_rejected, 3=grant_issued, 4=session_started, 5=session_ended, 6=channel_opened, 7=channel_closed, 8=audit_exported
+- EventType：0=request_created, 1=request_approved, 2=request_rejected, 3=grant_issued, 4=session_started, 5=session_ended, 6=channel_opened, 7=channel_closed, 8=audit_exported, 9=teardown_failed, 10=request_revoked
 
 ## 状态机：AccessRequest
 

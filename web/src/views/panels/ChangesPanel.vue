@@ -110,6 +110,14 @@
         <select v-model="runAgent" :disabled="selected.phase !== 'build'">
           <option v-for="agent in agentOptions" :key="agent" :value="agent">{{ agent }}</option>
         </select>
+        <input
+          v-model="runModel"
+          type="text"
+          style="width: 220px"
+          :disabled="selected.phase !== 'build'"
+          :placeholder="runModelPlaceholder"
+          title="留空即用项目配置（.cometflow/config.yaml 的 agents.<id>.model / model），再回退到 Agent 自己的默认模型"
+        />
         <button class="primary" :disabled="busy || selected.archived || selected.phase !== 'build'" @click="runBuilder">
           运行 Builder
         </button>
@@ -289,6 +297,8 @@ const busy = ref(false);
 const creating = ref(false);
 const openOutput = ref('');
 const runAgent = ref('opencode');
+/** Builder 的模型覆盖；空串表示不覆盖，由服务端回退到项目配置（见 runModelPlaceholder）。 */
+const runModel = ref('');
 const activeJobId = ref<string | null>(null);
 const detailTab = ref<(typeof TABS)[number]['id']>('overview');
 const rebaseConfirm = ref(false);
@@ -314,6 +324,16 @@ const agentOptions = computed(() => {
   if (configured) set.add(configured);
   if (set.size === 0) set.add('opencode');
   return [...set];
+});
+/**
+ * 模型输入框的占位符：留空时把「实际会用哪个模型」写出来（项目配置里的
+ * `agents.<id>.model` → `model` → Agent 自己的默认值），免得以为指定了其实没传。
+ */
+const runModelPlaceholder = computed(() => {
+  const config = project.config?.config;
+  if (config === undefined) return '模型（可选）';
+  const configured = config.agents?.[runAgent.value]?.model ?? config.model;
+  return configured === undefined ? '模型（可选）' : '模型（默认 ' + configured + '）';
 });
 /**
  * 正在展示的 job。
@@ -473,9 +493,12 @@ async function transition(event: string): Promise<void> {
 async function runBuilder(): Promise<void> {
   busy.value = true;
   try {
+    const model = runModel.value.trim();
+    const body: { agent: string; model?: string } = { agent: runAgent.value };
+    if (model !== '') body.model = model;
     const data = await project.projectApi<{ jobId: string }>(
       '/changes/' + encodeURIComponent(selectedName.value) + '/run',
-      { method: 'POST', body: { agent: runAgent.value } },
+      { method: 'POST', body },
     );
     activeJobId.value = data.jobId;
     await jobs.track(data.jobId);

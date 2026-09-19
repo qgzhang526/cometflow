@@ -2,7 +2,10 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { detectKindNeeds, readInitManifest, writeInitManifest } from '../../domains/project/scaffold.js';
 import { importSpecsFromTable, parseInterfaceTable, renderCapabilitySpec } from '../../domains/spec/spec-import.js';
+import { readSpecHistory, specVersionsFor } from '../../domains/spec/spec-version.js';
+import { verifySpecIntegrity } from '../../domains/spec/spec-verify.js';
 
 const COMETFLOW = [
   '# 项目使命',
@@ -170,6 +173,38 @@ describe('spec import', () => {
     const result = await importSpecsFromTable(root, source);
     expect(result.validation.valid).toBe(false);
     expect(result.validation.findings.some((finding) => finding.code === 'unresolved-error-reference')).toBe(true);
+
+    await fs.rm(root, { recursive: true, force: true });
+  });
+
+  it('registers versions, refreshes the baseline and corrects the kind states on import', async () => {
+    const root = await tmpProject();
+    // 技术栈推不出 capability，所以 manifest 里它恒为 absent——正是导入后要按磁盘事实纠正的那一行。
+    await writeInitManifest(root, detectKindNeeds({ frontend: '无', backend: 'TypeScript', database: '无' }));
+    const source = path.join(root, 'inventory.md');
+    await fs.writeFile(source, MARKDOWN_TABLE);
+
+    const result = await importSpecsFromTable(root, source);
+    expect(result.written.sort()).toEqual(['specs/order/spec.md', 'specs/payment/spec.md']);
+    expect(result.manifestChanged).toContain('capability');
+
+    // 导入即登记版本 + 建基线：不记账的话 spec verify 会立刻报 stale-spec-lock（界面文案一直这么承诺）。
+    const history = await readSpecHistory(root);
+    const versions = specVersionsFor(history, 'specs/order/spec.md');
+    expect(versions).toHaveLength(1);
+    expect(versions[0].note).toBe('spec import');
+
+    const lock = JSON.parse(await fs.readFile(path.join(root, '.cometflow', 'spec-lock.json'), 'utf8')) as {
+      files: Array<{ path: string }>;
+    };
+    expect(lock.files.map((entry) => entry.path)).toEqual(
+      expect.arrayContaining(['specs/order/spec.md', 'specs/payment/spec.md']),
+    );
+
+    // 端到端的判定：门禁不再因为「没有基线」而失败（草案仍有自己的 warning，那是另一条规则）。
+    const verify = await verifySpecIntegrity(root);
+    expect(verify.findings.some((finding) => finding.code === 'missing-spec-lock')).toBe(false);
+    expect((await readInitManifest(root))?.kinds.capability.status).toBe('present');
 
     await fs.rm(root, { recursive: true, force: true });
   });

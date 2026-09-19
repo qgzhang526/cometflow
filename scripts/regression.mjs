@@ -189,10 +189,17 @@ process.on('exit', () => removeWithRetry(tempRoot));
 const modelsPath = path.join(project, 'specs', 'models.md');
 const modelsBefore = readFileSync(modelsPath, 'utf8');
 rmSync(path.join(project, 'specs', 'constraints.md'), { force: true });
-expectOk('spec scaffold', ['spec', 'scaffold', '.'], project);
+const scaffoldRun = expectOk('spec scaffold', ['spec', 'scaffold', '.'], project);
 check('scaffold 重建 constraints.md', existsSync(path.join(project, 'specs', 'constraints.md')));
 // 脚手架是幂等的：已存在的文件不能被覆盖（fixture 里 models.md 现在是 present kind，带交叉引用内容）
 check('scaffold 不覆盖已存在的 models.md', readFileSync(modelsPath, 'utf8') === modelsBefore);
+// 12-kind 状态按磁盘事实校正：capability 推不出来（由目标或外部标准决定），只能由磁盘证据判。
+// fixture 的 manifest 写着 absent，而 specs/auth、specs/core… 都在，所以这一步必须回显它被校正。
+check(
+  'scaffold 按磁盘事实校正 init-manifest 的 capability',
+  scaffoldRun.stdout.includes('init-manifest updated: capability → present'),
+  scaffoldRun.stdout.trim().slice(0, 200),
+);
 
 // capability 骨架（G3）：root kind 靠项目类型推导，capability 只能点名。
 // 探针验完即删——多出来的 spec 文件会让后续 spec verify 的 lock 基线失真。
@@ -701,6 +708,25 @@ check(
   '悬空实体报 unreferenced-model，且不阻断（validate: OK）',
   reverseRefs.stdout.includes('unreferenced-model') && reverseRefs.stdout.includes('spec validate: OK'),
   reverseRefs.stdout.trim().slice(-160),
+);
+
+// 表格导入的收尾（与 Web 导入页签同源）：落盘后立即登记版本 + 刷 `spec-lock` 基线。
+// 这一步放在最后跑：导入会多出一份 capability，前面那些以 lock 基线为准的断言不能被它干扰。
+const importTable = path.join(tempRoot, 'inventory.md');
+writeFileSync(
+  importTable,
+  ['| 模块 | 方法 | 路径 | 说明 |', '|------|------|------|------|', '| regression-import | POST | /regression-import | 导入探针 |'].join('\n'),
+);
+const imported = expectOk('spec import', ['spec', 'import', importTable, '.'], project);
+check('导入写出 capability spec', existsSync(path.join(project, 'specs', 'regression-import', 'spec.md')));
+check(
+  '导入即登记版本并刷新基线',
+  imported.stdout.includes('spec lock: 已登记版本并刷新'),
+  imported.stdout.trim().slice(0, 200),
+);
+check(
+  '导入后 spec-lock 收录新 spec',
+  fileContains(path.join(project, '.cometflow', 'spec-lock.json'), 'specs/regression-import/spec.md'),
 );
 
 console.log('');

@@ -6,10 +6,19 @@
         历史版本可以随时回放，必要时一键恢复正文。
       </p>
       <span class="grow" />
-      <button class="ghost" @click="load">刷新</button>
+      <!-- 「建立基线」原来只在「影响与门禁」有，可这一页才是你看不见版本时会来的地方。 -->
+      <button class="primary" :disabled="busy" @click="lock">建立基线（spec lock）</button>
+      <button class="ghost" :disabled="busy" @click="load">刷新</button>
     </div>
 
-    <p v-if="specPaths.length === 0" class="empty">还没有登记过版本：先运行一次「建立基线」，或编辑一份 spec。</p>
+    <p class="muted">
+      「建立基线」= 承认当前 <code>specs/</code> 的内容为新基线：把还没登记的 spec 收进版本仓、
+      重写 <code>.cometflow/spec-lock.json</code>。旧版仍在版本仓里，可以回放或恢复。
+    </p>
+
+    <p v-if="specPaths.length === 0" class="empty">
+      还没有登记过版本：点上面的「建立基线（spec lock）」，或编辑一份 spec。
+    </p>
 
     <div v-for="specPath in specPaths" :key="specPath" class="version-group">
       <div class="row">
@@ -76,7 +85,13 @@ import { errorMessage } from '../../../api/client';
 import { refreshCounter } from '../../../composables/useRefresh';
 import { useProjectStore } from '../../../stores/project';
 import { useToastStore } from '../../../stores/toasts';
-import type { SpecHistoryResponse, SpecRestoreResult, SpecVersionContent, SpecVersionRecord } from '../../../api/types';
+import type {
+  SpecHistoryResponse,
+  SpecLockResult,
+  SpecRestoreResult,
+  SpecVersionContent,
+  SpecVersionRecord,
+} from '../../../api/types';
 import { relativeTime, shortHash } from '../../../utils/format';
 
 const project = useProjectStore();
@@ -85,6 +100,7 @@ const history = ref<SpecHistoryResponse | null>(null);
 const previewing = ref<SpecVersionContent | null>(null);
 const confirming = ref<{ path: string; record: SpecVersionRecord } | null>(null);
 const restoring = ref(false);
+const busy = ref(false);
 const focusPath = ref('');
 
 const specPaths = computed(() => {
@@ -101,6 +117,25 @@ async function load(): Promise<void> {
     history.value = await project.projectApi<SpecHistoryResponse>('/spec/versions');
   } catch (error) {
     toasts.error('读取版本历史失败', errorMessage(error));
+  }
+}
+
+/**
+ * 建立基线：与「影响与门禁」的按钮是同一个端点（`POST /spec/lock`）。
+ *
+ * 不弹二次确认：这一步不改写任何 spec 正文，只登记版本与刷 baseline，
+ * 而旧版本留在版本仓里可回放——比「恢复历史版本」轻，重确认反而妨碍「发现没版本就顺手补上」。
+ */
+async function lock(): Promise<void> {
+  busy.value = true;
+  try {
+    const result = await project.projectApi<SpecLockResult>('/spec/lock', { method: 'POST', body: {} });
+    await load();
+    toasts.success('已建立基线', '登记 ' + result.recorded.length + ' 份 spec 的版本与 hash');
+  } catch (error) {
+    toasts.error('建立基线失败', errorMessage(error));
+  } finally {
+    busy.value = false;
   }
 }
 

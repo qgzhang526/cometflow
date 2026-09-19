@@ -38,6 +38,9 @@
 | spec anchor 口径修正 | 只有 capability 的契约标题是 anchor：flow 的三段式骨架（前置条件/步骤/后置条件）与其它 kind 的结构标题不再计入「验收覆盖」与 `spec anchors`（与 `anchor_coverage_rate` 同口径） | **已完成**（2026-09-18，真实项目 22 行 → 5 行） | [spec-anchor-scope-plan.md](./spec-anchor-scope-plan.md) |
 | 绑定口径与反向引用（ADR 0030） | 绑定只认 capability（`pages` 为将来项）；`models` 实体与 `rules` 规则必须被行为层引用，否则 `spec validate` 报 `unreferenced-model` / `unreferenced-rule`（warning）；新增 `规则：<name>` 引用语法与 `unresolved-rule-reference` | **已完成**（2026-09-18，回归 155 步） | [0030-spec-binding-scope.md](../decisions/0030-spec-binding-scope.md) |
 | 内嵌调度器与常驻 | serve 内嵌调度器（job 形式）+ 单实例租约 + `scheduler.autostart` 常驻恢复 + 页面启动按钮（ADR 0027，修订 0026） | **已实施**（2026-09-17） | [daemon-drives-change-plan.md](./daemon-drives-change-plan.md) |
+| 打开项目即接入（adopt） | 「先有 `COMETFLOW.md` + `specs/`（12 kind），后有项目」的主路径：打开项目 = 登记 + 补齐 init 派生状态（目标投影、spec-lock、kind 状态重算、`.cometflow` 目录与配置），并给出接入报告；明确不把这件事塞进「规格-导入」。**先行落地**：清单合并规则（磁盘事实优先、合并而非覆盖）已用在日常新建 capability 上，12-kind 页不再把已有 capability 报成 absent | **规划中**（接入未做；§6 已落地，回归 153 步） | [project-adopt-plan.md](./project-adopt-plan.md) |
+| spec 写入后的记账 | 表格导入落盘后立即登记版本 + 刷新 `spec-lock` + 校正 12-kind（以前导入完 `spec verify` 立刻报 stale）；「版本」页签补上「建立基线（spec lock）」入口，不用再切页签找 | **已完成**（2026-09-18，回归 157 步） | [spec-write-bookkeeping-plan.md](./spec-write-bookkeeping-plan.md) |
+| LLM 起草 capability spec | 让起草从「凭空写」变成「照事实写」：提示词输入面（可引用事实 + 体例参照）✅；分级生成（A1 已定义 / A2 可从 goal 推导 / A3 需人决策）、验收可判定性与人审台账待做 | **B1 已实施**（回归 157 步）；B2–B3 待实施 | [spec-llm-authoring-plan.md](./spec-llm-authoring-plan.md) |
 
 ## 阶段顺序原则
 

@@ -4,6 +4,7 @@ import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startServe } from '../../domains/server/serve.js';
 import type { ServeHandle } from '../../domains/server/serve.js';
+import { detectKindNeeds, writeInitManifest } from '../../domains/project/scaffold.js';
 import { refreshSpecBaseline } from '../../domains/spec/spec-version.js';
 
 /**
@@ -303,6 +304,35 @@ describe('spec kernel API', () => {
     await fs.rm(probeDir, { recursive: true, force: true });
     await fs.rm(path.join(projectRoot, 'specs', 'api-probe-2'), { recursive: true, force: true });
     expect(await fs.access(probe).then(() => true, () => false)).toBe(false);
+  });
+
+  it('corrects the capability kind from disk facts after scaffolding', async () => {
+    // 技术栈推不出 capability（它由目标或外部标准决定），所以每跑一次脚手架都要按磁盘兜一次，
+    // 否则 12-kind 页会一直把已经写好的 capability 报成 absent。
+    const manifestPath = path.join(projectRoot, '.cometflow', 'init-manifest.yaml');
+    const before = await fs.readFile(manifestPath, 'utf8');
+    // 先把 manifest 退回「按技术栈推」的错状态：capability 恒为 absent——这正是 12-kind 页会撒谎的输入。
+    await writeInitManifest(projectRoot, detectKindNeeds({ frontend: '无', backend: 'TypeScript', database: '无' }));
+    expect(await fs.readFile(manifestPath, 'utf8')).toContain('derived from goals, not init');
+    try {
+      const first = await post<{ manifestChanged: string[]; kinds: Record<string, { status: string }> }>(
+        '/spec/scaffold',
+        {},
+      );
+      expect(first.status).toBe(200);
+      expect(first.body.data.manifestChanged).toContain('capability');
+      expect(first.body.data.kinds.capability.status).toBe('present');
+
+      const after = await fs.readFile(manifestPath, 'utf8');
+      expect(after).not.toContain('derived from goals, not init');
+
+      // 幂等：manifest 已经与磁盘一致，再点一次不再改写（12-kind 页不抖）。
+      const second = await post<{ manifestChanged: string[] }>('/spec/scaffold', {});
+      expect(second.body.data.manifestChanged).toEqual([]);
+      expect(await fs.readFile(manifestPath, 'utf8')).toBe(after);
+    } finally {
+      await fs.writeFile(manifestPath, before);
+    }
   });
 
   it('derives root kinds from the project context when the caller omits stack hints', async () => {

@@ -1,7 +1,9 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { parse, stringify } from 'yaml';
-import { ROOT_KIND_FILES } from '../spec/kind.js';
+import { pathExists } from '../../platform/fs/read-file.js';
+import { ROOT_KIND_FILES, SPEC_KINDS, kindForSpecFile } from '../spec/kind.js';
+import { listSpecFiles } from '../spec/spec-index.js';
 import type { SpecKind } from '../spec/kind.js';
 
 export type { SpecKind } from '../spec/kind.js';
@@ -432,6 +434,100 @@ export async function scaffoldCapabilities(
   return { created, skipped, invalid };
 }
 
+/**
+ * 磁盘事实：specs/ 下每个 kind 到底有没有文件。
+ *
+ * 与 `detectKindNeeds`（从技术栈与问答**倒推**）相对：这里只回答「文件在不在」。
+ * 两条产出路径需要它——「先有规格包、后有项目」的接入，以及日常新建 capability 之后
+ * 校正 init-manifest：`detectKindNeeds` 把 capability 写死成 `absent`，所以只要不按磁盘
+ * 事实校正一次，12-kind 页就会一直把已经存在的 capability 报成「由目标派生」。
+ */
+export async function detectKindEvidence(projectRoot: string): Promise<Record<SpecKind, boolean>> {
+  const present = new Set((await listSpecFiles(projectRoot)).map((file) => kindForSpecFile(file)));
+  const evidence = {} as Record<SpecKind, boolean>;
+  for (const kind of SPEC_KINDS) evidence[kind] = present.has(kind);
+  // COMETFLOW.md 不在 specs/ 下，扫不到它，单独判一次。
+  if (await pathExists(path.join(projectRoot, 'COMETFLOW.md'))) evidence.project = true;
+  return evidence;
+}
+
+/** capability 不是「本项目需不需要」的问题，而是「磁盘上有几份」的事实，所以 reason 单独写。 */
+const KIND_EVIDENCE_REASON: Partial<Record<SpecKind, string>> = {
+  capability: '磁盘上已存在 capability spec（不由 init 生成）',
+};
+
+/**
+ * 合并「推断结果」与「磁盘事实」。四支的优先级是有意的：
+ *
+ * 1. 文件存在、旧判定已经是 present → 保留旧判定（连 reason 一起，那是 scaffold / 接入 /
+ *    人写下的来源说明，不该被重算冲掉）；
+ * 2. 文件存在、推断也说 present → 用推断结果；
+ * 3. 文件存在、推断说 absent/deferred → 以磁盘为准判 present。capability 永远走这一支：
+ *    它由目标或外部标准决定，`detectKindNeeds` 推不出来；
+ * 4. 文件不存在 → 用推断结果。`absent` 是「本项目不需要」的显式决定，`deferred` 是「需要时
+ *    再补」，两者都不该被「这次没扫到文件」推翻；真缺文件由 `spec validate` 报出来。
+ */
+async function mergeKindEntries(
+  projectRoot: string,
+  detected: Record<SpecKind, KindEntry>,
+  previous: InitManifest | null,
+): Promise<Record<SpecKind, KindEntry>> {
+  const evidence = await detectKindEvidence(projectRoot);
+  const merged: Record<SpecKind, KindEntry> = { ...detected };
+
+  for (const kind of SPEC_KINDS) {
+    if (evidence[kind] !== true) continue;
+    const before = previous?.kinds[kind];
+    if (before?.status === 'present') merged[kind] = before;
+    else if (detected[kind]?.status !== 'present') {
+      merged[kind] = { status: 'present', reason: KIND_EVIDENCE_REASON[kind] ?? '磁盘上已存在' };
+    }
+  }
+
+  return merged;
+}
+
+export interface ManifestReconcileResult {
+  /** 被磁盘证据改写的 kind（status 从 absent/deferred 变成 present）。 */
+  changed: SpecKind[];
+  /** 校正后的 kinds；没有 init-manifest 时返回 null——不凭磁盘凭空造一份。 */
+  kinds: Record<SpecKind, KindEntry> | null;
+}
+
+/**
+ * 两份 manifest 之间的状态差异。
+ *
+ * 「这次改了什么」必须靠前后快照对比得出：`scaffoldProject` 自己就会把磁盘事实合并进去，
+ * 事后再单独跑一次校正往往是空操作，只看它的返回值会漏报。
+ */
+export function changedKindStatuses(
+  before: Record<string, KindEntry> | null,
+  after: Record<string, KindEntry>,
+): SpecKind[] {
+  return SPEC_KINDS.filter((kind) => before?.[kind]?.status !== after[kind]?.status);
+}
+
+/**
+ * 按磁盘事实校正 init-manifest，只做「文件存在 → present」这一个方向。
+ *
+ * - 文件存在但 manifest 说 absent/deferred：那一定是推断错了（capability 尤其如此）；
+ * - 文件不存在：**原样保留**旧判。`absent` 是「本项目不需要」的显式决定，`deferred` 是
+ *   「需要时再补」的约定，两者都不该被「这次没扫到文件」推翻；
+ * - 已经 present 的条目不重写，reason 保留——那是 `spec scaffold`、接入或人写下的来源说明。
+ *
+ * 判据与 `scaffoldProject` 用的是同一份 `mergeKindEntries`；这条独立入口给不走
+ * `scaffoldProject` 的写盘路径（Web 新建 spec 文件、将来的项目接入）收尾用。
+ */
+export async function reconcileInitManifest(projectRoot: string): Promise<ManifestReconcileResult> {
+  const previous = await readInitManifest(projectRoot);
+  if (previous === null) return { changed: [], kinds: null };
+
+  const kinds = await mergeKindEntries(projectRoot, previous.kinds, previous);
+  const changed = changedKindStatuses(previous.kinds, kinds);
+  if (changed.length > 0) await writeInitManifest(projectRoot, kinds);
+  return { changed, kinds };
+}
+
 export async function readInitManifest(projectRoot: string): Promise<InitManifest | null> {
   try {
     const source = await fs.readFile(initManifestPath(projectRoot), 'utf8');
@@ -455,8 +551,11 @@ export async function scaffoldProject(
   stack: StackHints,
   answers: ScaffoldAnswers = {},
 ): Promise<ScaffoldResult> {
-  const kinds = detectKindNeeds(stack, answers);
-  const { created, skipped } = await scaffoldKinds(projectRoot, kinds, answers);
+  const detected = detectKindNeeds(stack, answers);
+  const { created, skipped } = await scaffoldKinds(projectRoot, detected, answers);
+  // init-manifest 不是技术栈的单方面投影：技术栈推不出 capability，也不该把已经落盘的 spec
+  // 降级成 deferred——那会让 12-kind 页报出与磁盘相反的结论（见 docs/plan/project-adopt-plan.md §2.2）。
+  const kinds = await mergeKindEntries(projectRoot, detected, await readInitManifest(projectRoot));
   const manifestPath = await writeInitManifest(projectRoot, kinds);
   return { kinds, created, skipped, manifestPath };
 }
