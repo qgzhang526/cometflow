@@ -73,10 +73,20 @@ token: <一串随机字符>
 | 步骤 | 操作 | 预期看到 |
 |---|---|---|
 | 1 | 左侧点「规格」→ 页签「影响与门禁」→ 点「校验引用（spec validate）」 | 校验通过；一致性门禁 0 条 finding；无漂移 |
-| 2 | 页签「Spec 文件」→ 找到 `specs/errors.md` → 点「编辑」 | 弹出编辑器；底部是引用语法说明（模型 / 错误码 / 配置键 / 协议头 / 状态码 / 调用），并给出解析状态：没有未解析引用时显示「引用全部可解析」 |
-| 3 | 把 `E_GRANT_ALREADY_USED` 改成 `E_TOKEN_ALREADY_USED`，点「保存」 | 底部状态变成「N 条未解析」，编辑器里未解析的引用标红；点「保存」会登记一次 canonical spec 变更并刷新 lock |
-| 4 | 回到「影响与门禁」→ 再点「校验引用」 | 报 `ERROR unresolved-error-reference … E_GRANT_ALREADY_USED`，`spec validate: FAILED` |
-| 5 | 回到编辑器把名字改回来，保存，再校验一次 | 重新 OK |
+| 2 | 页签「Spec 文件」→ 找到 `specs/tunnel/spec.md` → 点「编辑」 | 弹出编辑器；底部是引用语法说明（模型 / 错误码 / 配置键 / 协议头 / 状态码 / 调用），并给出解析状态「引用全部可解析」 |
+| 3 | 把那一行 `- 错误码：E_GRANT_ALREADY_USED` 改成 `E_TOKEN_ALREADY_USED` | **不用保存，底部立刻变成「1 条未解析」**，该行标红，旁边出现 `L36 E_TOKEN_ALREADY_USED` 的跳转按钮 |
+| 4 | 点「保存」，再回到「影响与门禁」→ 点「校验引用」 | 报 `ERROR unresolved-error-reference … E_GRANT_ALREADY_USED`，`spec validate: FAILED` |
+| 5 | 把名字改回来，保存，再校验一次 | 重新 OK |
+
+> **为什么改 `errors.md` 看不到底部变化**：编辑器底部统计的是**引用**（`错误码：Y` 这种语法）。
+> `specs/errors.md` 里那些错误码是**定义**（写成 Markdown 表格），那个文件里引用数本来就是 0，
+> 改名不会让徽章有任何变化。要现场看到"当场标红"，就照上面在 `tunnel/spec.md` 里改**引用**。
+>
+> 按老写法改 `errors.md` 的定义也可以，只是现象出现在别处：**引用图**里那条引用标红、
+> **总览 → 问题清单**报出来、`spec validate` 报 `unresolved-error-reference`。
+>
+> 这一组现象正好讲清"定义"与"引用"是两回事：改定义不报错，改引用才报错；而**定义被改坏时，
+> 受伤的是引用它的那些文件**——这正是「单一事实源 + 跨文件引用校验」要解决的问题。
 
 **讲解点**：契约里的引用是机器校验的。改坏一个名字不用等人评审，30 秒内被抓住。
 
@@ -101,11 +111,13 @@ token: <一串随机字符>
 |---|---|---|
 | 1 | 左侧「变更」→ 选中 `access-request` | 四个阶段停在「构建」；下方是契约快照（锚点、规格版本 v1、哈希、模块 `internal/access`、验收 A1–A3） |
 | 2 | Agent 选 `opencode`，模型留空 | 留空即用项目配置里的默认模型 |
-| 3 | 点「运行 Builder」 | 任务中心出现 job，日志实时刷新 |
-| 4 | 等待约 3 分钟 | 日志里能看到 Agent 自己跑 `go test`，先红后绿 |
+| 3 | 点「运行 Builder」 | 任务中心出现 job；inline 日志框只有三行摘要（`change run: agent=opencode` / `finished: phase=verify exit=0` / `succeeded`）——**平台不采集 Agent 的原始输出**，别等"先红后绿" |
+| 4 | 等待约 2–3 分钟 | 实测 130 秒（Go 项目 + opencode）；这段只给最终判定，不给过程 |
 | 5 | 跑完点「验收」 | 三行 `PASSED A1/A2/A3 [check]`，括号里是 `go test … -run '^TestA1$' -count=1` |
 | 6 | 切到「范围」页签 | 改动的文件逐条列出，**归属**列显示 module-prefix / allow-list，越界 0 |
 | 7 | 点「归档」 | `archived=true`，这一轮产生的规格变更一起落地 |
+
+**「先红后绿」怎么讲**：界面上看不到 Agent 的中间输出（job 日志只有摘要）。红的状态在开场那一刻就是事实——主仓库没有实现，`go test` 是红的（`preflight.ps1` 也替你确认过）。口径用「**它自己反复跑到绿为止，界面只呈现最终判定**」，不要说"我们一起看它先红后绿"。
 
 **等待时的口播**（避免冷场，任选）：
 - 「Agent 拿到的是冻结版本的规格段落，加上这个任务的三条验收，它不用猜我们要什么。」
@@ -162,10 +174,38 @@ CI 里跑的都是它，CI 那边只是一个薄壳负责把命令跑起来。�
 **讲解**：判不出来的任务，无人值守会直接停机，不会白跑。看完把 `- check:` 加回来。
 
 ### 错 3：改到模块之外的文件 → 范围报告标越界
-打开兜底项目的「变更 → 勾选显示已归档 → 打开任意一个 change → 范围」页签。
-**预期**：页面上有「模块 `internal/access`」「扫描文件 N」「允许越界路径」，
-下面列出越界文件并标 `OUTSIDE`（演示仓库里 `metrics-baseline.json` 就是这样一个真实例子）。
+
+**第一步：先看健康态**（兜底项目「变更 → 勾选显示已归档 → 打开任意 change → 范围」）
+页面显示「所有改动都在模块边界内」，每条改动标 `module-prefix` 或 `allow-list`。
+注意 `metrics-baseline.json` 显示的是 `allow-list`——它是度量基线，属于项目产物，
+已经写进使命文件的模块归属允许清单，**所以它不是越界例子**。
+
+**第二步：当场造一个真的越界**（推荐在资源管理器里做，不需要命令行）
+在 `D:\zqg\demos\cbb-emergency-access` 根目录新建一个文本文件，比如 `probe.txt`。
+或者用第二个终端一行：
+
+```powershell
+cd D:\zqg\demos\cbb-emergency-access
+New-Item probe.txt -ItemType File -Force
+```
+
+然后回浏览器「变更 → 选中 `access-request` → 点「刷新详情」→ 范围」页签。
+**实测预期**：顶部出现「越界改动」区块，列表里是 `added probe.txt [OUTSIDE]`，
+底部统计 `unattributed: 1`。
+
+**第三步：让它拦住验收**：点「验收」，会被拒并报 `unattributed changes: probe.txt`，
+任务退回构建阶段。删掉该文件（`Remove-Item probe.txt`）再验收一次就通过。
+
+**实测证据**（放了两个模块外文件时的原始输出）：
+
+```text
+added docs/notes.md [OUTSIDE]
+added probe.txt [OUTSIDE]
+changes: 2 unattributed: 2
+```
+
 **讲解**：越界的改动会被直接拒绝；要放行就得在使命文件的模块归属里显式声明。
+这条约束是多 Agent 并行时不互相踩的前提，也是"改动范围可审计"的来源。
 
 ### 错 4：还没实现就想点「验收」 → 流程上过不去
 回到主项目「变更 → access-request（构建阶段）」。
@@ -173,10 +213,42 @@ CI 里跑的都是它，CI 那边只是一个薄壳负责把命令跑起来。�
 **讲解**：流程不给「跳过实现直接宣布通过」留口子。
 
 ### 错 5：让 Agent 自己说做完了 → 判据仍然红
-最省事的演法：跑 Builder 之前先讲一遍，跑完在验收结果里指出 `[check]` 三个字的含义——
-结论来自机器判据，不来自 Agent 的自述。
-**预期**：验收结果三行都以 `[check]` 结尾，括号里是可执行的 `go test` 命令。
-**讲解**：实现没到位时判据就是红的，任务会被打回构建，进入有界的修复循环。
+
+**这条要看的是一个动作的后果**：让一个"什么都没做"的实现推进到验收阶段，看平台认不认。
+两个演法，选一个即可。
+
+**变体 A：零改动，最省事（推荐）**
+用还没实现的能力开工单——当前主仓库只实现了 `access` 与 `tunnel`，`guard` / `audit` 还没有。
+
+| 步骤 | 操作 | 预期 |
+|---|---|---|
+| 1 | 变更 → 新建：名字填 `self-claim`，goal 选 **G3**，task 选 **T1**（审计导出） | 工单停在 shape |
+| 2 | 点「确认验收」→ Agent 下拉选 **mock**（它什么都不写）→ 点「运行 Builder」 | `change run: agent=mock` / `finished: phase=verify exit=0`——**它"完成"了** |
+| 3 | 点「验收」 | 三行 **FAILED**，任务退回构建阶段，`repair_attempts=1` |
+
+**变体 B：故意改坏一行（在演示三之后做，效果更戏剧）**
+打开 `internal/access/service.go`，找到返回 `E_SELF_APPROVAL` 的那个判断（搜 `E_SELF_APPROVAL` 就能定位），
+把它删掉或改成永不触发，保存；然后用 **G1 / T2（审批接口）** 开一个工单走同样的三步。
+判据 A5 是「审批人不能审批自己的申请」，改坏之后 A4/A5/A6 一起变红。看完把那一行改回来。
+
+**实测的预期输出**：
+
+```text
+FAILED A4 [check] check exited with code 1 [go test ./tests/acceptance -run '^TestA4$' -count=1]
+FAILED A5 [check] check exited with code 1 [go test ./tests/acceptance -run '^TestA5$' -count=1]
+FAILED A6 [check] check exited with code 1 [go test ./tests/acceptance -run '^TestA6$' -count=1]
+change self-break phase=build reportPassed=false verifier=(none) repair_attempts=1
+```
+
+注意最后一行：`phase=build`——**任务被打回构建阶段**，不是被标记完成；`repair_attempts=1` 是修复轮次计数。
+
+**讲解（这几句是关键）**：
+- Builder 的退出码是 0、任务也确实推进到了验收阶段，从"过程"看一切正常；
+- 但平台不认这个过程：`[check]` 表示结论来自可执行的判据，判据不过就是不完成；
+- 这就是这一页要说的"不接受自述"——**完成的定义权不在实现者手里**，无论是真 Agent、mock，
+  还是"看起来跑完了"；
+- 失败之后任务回到构建阶段继续修，修复轮次有上限，连续几轮没有进展平台会停机等人介入，
+  而不是无限重试烧预算。
 
 ---
 
