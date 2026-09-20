@@ -4,6 +4,7 @@ import { parse, stringify } from 'yaml';
 import { pathExists } from '../../platform/fs/read-file.js';
 import { ROOT_KIND_FILES, SPEC_KINDS, kindForSpecFile } from '../spec/kind.js';
 import { listSpecFiles } from '../spec/spec-index.js';
+import { setSpecStatus } from '../spec/spec-meta.js';
 import type { SpecKind } from '../spec/kind.js';
 
 export type { SpecKind } from '../spec/kind.js';
@@ -390,7 +391,10 @@ export async function scaffoldKinds(
       const template = templateFor(kind, answers);
       if (template === null) continue;
       await fs.mkdir(path.dirname(absolutePath), { recursive: true });
-      await fs.writeFile(absolutePath, template);
+      // 骨架是机器产的占位内容（`<Name>` / `EXAMPLE` 这类），在有人确认之前不是契约，
+      // 所以与 capability 骨架走同一口径：落盘即 `status: draft`，由 `spec approve` 定稿。
+      // 漏掉这一行会让「人还没填」的占位文件以已定稿身份进入引用校验与问题清单（G1 的补漏）。
+      await fs.writeFile(absolutePath, setSpecStatus(template, 'draft'));
       created.push(relativePath);
     }
   }

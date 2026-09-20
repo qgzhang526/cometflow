@@ -151,7 +151,10 @@ const policyHint = computed(() => {
 const canValidate = computed(() => plan.value !== null);
 const canApprove = computed(() => plan.value?.status === 'draft' || plan.value?.status === 'validated');
 const canFreeze = computed(() => plan.value?.status === 'approved');
-const canRegenerate = computed(() => plan.value !== null && plan.value.status !== 'frozen');
+// 冻结计划也要能重生成：规格改了之后，路径就是「重新生成（保留未受影响的冻结任务）→ 校验 → 批准 → 冻结」，
+// 这与 `plan regenerate --preserve-approved` 是同一份实现（受影响的退回 draft，没变的原样保留）。
+// 之前的 `status !== 'frozen'` 把这条路堵死了，而「生成」在任何状态下都可用——两个按钮自相矛盾。
+const canRegenerate = computed(() => plan.value !== null);
 
 async function toggleTrace(): Promise<void> {
   if (trace.value !== null) {

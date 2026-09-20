@@ -191,6 +191,9 @@ const modelsBefore = readFileSync(modelsPath, 'utf8');
 rmSync(path.join(project, 'specs', 'constraints.md'), { force: true });
 const scaffoldRun = expectOk('spec scaffold', ['spec', 'scaffold', '.'], project);
 check('scaffold 重建 constraints.md', existsSync(path.join(project, 'specs', 'constraints.md')));
+// 机器产的骨架落盘即草案（G1）：root kind 与 capability 骨架同一口径。漏标 draft 会让
+// 「人还没填」的占位文件以已定稿身份进入引用校验与问题清单（2026-09-20 补漏）。
+check('scaffold 重建的 root kind 是草案', fileContains(path.join(project, 'specs', 'constraints.md'), 'status: draft'));
 // 脚手架是幂等的：已存在的文件不能被覆盖（fixture 里 models.md 现在是 present kind，带交叉引用内容）
 check('scaffold 不覆盖已存在的 models.md', readFileSync(modelsPath, 'utf8') === modelsBefore);
 // 12-kind 状态按磁盘事实校正：capability 推不出来（由目标或外部标准决定），只能由磁盘证据判。
@@ -272,7 +275,10 @@ check(
   '迁移完成后 pending 被清除',
   !existsSync(path.join(project, '.cometflow', 'runtime', 'changes', 'shape-change', 'transition-pending.json')),
 );
-expectOk('spec verify（迁移后）', ['spec', 'verify', '.'], project);
+const verifyAfterMigration = expectOk('spec verify（迁移后）', ['spec', 'verify', '.'], project);
+// 草案 root kind 只出 warning、不判失败：门禁看得见「这份骨架还没人确认」，但不挡流水线。
+check('verify 报出 root kind 草案', verifyAfterMigration.stdout.includes('spec-is-draft'));
+check('verify 不因草案判失败', verifyAfterMigration.stdout.includes('spec verify: OK'));
 
 // A 独立验证默认化：用 mock 固定住「Verifier 真的被调用」这条路径（本机/CI 是否装了
 // opencode、claude 会影响默认解析结果，所以这里显式指定 agent，保证回归跨环境确定）。

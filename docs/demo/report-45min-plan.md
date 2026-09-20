@@ -25,7 +25,7 @@
 
 | 仓库 | 状态 | 用途 |
 |---|---|---|
-| `D:\zqg\demos\cbb-emergency-access` | Go 项目；3 个目标冻结；**工单 access-request 已建好、停在构建阶段**；无实现代码（只有接缝） | 现场主演示 |
+| `D:\zqg\demos\cbb-emergency-access` | Go 项目；**G1/G2 已冻结，G3 留在起点**（`specs/audit/spec.md` 是草案、G3 计划未冻结）；**工单 access-request 已建好、停在构建阶段**；无实现代码（只有接缝） | 现场主演示 |
 | `D:\zqg\demos\cbb-emergency-access-done` | Go 项目；8 条全部交付、18/18 判据通过（`go test`）、`gate check` PASS | 兜底 / 看交付账本与门禁 |
 
 种子在 [`experiments/cbb-emergency-access-go/`](../../experiments/cbb-emergency-access-go/README.md)，
@@ -33,6 +33,8 @@
 `go test ./tests/acceptance -run '^TestA1$' -count=1`——`-count=1` 不能省，否则会命中测试缓存。
 
 主仓库的工单由 `prepare-demo.ps1` 提前建好并推进到构建阶段，所以上台可以从「运行 Builder」开始，不需要先敲命令。
+G3 的契约与计划被特意留在起点：现场在「规格」里点一次「批准定稿」，再到「计划」里点
+校验 / 评审 / 批准 / 冻结，队列才从 7 行补齐到 8 行——这一段就是「机器起草、人点头、机器拆解」的现场版。
 
 ### 0.2 实测数据（本文所有操作都在本机跑过）
 
@@ -145,10 +147,12 @@ powershell -ExecutionPolicy Bypass -File D:\zqg\github\cometflow-enrich-ui\scrip
 
 | 动作 | 位置 |
 |---|---|
+| 打开「规格」→「Spec 文件」 | `specs/audit/spec.md` 是草案，点「批准定稿」；一致性门禁的 1 条 finding 随之消失 |
+| 打开「计划」→ 选 G3 | 状态 `draft`，依次点 校验 → 评审 → 批准 → **冻结**；回到「调度」点「重建」，队列多出 `G3:T1` |
 | 打开「计划」→ 选 G1 | 一排按钮：生成、校验、评审、批准、冻结、重新生成 |
 | 看任务列表 | 四个任务，每条标了接口、能力、规格绑定与状态 |
 | 点「追溯」 | 展开任务与规格、验收条目的对应关系 |
-| 打开「调度」→ 看队列内容 | 八条待办，顺序 G1、G2、G3 |
+| 打开「调度」→ 看队列内容 | 八条待办，顺序 G1、G2、G3（G3 那条是刚才现场冻出来的） |
 
 ### 4.3 演示三　跑 Builder（约 7 分钟，含 2 分钟等待）
 
@@ -257,6 +261,7 @@ powershell -ExecutionPolicy Bypass -File D:\zqg\github\cometflow-enrich-ui\scrip
 | 6 | `change verify` 先打印一行 Agent 版本号 | 输出噪声（很小） | 无害 |
 | 7 | `change run` 期间 Agent 偶尔打印 `The user rejected permission to use this specific tool call` | Agent 侧行为 | Agent 想写临时文件自测时被自己的权限策略挡了一下，实测不影响交付 |
 | 8 | 演示项目不是 git 仓库 | 演示环境选择 | git 来源校验会跳过；真实项目里会要求工作区已提交、历史无漂移 |
+| 9 | 主仓库 `gate check` 报 `FAIL metrics baseline`（缺 `metrics-baseline.json`） | 演示环境的结果 | 度量基线是「已交付项目」的对比基准，只有兜底仓库跑过 `--update-baseline`；主仓库还没实现，拿它当基线没有意义。门禁这一页在第 9 节用兜底仓库看，别在主仓库点 |
 
 ---
 
@@ -276,6 +281,6 @@ powershell -ExecutionPolicy Bypass -File scripts\demo\preflight.ps1 -CheckAgents
 
 | 脚本 | 作用 |
 |---|---|
-| `scripts/demo/prepare-demo.ps1` | 建现场主仓库（冻结 + 工单就位 + 队列无覆盖）与兜底仓库（8 条交付 + gate PASS） |
+| `scripts/demo/prepare-demo.ps1` | 建兜底仓库（8 条交付 + gate PASS）与现场主仓库（G1/G2 冻结、G3 留在起点、工单就位） |
 | `scripts/demo/preflight.ps1` | 断言环境、Agent、两个仓库的状态；任何一项不对就以退出码 1 结束 |
 | `scripts/demo/assets/init-manifest.cbb.yaml` | 交互式 `init` 的 12-kind 裁剪结果（10 present / 2 absent） |

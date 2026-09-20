@@ -69,8 +69,14 @@ if (-not (Test-Path -LiteralPath $mainPath)) {
 }
 else {
   $status = (& cometflow status $mainPath | Out-String) | ConvertFrom-Json
-  $frozen = @($status.plans | Where-Object { $_.status -eq 'frozen' }).Count
-  if ($frozen -eq 3) { Ok '3 个目标都已冻结' } else { Bad "冻结计划数=$frozen，应为 3" }
+  $frozen = @($status.plans | Where-Object { $_.status -eq 'frozen' })
+  if ($frozen.Count -eq 2 -and -not ($frozen.goal -contains 'G3')) {
+    Ok "已冻结的目标：$($frozen.goal -join '、')（G3 留给现场）"
+  }
+  else { Bad "冻结计划=$($frozen.goal -join '、')，应为 G1、G2（G3 必须留在现场冻结）" }
+  $g3 = @($status.plans | Where-Object { $_.goal -eq 'G3' })
+  if ($g3.Count -eq 1 -and $g3[0].status -eq 'draft') { Ok 'G3 计划停在 draft（现场演示 校验 → 评审 → 批准 → 冻结）' }
+  else { Bad "G3 计划状态=$($g3[0].status)，应为 draft" }
   $active = @($status.changes | Where-Object { -not $_.archived })
   if ($active.Count -eq 1 -and $active[0].name -eq 'access-request' -and $active[0].phase -eq 'build') {
     Ok '演示工单就位：access-request 停在构建阶段'
@@ -82,15 +88,26 @@ else {
   else { Ok '无 src/（判据此刻是红的，符合预期）' }
 
   $queue = & cometflow daemon queue rebuild $mainPath 2>&1 | Out-String
-  if ($queue -match 'queued=7\s+running=1\s+done=0\s+failed=0') { Ok '队列：7 条待办 + 1 条在飞（就是那个演示工单）' }
+  # G3 还没冻结，所以此刻是 6 条待办；现场冻结 G3 之后会补到 7 条。
+  if ($queue -match 'queued=6\s+running=1\s+done=0\s+failed=0') { Ok '队列：6 条待办 + 1 条在飞（差的那条就是 G3:T1，现场冻结后补齐）' }
   else { Bad "队列状态不符合预期：`n$queue" }
 
   # 幂等性回归：rebuild 连跑两次不该多出行来。曾经因为 mergeTodoView 少一句 overlayById.delete
   # 而在这里重复，界面上会看到同一条任务两行。
   $again = & cometflow daemon queue rebuild $mainPath 2>&1 | Out-String
   $rows = ([regex]::Matches($again, '(?m)^\s+#\d+ ')).Count
-  if ($again -match 'queued=7\s+running=1\s+' -and $rows -eq 8) { Ok '队列幂等：连续 rebuild 仍是 8 行' }
+  if ($again -match 'queued=6\s+running=1\s+' -and $rows -eq 7) { Ok '队列幂等：连续 rebuild 仍是 7 行' }
   else { Bad "队列 rebuild 不幂等（$rows 行）：`n$again" }
+
+  # G3 是留给现场演「草案 → 定稿 → 拆解 → 冻结」的：那份契约此刻必须是草案，而且**只能**是它。
+  $specFiles = @(Get-ChildItem -LiteralPath (Join-Path $mainPath 'specs') -Recurse -Filter *.md -File)
+  $drafts = @($specFiles | Where-Object { (Get-Content -LiteralPath $_.FullName -Raw) -match '(?m)^status:\s*draft\s*$' })
+  if ($drafts.Count -eq 1 -and $drafts[0].Directory.Name -eq 'audit') {
+    Ok "spec：$($specFiles.Count) 份里 1 份草案（specs/audit/spec.md），其余已定稿"
+  }
+  else { Bad "草案数=$($drafts.Count)（期望恰好 1 份 specs/audit/spec.md）：$($drafts.FullName -join ', ')" }
+  if (Test-Path -LiteralPath (Join-Path $mainPath '.cometflow\spec-lock.json')) { Ok 'spec 基线已登记（.cometflow/spec-lock.json）' }
+  else { Bad '缺少 .cometflow/spec-lock.json；先跑 cometflow spec lock 建立基线' }
 
   $validate = & cometflow spec validate $mainPath 2>&1 | Out-String
   if ($validate -match 'spec validate: OK') { Ok 'spec validate: OK' } else { Bad "spec validate 不是 OK：`n$validate" }

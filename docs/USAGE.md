@@ -13,8 +13,8 @@ CometFlow 是一个**规格驱动开发（SDD）的自主 Agent 开发平台**�
 
 人类**必须**写的只有 `COMETFLOW.md`：使命 + 每个目标的「范围 / 成功标准 / 非目标」。它派生两件事——`范围:` 里的 capability 决定有哪些 `specs/<capability>/spec.md`，spec 里每个 anchor 决定一个任务。
 
-`specs/` 的**内容**（anchor 与 acceptance）可以由人写，也可以由 Agent 起草：缺 spec 时 `plan generate` 会发一条 `spec-authoring` 任务，`spec scaffold --capability <name>` 只给骨架，`spec import` 从表格导入。定稿要过计划阶段的三道命令——`plan review / approve / freeze`，其中 `freeze` 才把 acceptance 与 spec hash 固化下来。
-这三条机器产出路径都会写上 `status: draft`：**草案可以被阅读、被拆解，但不能被 `plan freeze` 绑定成契约**，
+`specs/` 的**内容**（anchor 与 acceptance）可以由人写，也可以由 Agent 起草：缺 spec 时 `plan generate` 会发一条 `spec-authoring` 任务，`spec scaffold` 只给骨架（root kind 与 `--capability` 都一样），`spec import` 从表格导入。定稿要过计划阶段的三道命令——`plan review / approve / freeze`，其中 `freeze` 才把 acceptance 与 spec hash 固化下来。
+这几条机器产出路径都会写上 `status: draft`（`spec scaffold` 的 root kind 骨架同样）：**草案可以被阅读、被拆解，但不能被 `plan freeze` 绑定成契约**，
 确认后运行 `cometflow spec approve <spec-file>` 定稿（缺省没有这个字段的老 spec 视为已定稿）。
 
 剩下的事由两种执行者分担：
@@ -109,7 +109,7 @@ cometflow eval / evolve / daemon   # 评估、进化、无人值守持续推进
 | 文件 / 目录 | 内容 | 谁写 |
 |---|---|---|
 | `COMETFLOW.md` | 使命、技术栈、运行环境、任务目标（人类唯一入口） | 人类 |
-| `specs/**` | 项目级 spec（12 类 kind） | 人类定稿；内容可由人类或 Agent 起草（`spec scaffold` 骨架 / `spec-authoring` 任务 / `spec import`）。三条机器产出路径写出的文件带 `status: draft`，**草案不能参与 `plan freeze`**，要先 `cometflow spec approve <spec-file>`（缺省无该字段视为已定稿，存量项目不受影响） |
+| `specs/**` | 项目级 spec（12 类 kind） | 人类定稿；内容可由人类或 Agent 起草（`spec scaffold` 骨架 / `spec-authoring` 任务 / `spec import`）。机器产出路径写出的文件带 `status: draft`（root kind 骨架同样），**草案不能参与 `plan freeze`**，要先 `cometflow spec approve <spec-file>`（缺省无该字段视为已定稿，存量项目不受影响） |
 | `.cometflow/config.yaml` | 项目配置 | 人类 / CLI / Web |
 | `.cometflow/project-context.yaml` | 技术栈/运行环境投影 | `context sync`（机器生成） |
 | `.cometflow/goals/*.yaml` | 目标投影 | `goal sync`（机器生成） |
@@ -367,6 +367,9 @@ cometflow spec scaffold . --capability order --capability payment
 ```
 
 `scaffold` 对已存在的目标文件一律跳过，幂等可重跑；`--capability` 只建骨架，不写任何业务语义。
+两种骨架（root kind 与 capability）落盘时都带 `status: draft`：机器产的是占位内容，人工确认后
+`cometflow spec approve <spec-file>` 才算定稿——草案不能参与 `plan freeze`，`spec verify` 会用
+`spec-is-draft` warning 让它一直可见。
 
 ### 4.3 批量导入既有接口清单
 

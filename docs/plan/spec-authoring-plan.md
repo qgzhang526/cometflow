@@ -117,5 +117,12 @@ Web「脚手架」页签的请求体也只有 `answers`（`web/src/views/panels/
    `acceptance_ids` 非空，而起草类任务的 acceptance 天然为空——起草 change 连 `shape → build` 都走不过去，
    「先起草 spec」这条设计好的路径此前是死的。现在只对 `task_kind: spec-authoring` 放开这一条。
 
+3. **G1 补漏（2026-09-20）**：`spec scaffold` 的 root kind 模板（models / protocol / errors / config /
+   constraints / permissions / rules / process / pages）当时没写 `status: draft`——同一条命令产出的
+   `capability` 骨架是草案，root kind 骨架却按「缺省即已定稿」进盘，与本节「`spec scaffold` 产物写
+   `status: draft`」的结论不符（测试只覆盖了 capability 路径，所以没被抓住）。现在 `scaffoldKinds`
+   写盘前统一过 `setSpecStatus(template, 'draft')`，并补了单元断言（root kind 与 capability 同口径）
+   与回归步骤（重建出来的 root kind 必须是草案；`spec verify` 报 `spec-is-draft` warning 但不判失败）。
+
 测试与验证：全量 `npx vitest run` **80 文件 / 480 例全绿**；`scripts/regression.mjs` **132 步 PASS**；
 `tsc --noEmit` 与 `vue-tsc --noEmit` 通过；`pnpm build`（tsc + vite）通过。

@@ -14,6 +14,7 @@ import {
   scaffoldProject,
   writeInitManifest,
 } from '../../domains/project/scaffold.js';
+import { parseSpecMeta } from '../../domains/spec/spec-meta.js';
 
 async function tmpdir(prefix: string): Promise<string> {
   return fs.mkdtemp(path.join(os.tmpdir(), prefix));
@@ -108,6 +109,26 @@ describe('spec scaffold', () => {
     const { created } = await scaffoldKinds(tmp, kinds);
     expect(created).toContain('specs/flows/');
     await expect(fs.access(path.join(tmp, 'specs', 'flows'))).resolves.toBeUndefined();
+    await fs.rm(tmp, { recursive: true, force: true });
+  });
+
+  it('marks scaffolded root kinds as drafts, same as capability stubs', async () => {
+    const tmp = await tmpdir('cometflow-scaffold-');
+    const answers = { network: true, auth: 'machine' as const };
+    const kinds = detectKindNeeds({ database: 'PostgreSQL', backend: 'TypeScript', frontend: '无' }, answers);
+    await scaffoldKinds(tmp, kinds, answers);
+
+    // 机器产的占位内容（`<Name>` / `EXAMPLE`）在人工确认前不是契约：root kind 骨架与 capability
+    // 骨架必须同一口径，否则「人还没填」的文件会以已定稿身份进入引用校验与问题清单。
+    for (const relativePath of ['specs/models.md', 'specs/constraints.md', 'specs/protocol.md', 'specs/permissions.md']) {
+      const source = await fs.readFile(path.join(tmp, relativePath), 'utf8');
+      expect(parseSpecMeta(source).status, relativePath).toBe('draft');
+    }
+    const models = await fs.readFile(path.join(tmp, 'specs', 'models.md'), 'utf8');
+    expect(models.startsWith('---\nstatus: draft\n---\n\n')).toBe(true);
+    // 正文照旧逐字保留：加 front-matter 不能把模板本体搅动一遍。
+    expect(models).toContain('## 实体：<Name>');
+
     await fs.rm(tmp, { recursive: true, force: true });
   });
 

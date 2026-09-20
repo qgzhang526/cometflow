@@ -5,8 +5,12 @@
 .DESCRIPTION
   默认用 Go 版种子（experiments/cbb-emergency-access-go）：
 
-    cbb-emergency-access       现场主演示：3 个目标已冻结 / 工单停在构建阶段 / 无实现
+    cbb-emergency-access       现场主演示：G1/G2 已冻结 + G3 留在起点（契约是草案、计划未冻结）
+                               + 工单停在构建阶段 / 无实现
     cbb-emergency-access-done  预跑兜底：8 条全部交付 / 18 条判据通过 / gate check PASS
+
+  主仓库故意留一段给现场演「草案 → 定稿 → 拆解 → 冻结」：
+  specs/audit/spec.md 是草案、G3 的计划是 draft，现场点完才补齐 8 条待办。
 
   可重复执行：已存在的目录会被改名备份为 <name>.bak-<时间戳>，不删除任何东西。
   录屏之后想把主仓库恢复成"上台前"的样子，再跑一次本脚本加 -Force。
@@ -118,6 +122,9 @@ Step '前置条件'
 if (-not (Get-Command cometflow -ErrorAction SilentlyContinue)) {
   Die 'PATH 上找不到 cometflow。先在仓库根目录执行：npm link'
 }
+if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
+  Die 'PATH 上找不到 node。本脚本用 scripts/demo/spec-status.mjs 改 spec 的 status。'
+}
 if (-not (Test-Path -LiteralPath $SeedPath)) { Die "找不到演示种子：$SeedPath" }
 Write-Host "cometflow  : $((Get-Command cometflow).Source)"
 Write-Host "seed       : $SeedPath ($(if ($isGo) { 'Go' } else { 'Node' }))"
@@ -163,6 +170,26 @@ if (-not $SkipFallback) {
   finally { Pop-Location }
 }
 
+# 现场要演「草案 → 定稿 → 拆解 → 冻结」这条链，所以 G3 必须留在起点：
+# 契约还是草案、计划已生成但没冻结。必须在拷贝兜底仓库之后做——那一份要的是完整交付。
+# 选 G3 不选 G1/G2：G1:T1 就是那个在飞工单；G2 的 tunnel 是「spec v1 → v2 漂移」桥段的主角。
+Step "把 G3 留成现场起点（草案契约 + 未冻结计划）"
+Push-Location $mainPath
+try {
+  # 1) 契约退回草案：现场第一下点的是「批准定稿」。
+  node (Join-Path $scriptDir 'spec-status.mjs') (Join-Path $mainPath 'specs\audit\spec.md') draft
+  # 2) 计划退回「已生成、未冻结」：plan generate 覆盖那份冻结版；plan_review 是 human，停在 draft。
+  cometflow plan generate G3 . | Out-Null
+  # 3) 基线要跟着草案走，否则一上台先红一条 stale-spec-lock。
+  cometflow spec lock . | Out-Null
+  cometflow spec index . | Out-Null
+  # 4) 队列投影里还留着上一轮 G3:T1 的记录（overlay 是运行时事实，rebuild 会把它当孤儿保留），
+  #    reset 掉再 rebuild：这时队列才是「G1/G2 的 6 条待办 + 在飞的 access-request」。
+  cometflow daemon queue reset . | Out-Null
+  cometflow daemon queue rebuild .
+}
+finally { Pop-Location }
+
 # 现场工单必须在兜底仓库复制之后才建：先建的话，兜底仓库里那条任务会被判定成
 # 「已有人在飞」，mock 调度器不会再去跑它，最后只能交付 7 条。
 Step "给主仓库建现场工单 $mainPath"
@@ -176,8 +203,15 @@ try {
 finally { Pop-Location }
 
 Step '完成'
+$specFiles = @(Get-ChildItem -LiteralPath (Join-Path $mainPath 'specs') -Recurse -Filter *.md -File)
+$drafts = @($specFiles | Where-Object { (Get-Content -LiteralPath $_.FullName -Raw) -match '(?m)^status:\s*draft\s*$' })
 Write-Host "现场主演示：$mainPath"
-Write-Host "  · 3 个目标已冻结、工单 access-request 停在构建阶段、无实现（判据此刻是红的）"
+Write-Host "  · G1/G2 已冻结；G3 留在起点：计划 draft、契约是草案"
+Write-Host "    — 现场链路：规格里点「批准定稿」→ 计划 G3「校验 / 评审 / 批准 / 冻结」→ 队列多出 G3:T1"
+Write-Host "  · 工单 access-request 停在构建阶段、无实现（判据此刻是红的）"
+$draftPaths = @($drafts | ForEach-Object { $_.FullName.Substring($mainPath.Length + 1).Replace('\', '/') })
+$kept = if ($drafts.Count -eq 0) { '全部已定稿' } else { "$($drafts.Count) 份草案（$($draftPaths -join ', ')）+ 其余已定稿" }
+Write-Host "  · $($specFiles.Count) 份 spec：$kept，基线已登记"
 if (-not $SkipFallback) {
   Write-Host "预跑兜底  ：$donePath"
   Write-Host "  · 8 条全部交付、18/18 判据通过、gate check PASS"
