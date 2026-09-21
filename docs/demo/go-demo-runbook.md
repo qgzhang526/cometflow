@@ -541,7 +541,7 @@ curl -s -X POST "$BASE/api/emergency/access/approve" \
 
 ## 附：验证记录（2026-09-21 凌晨，本机实测）
 
-### 一、这一版修掉的两个问题
+### 一、这一版修掉的问题（按发现顺序）
 
 **问题 1：真 Agent 跑到 G2-T2 时被 blocked，理由是"越界"。**
 
@@ -598,6 +598,58 @@ Get-ChildItem -Path D:\zqg -Recurse -Directory | Where-Object { $_.Name -match '
 （例如「该写成什么样，以 `specs/access/spec.md` 的验收条目为准」）。
 修完立刻复测：真 Agent 一次通过（A1–A3 全绿、`changes: 3 unattributed: 0`）。
 顺带一张 A1–A8 对照表也写进了 `internal/access/access.go` 的注释。
+
+**问题 4（2026-09-21 彩排暴露）：`access` 的 A7 写在别人的模块里，吊销任务只能越界去改 tunnel。**
+
+现象：daemon 跑到 **G1:T3（`POST /api/emergency/access/revoke`）** 时连续三轮同一结论、`repair_attempts=3` 停机，
+验收记录里判据反而是过的：
+
+```text
+- A7: passed [check] - check passed [go test ./tests/acceptance -run '^TestA7$' -count=1]
+- violation: implementation escaped module internal/access: internal/tunnel/tunnel.go
+```
+
+根因不在 Agent，在这条验收的措辞。A7 原来写的是「申请单与授权都变 revoked，**且该令牌无法再建立通道**」，
+而后半句是 **tunnel** 的事实（`specs/tunnel/spec.md` 的 A18 就是这么判的，用例里连「不得产生转发规则」都断言了）。
+`tunnel` 属于 G2、调度顺序排在 G1 后面，于是：
+
+- 只在 `internal/access` 里做，A7 永远红了（打开通道仍然返回 501 `E_NOT_IMPLEMENTED`）；
+- 想让 A7 变绿，Agent 只能去实现 `internal/tunnel/tunnel.go` ——那是别人的模块，
+  范围报告如实记成 `OUTSIDE`，验收不通过；每轮情况一样，指纹不变，三轮后停机。
+
+顺带说明：Node 版种子没这个毛病（它的 A7 只断状态，Node 的 A18 单独判通道），是 Go 版移植时多写的半句。
+
+修法（三处，都指向「一条验收只断言本 capability 的事实」，见 ADR 0031）：
+
+| 落点 | 改动 |
+|---|---|
+| `specs/access/spec.md` | A7 收敛为「申请单与授权的状态都变 revoked」；正文补一句指向 tunnel 的 A18 |
+| `tests/acceptance/acceptance_test.go` | `TestA7` 删掉「吊销后 open 必须 403 `E_GRANT_REVOKED`」那一步，注释写明它归 A18 |
+| `internal/access/access.go`（种子注释） | A1–A8 对照表里 A7 那一行改为指向 tunnel 的 A18 —— 注释就是 Agent 的主要输入 |
+
+修完实测（本机）：
+
+- 兜底仓库（完整参考实现）：`go test ./tests/acceptance -count=1` → **18/18 PASS**，A18 照样盯着"被吊销的令牌不得产生转发规则"；
+- 把 `internal/tunnel/tunnel.go` 换回种子骨架后：旧 A7 `FAIL`（期望 403 `E_GRANT_REVOKED`，实际 501 `E_NOT_IMPLEMENTED`）、
+  新 A7 `PASS` —— 吊销任务在 `internal/access` 里就能验收；
+- 平台侧同一条 change（tunnel 仍是骨架）：`change verify G1-T3` →
+  `PASSED A7 [check]`、`changes: 3 unattributed: 0`、`reportPassed=true repair_attempts=0`，
+  不再出现 `implementation escaped module`。
+- **真 Agent 全流程复跑**（2026-09-21，opencode + deepseek-flash，隔离的临时演示根目录）：
+  `prepare-demo.ps1 -Force` → `preflight: OK` → 主仓库跑 Builder（access-request，A1–A3 全绿、`unattributed: 0`、归档）
+  → `daemon start --agent opencode`：G1:T2、**G1:T3**、G1:T4 依次交付（各自的 `verification.md` 都是 `scope: complete`、
+  `repair_attempts: 0/3`、`result: pass`），daemon 里那句 `needs-human:verify-failed` 再没出现。
+  G1:T3 那一轮 Agent 的收尾说明自己写着：「No changes to `internal/tunnel` or `internal/guard`;
+  post-revoke channel behavior remains owned by tunnel A18.」——**措辞改了，行为就跟着改了**。
+- 补了一条**平台级回归**（`test/domains/experiment-cbb-go-seed.test.ts`）：按 COMETFLOW.md 的调度顺序
+  逐个 capability 贴参考实现，每贴一个就跑一遍「已交付模块」的全部判据，断言全绿。
+  拿旧 A7 跑它会红（`已交付 access 时，判据 A1/…/A8 应当全绿：A7 期望 HTTP 403 + code "E_GRANT_REVOKED"，
+  实际 HTTP 501 + code "E_NOT_IMPLEMENTED"`），拿新 A7 跑它是绿的——这条跨模块判据以后进不来。
+
+> **为什么之前的 10 轮没抓到**：`validate-flow.ps1` 跑到「主仓库 Builder + 验收 + 归档 + 兜底 18/18」就收尾，
+> 也就是只到 `G1:T1`；`G1:T3` 是调度器接着往下领任务时才会遇到的。要复现这个场景，
+> 得让调度器把队列跑干（`cometflow daemon start <主仓库> --agent opencode`，约 10–15 分钟），
+> 或者直接跑上面那条平台级回归（20 秒，不动 Agent）。
 
 ### 二、完整流程验证 ×10（真 Agent = opencode）
 

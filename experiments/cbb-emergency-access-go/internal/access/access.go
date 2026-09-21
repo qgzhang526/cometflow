@@ -16,7 +16,8 @@
 //	  A5  审批人等于申请人 → 403 E_SELF_APPROVAL
 //	  A6  对已审批的申请单再次审批 → 409 E_REQUEST_ALREADY_DECIDED
 //	POST /api/emergency/access/revoke
-//	  A7  approver 吊销 → 200，申请与授权都变 revoked，令牌无法再建通道
+//	  A7  approver 吊销 → 200，申请与授权都变 revoked（同一个令牌还能不能建通道，
+//	      是 tunnel 的事实，判在 tunnel/spec.md 的 A18：本任务不碰 internal/tunnel）
 //	GET /api/emergency/access/status
 //	  A8  查询既有申请 → 200，含申请/授权/会话状态，且响应中不出现明文令牌
 package access

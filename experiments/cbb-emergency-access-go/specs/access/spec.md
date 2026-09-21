@@ -84,9 +84,12 @@ approve 后申请单状态为 approved 并生成 AccessGrant；reject 后申请�
 
 吊销后对应的授权立即不可用，已建立的通道由守卫进程回收。
 
+「拿了被吊销的令牌还能不能建通道」由 `specs/tunnel/spec.md` 的 A18 判定——同一件事只有一个 owner，
+access 的任务不必、也不许为此去改 tunnel 模块的实现。
+
 ### Acceptance
 
-- A7：approver 吊销后申请单状态变为 revoked，授权状态变为 revoked，且该令牌无法再建立通道
+- A7：approver 吊销后申请单状态变为 revoked，授权状态变为 revoked
   - check: go test ./tests/acceptance -run '^TestA7$' -count=1
 
 ## GET /api/emergency/access/status
