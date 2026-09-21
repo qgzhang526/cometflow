@@ -41,7 +41,14 @@ npm install -g @zqg/cometflow@0.3.1
 
 ### 1.3 方式二：离线 tarball 安装
 
-准备三个 tarball：`zqg-cometflow-0.3.1.tgz`（当前版本仓库 `npm pack` 得到）、`commander-14.0.3.tgz`、`yaml-2.9.0.tgz`。
+准备三个 tarball（联网机器上在仓库根目录生成）：
+
+```bash
+npm pack --pack-destination offline-npm                          # zqg-cometflow-0.3.1.tgz
+npm pack commander@14.0.3 yaml@2.9.0 --pack-destination offline-npm
+```
+
+（vue / pinia / vue-router 是构建前端用的开发依赖，离线运行时不需要。）
 
 ```bash
 mkdir cometflow-install && cd cometflow-install

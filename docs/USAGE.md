@@ -206,8 +206,17 @@ cometflow --version
 
 ### 2.4 离线安装
 
-内网不通时用 tarball 装。`zqg-cometflow-0.3.1.tgz` 由当前版本的仓库执行 `npm pack` 得到，
-另外两个是它的运行时依赖（`commander`、`yaml`）：
+内网不通时用 tarball 装。这三个就是全部运行时依赖：Web 客户端已经打进 `web/dist/`，
+vue / pinia / vue-router 只用于构建前端，不是运行时依赖。
+
+在联网机器上、仓库根目录执行：
+
+```bash
+npm pack --pack-destination offline-npm                          # zqg-cometflow-0.3.1.tgz
+npm pack commander@14.0.3 yaml@2.9.0 --pack-destination offline-npm
+```
+
+得到：
 
 ```text
 offline-npm/zqg-cometflow-0.3.1.tgz
@@ -226,6 +235,9 @@ npm install --offline \
   /path/to/offline-npm/yaml-2.9.0.tgz
 ./node_modules/.bin/cometflow --version
 ```
+
+末行应打印 `0.3.1`。离线机器上直接 `cometflow init <目录>` 就能生成项目骨架，
+Web 客户端用 `cometflow serve` 起（前端产物在包内，不需要联网构建）。
 
 ---
 
