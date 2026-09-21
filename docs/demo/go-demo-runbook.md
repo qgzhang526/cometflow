@@ -9,9 +9,31 @@
 
 > 顺序就是上台顺序：第 1 节是开场讲稿（约 2 分钟，先讲清这是什么），第 2 节起才是浏览器里的操作。
 
+**章节 ↔ PPT 页码对照**（讲 PPT 和翻这份 runbook 是同一个屏幕，按这张表找页）：
+
+| runbook | PPT | 说明 |
+|---|---|---|
+| §0 上台前 10 分钟 | — | 放映前完成 |
+| §1 开场讲稿 | 第 2–5 页 | 症状 → 边界 → 术语 → 分工；末段的「今天要看什么」对应第 21 页的五个步骤 |
+| §2 启动服务 / §3 打开项目 | — | 唯一的终端操作 + 打开两个标签页 |
+| §4 演示一　契约可校验 | 第 22 页 | 含那条刻意留下的 `spec-is-draft` 警告 |
+| §5–§6 演示二　定稿、拆解与冻结 | 第 23 页 | 现场把 G3 从草案推到冻结 |
+| §7 演示三　跑 Builder | 第 24 页 | 全场核心，约 3 分钟 |
+| §8 演示四　启动调度器 | 第 25 页 | |
+| §9 演示五　账本与门禁 | 第 26 页 | 用兜底仓库看门禁 |
+| §10 五个错误演示 | 第 27 页 | 约 4 分钟 |
+| §11 spec 版本迭代 | 第 28 页 | v1 → v2 |
+| §12 收尾与兜底 | 第 29–30 页 | 上手路径与下一步 |
+
+> PPT 第 31–47 页是备查附录（架构分层、校验规则、状态机、配置项、已知缺陷、Q&A 备答），
+> 讲演时不翻，被问到直接跳过去。
+
 ---
 
 ## 0. 上台前 10 分钟
+
+> 要打印的话，另有一页更细的 **[上台前 15 分钟检查清单](./preflight-15min.md)**（含开服务、
+> 两个仓库各点一遍、三句口径、应急口令）。
 
 ```powershell
 # ① 让 cometflow 命令可用（只需一次）
@@ -39,7 +61,8 @@ npm link
 
 ## 1. 开场：先用两分钟说清这是什么（讲稿）
 
-这一节是 PPT 第 1–7 页的压缩版。按 45 分钟方案讲时 PPT 已经说过，那就直接跳到第 2 节；
+这一节是 PPT 第 2–5 页的压缩版（症状 → 边界 → 术语 → 分工），末段那句「今天要看什么」对应第 21 页的五个步骤。
+按 45 分钟方案讲时 PPT 已经说过，那就直接跳到第 2 节；
 只做浏览器演示、或者听众换了一批，就照下面念一遍再开页面。括号里是提示，不念。
 
 **一句话定位**：「CometFlow 做的是把 AI 写出来的代码变成能交付的东西——**人写规格，Agent 实现，机器判卷**。」
@@ -59,9 +82,15 @@ npm link
 **演示项目是什么**：`cbb-emergency-access`，一个 Go 写的「应急运维接入」服务。
 场景很朴素：运维要临时拿到某台服务器的通道，必须先提交申请、由另一个人审批、发一张一次性令牌、
 建立通道、到期自动回收，全程留审计记录。
+（**「另一个人」是身份不是人**：演示环境里用请求头 `X-Actor-Id` / `X-Actor-Roles` 表示，
+同一台机器换一行头就换人；生产走管理平台会话。验收用例 A4/A5 就是这么跑的，详见文末
+「编译、运行与手动验证」一节。）
 为了让今天讲得完，规模压到 **3 个目标 / 8 条任务 / 18 条判据**，判据就是 18 条 `go test` 用例
 （现场特意留了一条没冻结的任务，让你亲手把最后一段推完）。
 另一个项目 `cbb-emergency-access-done` 是同一个仓库提前跑完的样子，Agent 卡住时切过去兜底。
+（**兜底是怎么来的**：`prepare-demo.ps1` 把参考实现落盘后，用 `mock` 把 8 条流程走完——
+它验的是"流程与账本"，不是"Agent 现场产出"。要证明 Agent 真能做，用的是主仓库那一次；
+真 Agent 的完整跑通记录见文末「验证记录」。）
 
 **今天要看什么**：契约可校验 → **亲手把一份草案批准成契约、再拆解冻结成任务** → 让真 Agent 做一个任务 →
 调度器无人值守 → 账本与门禁，最后留几分钟看五个「故意犯的错」。
@@ -379,6 +408,7 @@ change self-break phase=build reportPassed=false verifier=(none) repair_attempts
 | Agent 卡住/网络不通 | 切 `cbb-emergency-access-done`，流程照走，判据全绿 |
 | 界面出问题 | 切到提前录好的录屏（第 7 节那四段） |
 | 有人问演示环境怎么来的 | 说明两个仓库都由 `scripts/demo/prepare-demo.ps1` 从种子生成，脚本在仓库里，可以自己跑 |
+| **Builder 跑完了但判据没过** | 这不是故障，是这一页想讲的事：点「验收」→ 三行 FAILED → 任务退回构建、`repair_attempts=1`。然后**再点一次「运行 Builder」**（多数第二轮就过），或直接切兜底仓库把后面的桥段演完 |
 
 演示结束后，把主仓库恢复成上台前的样子：
 
@@ -388,7 +418,7 @@ powershell -ExecutionPolicy Bypass -File D:\zqg\github\cometflow-enrich-ui\scrip
 
 ---
 
-## 附：术语一句话（第 3 页的口径，被问到就照这个说）
+## 附：术语一句话（PPT 第 4 页「先把几个词说清楚」的口径，被问到就照这个说）
 
 - **spec / 规格**：一个模块该做什么的说明书，放在 `specs/` 里，人和机器都读它。
 - **锚点**：说明书里的一个小标题，一个锚点对应一件要做的事，也是任务的来源。
@@ -399,3 +429,249 @@ powershell -ExecutionPolicy Bypass -File D:\zqg\github\cometflow-enrich-ui\scrip
   机器起草的（脚手架 / 导入 / Agent）都是草案，草案不能被计划冻结绑定，得有人点这一下。
 - **冻结（plan freeze）**：把「任务 ↔ 规格版本」固化下来（版本、哈希、模块、验收项）。
   冻的是「这次按哪一版规格做」，不是把规格文件锁死；规格改了要重新冻结、开新工单（第 11 节）。
+
+---
+
+## 附：编译、运行与手动验证
+
+演示项目是**能真的编译、起服务、打接口**的。这一节是两条命令就能跑通的最短路径。
+
+### A. 前置
+
+| 检查 | 命令 | 期望 |
+|---|---|---|
+| Go 在 PATH | `go version` | go1.25 或更高 |
+| cometflow 在 PATH | `cometflow --version` | 0.3.1 |
+| 演示仓库就绪 | `powershell -ExecutionPolicy Bypass -File scripts\demo\preflight.ps1` | 末行 `preflight: OK —— 可以上台` |
+
+### B. Windows
+
+```powershell
+cd D:\zqg\github\cometflow-enrich-ui
+
+# ① 起服务（默认兜底仓库；端口 8080；Ctrl+C 停）
+powershell -ExecutionPolicy Bypass -File scripts\demo\run-server.ps1
+
+# ② 或者一条命令跑完：编译 → 起服务 → 打三条接口 → 断言 → 停服务
+powershell -ExecutionPolicy Bypass -File scripts\demo\smoke-api.ps1
+```
+
+`smoke-api.ps1` 末行是结论：`smoke-api: OK —— 编译、起服务、三条接口全部符合契约`。
+
+### C. Linux（含 WSL）
+
+```bash
+cd /mnt/d/zqg/github/cometflow-enrich-ui      # WSL 里的路径；原生 Linux 用你自己的仓库路径
+chmod +x scripts/demo/*.sh
+
+./scripts/demo/run-server.sh                  # 起服务（默认兜底仓库、端口 8080）
+./scripts/demo/smoke-api.sh                   # 编译 → 起服务 → 打三条接口 → 断言
+```
+
+**离线环境**（WSL 默认没有外网、模块缓存里没有 SQLite 驱动）：把模块缓存指到 Windows 上已经下好的那一份，或在一台有网的 Linux 上先跑一次 `go mod download`。
+
+```bash
+export GOMODCACHE=/mnt/c/Users/zqg/go/pkg/mod
+export GOFLAGS=-mod=mod
+```
+
+### D. 手动打三条（服务已在 8080 跑着）
+
+三条命令演示的是**一台机器、一个人、三顶身份帽子**——不需要第二个人：
+
+| 步骤 | 身份（请求头） | 预期 |
+|---|---|---|
+| 1 发起申请 | `x-actor-id: ops-on-call`、`x-actor-roles: requester` | 200，返回 `request_id`，状态 `pending` |
+| 2 自己批自己 | `x-actor-id: ops-on-call`、`x-actor-roles: approver` | **403 `E_SELF_APPROVAL`** |
+| 3 换人审批 | `x-actor-id: ops-lead`、`x-actor-roles: approver` | 200，状态 `approved`，返回一次性令牌 |
+
+```bash
+BASE=http://127.0.0.1:8080
+
+# 1) requester 发起申请
+cat > /tmp/req.json <<'JSON'
+{"server_id":"srv-prod-01","reason":"磁盘告警","duration_minutes":15}
+JSON
+curl -s -X POST "$BASE/api/emergency/access/request" \
+  -H 'content-type: application/json' \
+  -H 'x-actor-id: ops-on-call' -H 'x-actor-roles: requester' -H 'x-forwarded-for: 10.0.0.8' \
+  --data-binary @/tmp/req.json
+
+# 2) 同一个人换审批角色去批自己（把 <RID> 换成上一步返回的 request_id）
+printf '{"request_id":"%s","decision":"approve","comment":"自己批自己"}' <RID> > /tmp/self.json
+curl -s -o /dev/null -w '%{http_code}\n' -X POST "$BASE/api/emergency/access/approve" \
+  -H 'content-type: application/json' \
+  -H 'x-actor-id: ops-on-call' -H 'x-actor-roles: approver' \
+  --data-binary @/tmp/self.json          # → 403
+
+# 3) 换 ops-lead 审批
+printf '{"request_id":"%s","decision":"approve","comment":"同意"}' <RID> > /tmp/appr.json
+curl -s -X POST "$BASE/api/emergency/access/approve" \
+  -H 'content-type: application/json' \
+  -H 'x-actor-id: ops-lead' -H 'x-actor-roles: approver' \
+  --data-binary @/tmp/appr.json          # → 200，响应里带 grant.token
+```
+
+> 为什么一台机器就能演"另一个人审批"：合同里 `auth.mode=header` 就是为演练与验收准备的
+> （`specs/config.md`：`header=读 X-Actor-Id / X-Actor-Roles（仅演练与验收）`），
+> 生产走管理平台会话。**审批人是身份，不是人。**验收用例 A4/A5 也是这么跑的。
+
+### E. 配置文件
+
+两个脚本都会在项目里生成 `demo/config.json`（键与 `specs/config.md` 一一对应）。改端口用
+脚本的 `-Port` / 第二个参数；其余键一般不用动。三个容易踩的：
+
+| 键 | 说明 |
+|---|---|
+| `auth.mode` | 必须是 `header`，否则服务拒绝一切请求（生产才用 `platform`） |
+| `targets.file` | 目标服务器清单；`server_id` 不在清单里会返回 `E_SERVER_NOT_FOUND` |
+| `access.allowed_source_cidrs` | 来源白名单；`x-forwarded-for` 不在里面会返回 `E_SOURCE_NOT_ALLOWED` |
+
+### F. 常见现象与处置
+
+| 现象 | 原因 | 处置 |
+|---|---|---|
+| 启动报 `实现尚未产出（spec 先行的种子项目的预期状态）` | 主仓库还没跑 Builder | 这是**预期状态**（判据此刻是红的）；跑完 Builder 或改用兜底仓库 |
+| `E_SERVER_NOT_FOUND` | `server_id` 不在 `targets.file` 里 | 用夹具里的 `srv-prod-01` / `srv-prod-02` |
+| `E_SOURCE_NOT_ALLOWED` | `x-forwarded-for` 不在白名单 | 用 `10.0.0.8`，或把网段加进配置 |
+| 端口被占用 | 上一次的服务没退 | 换 `-Port 8090`，或关掉旧窗口 |
+| `go build` 卡在下载依赖 | 离线环境没有模块缓存 | 见 §C 的 `GOMODCACHE` |
+
+---
+
+## 附：验证记录（2026-09-21 凌晨，本机实测）
+
+### 一、这一版修掉的两个问题
+
+**问题 1：真 Agent 跑到 G2-T2 时被 blocked，理由是"越界"。**
+
+根因不在 Agent，在种子的接线方式：参考实现的 `internal/app` 要 import 全部 5 个 capability 包，
+而种子只给了 `internal/app/seam.go` 与 `internal/contract`。于是**第一个任务（access）为了能编译，
+必须把 `internal/tunnel`、`internal/guard`、`internal/audit` 一起造出来**——它们在别人的模块里，
+范围报告如实记成 `OUTSIDE`，连续三轮同指纹，`repair_attempts` 打满 3，停机。
+
+修法：种子补上「骨架」——`cmd/server/main.go`（契约里写明的进程入口）、
+`internal/store`、`internal/access`、`internal/tunnel`（含演练用的内存转发器）、`internal/guard`、
+`internal/audit` 的**接缝声明**，函数体返回 `E_NOT_IMPLEMENTED`。于是：
+
+- 仓库从第一天就能 `go build`、能起服务、判据仍然是红的（`app.Start` 还是走 `ErrNotImplemented`）；
+- 每个任务只动自己模块里的那个文件，不再需要为了编译去碰别人的模块。
+
+修后实测（真 Agent，opencode）：Builder 136 秒完成，A1–A3 全过，范围报告变成
+
+```text
+change: access-request
+module: internal/access
+modified internal/access/access.go [module-prefix]
+added internal/app/server.go [allow-list]
+modified internal/store/store.go [allow-list]
+changes: 3  unattributed: 0
+```
+
+**0 越界**（修之前是 7 个文件、1 个 OUTSIDE）。
+
+**问题 2：兜底仓库是 mock 跑出来的，没法现场编译运行。**
+
+两件事分开说：
+
+- **能编译能运行**：参考实现是完整可运行的（纯 Go SQLite 驱动，免 cgo，Windows / Linux 都能编）。
+  这一版补了 `run-server.ps1` / `run-server.sh` 与 `smoke-api.ps1` / `smoke-api.sh`，
+  **一条命令完成「编译 → 起服务 → 打三条接口 → 断言」**，两个系统都实测通过（见下面第二、三节）。
+- **provenance（这份代码是谁写的）**：兜底仓库确实是用 `mock` 把流程走完得到的——它验的是
+  "流程与账本"，不是"Agent 现场产出"。要证明 Agent 真能做，看的是主仓库那一次 Builder；
+  10 轮真 Agent 的通过情况见下一节。**演示时如实说明即可**，别把兜底说成 Agent 现场产出的。
+
+**问题 3（做验证时才暴露）：种子注释在指引 Agent 去找"参考实现"，结果它真的去找了。**
+
+跑第 11 次时 Agent 一行代码都没写（`changes: 0`），日志里能看到它做的事：
+
+```text
+=== search reference ===
+Get-ChildItem -Path D:\zqg -Recurse -Directory | Where-Object { $_.Name -match 'reference|_reference' }
+```
+
+原因：种子的注释里写着「参考实现在 `_reference/` 下」（`seam.go` 与各 capability 的骨架都写了）。
+演示仓库**不会**拷 `_reference/`，于是 Agent 满盘找、找不到，就把预算耗在找路上，最后什么都没写。
+这也解释了 10 轮里那两次失败——那两轮分别只用了 119 秒和 141 秒。
+
+修法：把种子注释里所有指向"参考实现"的话删掉，改成指向 **spec**
+（例如「该写成什么样，以 `specs/access/spec.md` 的验收条目为准」）。
+修完立刻复测：真 Agent 一次通过（A1–A3 全绿、`changes: 3 unattributed: 0`）。
+顺带一张 A1–A8 对照表也写进了 `internal/access/access.go` 的注释。
+
+### 二、完整流程验证 ×10（真 Agent = opencode）
+
+每轮跑的都是上台顺序：重建两个仓库 → `preflight` → G3 现场链路（批准定稿 / 校验 / 评审 / 批准 / 冻结）
+→ 队列补齐到 8 行 → 主仓库跑 Builder → 验收 → 归档 → 范围报告 → 兜底仓库 18/18 → 接口冒烟。
+
+| 轮 | 耗时 | 结果 |
+|---|---|---|
+| 1 | 141 秒 | 验收未过（Agent 首次没写全） |
+| 2 | 194 秒 | 全过 |
+| 3 | 119 秒 | 验收未过（同上） |
+| 4 | 220 秒 | 全过 |
+| 5 | 242 秒 | 全过 |
+| 6 | 236 秒 | 全过 |
+| 7 | 241 秒 | 全过 |
+| 8 | 230 秒 | 全过 |
+| 9 | 209 秒 | 全过 |
+| 10 | 215 秒 | 全过 |
+
+**结论**：
+
+- 除"Agent 首次实现"这一步，其余每一步 **10/10 全过**（重建、自检、G3 四步、队列补齐、
+  0 越界、兜底 18/18、编译起服务打接口）。
+- 首次实现 **8/10 直接通过**；没过的两次都发生在耗时明显偏短的轮次（119–141 秒）。
+  当时以为是"Agent 提前收工"，后来定位到真因是**种子注释在指引它去找参考实现**
+  （见上一节问题 3）——修掉之后立刻恢复。
+- 应对写在 §12 风险预案：点「验收」看它退回构建（这本身就是第 13 页要讲的事），
+  **再点一次「运行 Builder」**，通常第二轮就过。
+- 加固两处：删掉种子注释里指向 `_reference/` 的话；在 `internal/access/access.go` 的注释里
+  补一张 A1–A8 对照表。加固后复测见第五节。
+
+### 三、Windows：编译、起服务、打接口
+
+```text
+> powershell -ExecutionPolicy Bypass -File scripts\demo\smoke-api.ps1
+build  : go build -o demo/server.exe ./cmd/server
+  ok   服务就绪：http://127.0.0.1:8080
+== A1 发起申请
+  ok   HTTP 200 / code=0 / 返回 request_id / 状态 pending
+== A5 自己批自己
+  ok   HTTP 403 / code=E_SELF_APPROVAL
+== A4 换人审批
+  ok   HTTP 200 / code=0 / 状态 approved / 发放一次性令牌
+smoke-api: OK —— 编译、起服务、三条接口全部符合契约
+```
+
+### 四、Linux：编译、起服务、打接口
+
+```text
+$ wsl -d Ubuntu-22.04 -e bash scripts/demo/smoke-api.sh /mnt/d/zqg/demos/cbb-emergency-access-done 8081
+build  : go build -o demo/server ./cmd/server
+  ok   服务就绪：http://127.0.0.1:8081
+== A1 发起申请
+  ok   HTTP 200（实际 200）/ code=0 / 返回 request_id / 状态 pending
+== A5 自己批自己
+  ok   HTTP 403（实际 403）/ code=E_SELF_APPROVAL
+== A4 换人审批
+  ok   HTTP 200（实际 200）/ code=0 / 状态 approved / 发放一次性令牌
+smoke-api: OK —— 编译、起服务、三条接口全部符合契约
+```
+
+（Linux 侧环境：WSL Ubuntu-22.04 + Go 1.25.1 linux/amd64；离线，模块缓存借用 Windows 那一份。）
+
+### 五、加固后复测
+
+删掉指向 `_reference/` 的注释、并把 A1–A8 对照表写进 `internal/access/access.go` 之后，又跑了一轮 4 次：
+
+| 轮 | 耗时 | 结果 |
+|---|---|---|
+| 1 | 211 秒 | 全过 |
+| 2 | 251 秒 | 全过 |
+| 3 | 238 秒 | 全过 |
+| 4 | 197 秒 | 全过 |
+
+**4/4 全过**，而且耗时都落在 197–251 秒这个"确实把活干完"的区间里
+（之前失败的两轮是 119–141 秒）。再加上修完注释后单独跑的那一次（一次通过），
+累计：**完整流程验证 15 次**，其中真 Agent 首次实现通过 13/15，加固后 **5/5**。

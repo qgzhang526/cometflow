@@ -106,7 +106,7 @@ func LoadConfig(path string) (Config, error) {
 	return cfg, nil
 }
 
-// 实现产出后把这两个变量指向真正的实现（见同包的实现文件，或 reference/ 下的参考实现）。
+// 实现产出后，由同包里的实现文件把这两个变量指过去。
 // 用变量而不是直接调用，是为了让「还没有实现」这件事本身可判定：种子阶段它们都是 nil，
 // 验收执行器就会收到 ErrNotImplemented，并把它报成「缺少实现」而不是实现做错了。
 var (

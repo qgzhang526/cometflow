@@ -72,6 +72,10 @@ function Copy-SeedProject([string]$Path) {
     Copy-Item -LiteralPath (Join-Path $SeedPath 'go.mod') -Destination $Path -Force
     Copy-Item -LiteralPath (Join-Path $SeedPath 'go.sum') -Destination $Path -Force
     Copy-Item -LiteralPath (Join-Path $SeedPath 'internal') -Destination $Path -Recurse -Force
+    # cmd/server 是契约里写明的进程入口（specs/protocol.md「服务入口」），属于种子；
+    # 有了它，仓库在「还没实现」的阶段也能编译、能起、能看见“缺少实现”，
+    # 而且第一个任务不必为了能编译去创建别的 capability 包（那会造成假越界）。
+    Copy-Item -LiteralPath (Join-Path $SeedPath 'cmd') -Destination $Path -Recurse -Force
   }
 }
 

@@ -84,7 +84,26 @@ else {
   else {
     Bad "演示工单状态不对（期望 1 个 access-request 且 phase=build，实际 $($active.Count) 个）"
   }
-  if (Test-Path -LiteralPath (Join-Path $mainPath 'src')) { Bad 'src/ 已存在；现场演不出"判据先红"' }
+  if ($mainIsGo) {
+    # 「实现还没产出」的判定：internal/app 下只应有 seam.go，internal/access 下只应有 access.go。
+    # 不要盯死某个文件名——Agent 可能把接线写成 server.go、wire.go……。
+    # （之前这里只查 src/，而 Go 版根本没有 src/，等于这条断言从来没生效过。）
+    $extraApp = @(Get-ChildItem -LiteralPath (Join-Path $mainPath 'internal\app') -Filter *.go -ErrorAction SilentlyContinue |
+      Where-Object { $_.Name -ne 'seam.go' })
+    $extraAccess = @(Get-ChildItem -LiteralPath (Join-Path $mainPath 'internal\access') -Filter *.go -ErrorAction SilentlyContinue |
+      Where-Object { $_.Name -ne 'access.go' })
+    if ($extraApp.Count -gt 0 -or $extraAccess.Count -gt 0) {
+      Bad "已经有实现产出（internal/app: $($extraApp.Name -join '、')；internal/access: $($extraAccess.Name -join '、')）；先重跑 prepare-demo.ps1"
+    }
+    else {
+      Ok '实现未产出（internal/app 只有 seam.go、internal/access 只有 access.go），判据此刻是红的'
+      # -C 让 go 在演示仓库里构建；直接 go build 会落在脚本当前目录上。
+      $build = & go -C $mainPath build ./... 2>&1 | Out-String
+      if ($LASTEXITCODE -eq 0) { Ok '骨架可编译（go build ./... 通过）' }
+      else { Bad "骨架编译失败：`n$build" }
+    }
+  }
+  elseif (Test-Path -LiteralPath (Join-Path $mainPath 'src')) { Bad 'src/ 已存在；现场演不出"判据先红"' }
   else { Ok '无 src/（判据此刻是红的，符合预期）' }
 
   $queue = & cometflow daemon queue rebuild $mainPath 2>&1 | Out-String

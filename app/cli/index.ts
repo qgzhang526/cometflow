@@ -101,13 +101,14 @@ import {
   planTraceCommand,
   planValidateCommand,
 } from '../commands/plan.js';
+import { readPackageVersion } from '../../platform/paths/package-version.js';
 
 const program = new Command();
 
 program
   .name('cometflow')
   .description('Full-time autonomous agent development platform')
-  .version('0.2.0');
+  .version(readPackageVersion());
 
 program
   .command('init [path]')

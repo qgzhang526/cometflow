@@ -36,17 +36,17 @@ CometFlow 是一个**规格驱动开发（SDD）的自主 Agent 开发平台**�
 
 ```bash
 npm config set registry http://<内网 npm 地址>
-npm install -g @zqg/cometflow@0.2.0
+npm install -g @zqg/cometflow@0.3.1
 ```
 
 ### 1.3 方式二：离线 tarball 安装
 
-准备三个 tarball：`zqg-cometflow-0.2.0.tgz`、`commander-14.0.3.tgz`、`yaml-2.9.0.tgz`。
+准备三个 tarball：`zqg-cometflow-0.3.1.tgz`（当前版本仓库 `npm pack` 得到）、`commander-14.0.3.tgz`、`yaml-2.9.0.tgz`。
 
 ```bash
 mkdir cometflow-install && cd cometflow-install
 npm init -y
-npm install --offline ./zqg-cometflow-0.2.0.tgz ./commander-14.0.3.tgz ./yaml-2.9.0.tgz
+npm install --offline ./zqg-cometflow-0.3.1.tgz ./commander-14.0.3.tgz ./yaml-2.9.0.tgz
 ./node_modules/.bin/cometflow --version
 ```
 

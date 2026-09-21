@@ -1,6 +1,6 @@
 # CometFlow 使用说明
 
-> 适用版本：`@zqg/cometflow` 0.3.0（CLI 名 `cometflow`，Node >= 22）。
+> 适用版本：`@zqg/cometflow` 0.3.1（CLI 名 `cometflow`，Node >= 22）。
 > 本文上半部分讲**项目整体逻辑**，下半部分讲**怎么用它**。
 
 ---
@@ -200,16 +200,17 @@ pnpm package-e2e            # 发布前的端到端检查
 
 ```bash
 npm config set registry http://npm.internal.local
-npm install -g @zqg/cometflow@0.2.0
+npm install -g @zqg/cometflow@0.3.1
 cometflow --version
 ```
 
 ### 2.4 离线安装
 
-仓库 `offline-npm/` 内已备好三个 tarball：
+内网不通时用 tarball 装。`zqg-cometflow-0.3.1.tgz` 由当前版本的仓库执行 `npm pack` 得到，
+另外两个是它的运行时依赖（`commander`、`yaml`）：
 
 ```text
-offline-npm/zqg-cometflow-0.2.0.tgz
+offline-npm/zqg-cometflow-0.3.1.tgz
 offline-npm/commander-14.0.3.tgz
 offline-npm/yaml-2.9.0.tgz
 ```
@@ -220,7 +221,7 @@ offline-npm/yaml-2.9.0.tgz
 mkdir cometflow-install && cd cometflow-install
 npm init -y
 npm install --offline \
-  /path/to/offline-npm/zqg-cometflow-0.2.0.tgz \
+  /path/to/offline-npm/zqg-cometflow-0.3.1.tgz \
   /path/to/offline-npm/commander-14.0.3.tgz \
   /path/to/offline-npm/yaml-2.9.0.tgz
 ./node_modules/.bin/cometflow --version
