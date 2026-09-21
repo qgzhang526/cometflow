@@ -172,6 +172,41 @@ describe('待办推导（S3）', () => {
     expect(t1?.change).toBe('G1-T1');
   });
 
+  it('运行时覆盖里的非待办记录只出现一次，且 rebuild 之后仍然稳定', async () => {
+    // 回归：队列里已经有一条非 queued 的运行时记录（上一次 merge 落盘的结果）。
+    // 它既被「运行时优先」分支推入结果，就不该在末尾再被当成孤儿追加一次。
+    // 缺了 overlayById.delete 时，界面上会看到同一条任务出现两行。
+    await writeQueue(root, {
+      schema: 'cometflow.queue.v1',
+      tasks: [
+        {
+          id: 'G1:T1',
+          goal: 'G1',
+          task: 'T1',
+          title: 'T1 的实现',
+          status: 'running',
+          attempts: 0,
+          updated_at: new Date(0).toISOString(),
+        },
+      ],
+    });
+
+    const merged = await mergeTodoView(root);
+    const ids = merged.tasks.map((task) => task.goal + ':' + task.task);
+    expect(ids).toEqual([...new Set(ids)]);
+    expect(ids.filter((id) => id === 'G1:T1')).toHaveLength(1);
+    expect(merged.tasks.find((task) => task.task === 'T1')?.status).toBe('running');
+    expect(merged.tasks.find((task) => task.task === 'T2')?.status).toBe('queued');
+
+    // 再合并一次也必须稳定：rebuild 不是幂等的话，队列每刷新一次就多一行。
+    const rebuilt = await rebuildQueue(root);
+    const rebuiltIds = rebuilt.tasks.map((task) => task.goal + ':' + task.task);
+    expect(rebuiltIds).toEqual([...new Set(rebuiltIds)]);
+    const again = await mergeTodoView(root);
+    const againIds = again.tasks.map((task) => task.goal + ':' + task.task);
+    expect(againIds).toEqual([...new Set(againIds)]);
+  });
+
   // 细粒度恢复：daemon 因「需人工介入」停机后，只把修好的那一条放回待办。
   it('retry 只重排指定的一条，其余任务的覆盖与尝试次数不动', async () => {
     await writeQueue(root, {

@@ -251,12 +251,19 @@ export async function specScaffoldCommand(
   console.log('wrote ' + result.manifestPath);
 
   const capabilities = options.capabilities ?? [];
+  // root kind 与 capability 骨架都是草案（见 scaffoldKinds）：这里数一下总共新写了几个文件，
+  // 好把「确认后 spec approve」这一步说出来——草案冻不住计划，用户需要知道下一步。
+  let scaffolded = result.created.length;
   if (capabilities.length > 0) {
     const capabilityResult = await scaffoldCapabilities(projectRoot, capabilities);
+    scaffolded += capabilityResult.created.length;
     for (const filePath of capabilityResult.created) console.log('scaffolded ' + filePath);
     for (const filePath of capabilityResult.skipped) console.log('skipped ' + filePath);
     for (const name of capabilityResult.invalid) console.log('invalid capability name: ' + name);
     if (capabilityResult.invalid.length > 0) process.exitCode = 1;
+  }
+  if (scaffolded > 0) {
+    console.log('（骨架是草案：确认内容后 cometflow spec approve <spec-file> 定稿；草案不能参与 plan freeze）');
   }
 
   // 上面的 scaffoldProject 是按技术栈推 root kind 的，推不出 capability（它由目标或外部标准

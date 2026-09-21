@@ -2,7 +2,7 @@
   <div class="card">
     <div class="toolbar">
       <button class="primary" @click="openMissionEditor">COMETFLOW.md</button>
-      <button @click="goalEditorOpen = true">＋ 添加目标</button>
+      <button @click="openGoalForm">＋ 添加目标</button>
       <button :disabled="syncing" @click="sync">{{ syncing ? '同步中…' : '同步' }}</button>
       <span class="grow" />
       <span class="muted">事实源：COMETFLOW.md → 投影：.cometflow/goals/</span>
@@ -47,7 +47,7 @@
     </template>
   </ModalCard>
 
-  <ModalCard v-if="goalEditorOpen" :title="'添加目标 G' + nextGoalNumber" wide @close="goalEditorOpen = false">
+  <ModalCard v-if="goalEditorOpen" :title="'添加目标 G' + nextGoalNumber" wide @close="closeGoalForm">
     <div class="form-grid">
       <label>目标标题 <input v-model="goalForm.title" placeholder="一句话描述该目标" /></label>
       <label>范围 capability <input v-model="goalForm.scope" placeholder="auth" /></label>
@@ -55,13 +55,13 @@
       <label>非目标（每行一条，可空）<textarea v-model="goalForm.nonGoals" rows="3" /></label>
     </div>
     <template #footer>
-      <button @click="goalEditorOpen = false">取消</button>
+      <button @click="closeGoalForm">取消</button>
       <button class="primary" @click="addGoal">添加到 COMETFLOW.md</button>
     </template>
   </ModalCard>
 
   <!-- 单条目标的就地编辑：改的是 COMETFLOW.md 里对应的 `### Gn` 块，不碰其它段落。 -->
-  <ModalCard v-if="editingGoal !== null" :title="'编辑目标 ' + editingGoal.id" wide @close="editingGoal = null">
+  <ModalCard v-if="editingGoal !== null" :title="'编辑目标 ' + editingGoal.id" wide @close="closeGoalEdit">
     <div class="form-grid">
       <label>标题<input v-model="goalEdit.title" /></label>
       <label>范围<input v-model="goalEdit.scope" placeholder="capability" /></label>
@@ -90,11 +90,21 @@
       </button>
     </template>
   </ModalCard>
+
+  <ConfirmDialog
+    v-if="pendingClose !== null"
+    title="有未保存的改动"
+    :message="pendingClose.message"
+    confirm-text="放弃改动并关闭"
+    @cancel="pendingClose = null"
+    @confirm="runPendingClose"
+  />
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import ModalCard from '../../components/ModalCard.vue';
+import ConfirmDialog from '../../components/ConfirmDialog.vue';
 import { errorMessage } from '../../api/client';
 import { refreshCounter, resumeRefresh, suspendRefresh } from '../../composables/useRefresh';
 import { useProjectStore } from '../../stores/project';
@@ -123,6 +133,62 @@ const syncing = ref(false);
 const goals = ref<GoalRecord[]>([]);
 const goalEditorOpen = ref(false);
 const goalForm = reactive({ title: '', scope: '', criteria: '', nonGoals: '' });
+/**
+ * 打开弹窗时的原文快照：用来判断有没有未保存的改动。
+ * 遮罩误点已经不再关闭弹窗，但「取消 / ✕」仍然会关——这里补上提示，避免手滑丢内容。
+ */
+const missionOriginal = ref('');
+const goalFormOriginal = ref('');
+const goalEditOriginal = ref('');
+
+/** 非 null 时显示站内的「有未保存改动」确认层。 */
+const pendingClose = ref<{ message: string; action: () => void } | null>(null);
+
+/** 关闭前统一提示：有未保存的改动就挂起，等用户在确认层里选。 */
+function confirmDiscard(dirty: boolean, what: string, action: () => void): void {
+  if (!dirty) {
+    action();
+    return;
+  }
+  pendingClose.value = { message: what + '有未保存的改动，关闭后不会保留。', action };
+}
+
+/** 用户在确认层里点了「放弃改动并关闭」。 */
+function runPendingClose(): void {
+  const pending = pendingClose.value;
+  pendingClose.value = null;
+  pending?.action();
+}
+
+function closeGoalForm(): void {
+  confirmDiscard(
+    goalFormOriginal.value !== '' && JSON.stringify(goalForm) !== goalFormOriginal.value,
+    '新建目标',
+    () => {
+      goalEditorOpen.value = false;
+    },
+  );
+}
+
+/** 打开「添加目标」：每次从空表单开始，并记下快照用于未保存提示。 */
+function openGoalForm(): void {
+  goalForm.title = '';
+  goalForm.scope = '';
+  goalForm.criteria = '';
+  goalForm.nonGoals = '';
+  goalFormOriginal.value = JSON.stringify(goalForm);
+  goalEditorOpen.value = true;
+}
+
+function closeGoalEdit(): void {
+  confirmDiscard(
+    goalEditOriginal.value !== '' && JSON.stringify(goalEdit) !== goalEditOriginal.value,
+    '目标编辑',
+    () => {
+      editingGoal.value = null;
+    },
+  );
+}
 
 function parseSections(markdown: string): Record<TabId, string> {
   const out: Record<TabId, string> = { mission: '', tech: '', runtime: '', objectives: '', projection: '' };
@@ -164,13 +230,16 @@ async function load(): Promise<void> {
 
 function openMissionEditor(): void {
   missionDraft.value = mission.value;
+  missionOriginal.value = mission.value;
   missionEditor.value = true;
   suspendRefresh();
 }
 
 function closeMissionEditor(): void {
-  missionEditor.value = false;
-  resumeRefresh();
+  confirmDiscard(missionDraft.value !== missionOriginal.value, 'COMETFLOW.md', () => {
+    missionEditor.value = false;
+    resumeRefresh();
+  });
 }
 
 async function saveMission(alsoSync: boolean): Promise<void> {
@@ -286,6 +355,8 @@ function startEdit(goal: GoalRecord): void {
   goalEdit.scope = goal.scope.join(', ');
   goalEdit.criteria = goal.success_criteria.join('\n');
   goalEdit.nonGoals = goal.non_goals.join('\n');
+  // 快照要在填完之后取：否则 fields 一填，就会被当成「有未保存改动」。
+  goalEditOriginal.value = JSON.stringify(goalEdit);
 }
 
 function startRemove(goal: GoalRecord): void {

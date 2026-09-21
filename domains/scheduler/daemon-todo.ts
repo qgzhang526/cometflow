@@ -149,6 +149,9 @@ export async function mergeTodoView(projectRoot: string): Promise<TodoView> {
     if (runtime !== undefined && runtime.status !== 'queued') {
       // 运行时的事实优先于「推导出待办」：正在跑的不能被重复排队，失败的保留尝试次数。
       merged.push({ ...task, ...runtime, blocked_by: blockedBy, delivered: false, source: 'overlay' });
+      // 这一条已经并进结果了，必须从 overlay 里划掉：否则末尾的「孤儿」合并会把它再追加一次，
+      // 队列里就出现同一条任务两行（界面与 daemon queue rebuild 的计数都会跟着虚高）。
+      overlayById.delete(key);
       continue;
     }
     /**

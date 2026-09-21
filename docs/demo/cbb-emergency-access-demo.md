@@ -245,7 +245,7 @@ wrote .../.cometflow/plans/G1.task-plan.yaml
 以 G1 的 T1（发起申请）为例：
 
 ```bash
-cometflow change new access-request --goal G1 --task T1 .
+cometflow change new access-request --goal G1 --task T1 --path .
 cometflow change transition access-request confirm-acceptance .
 cometflow change run access-request . --agent opencode
 ```
@@ -428,7 +428,7 @@ cometflow plan approve G2 .
 cometflow plan freeze G2 .
 
 # 3) 用新契约开新工单（名字不要复用已归档的）
-cometflow change new tunnel-open-v2 --goal G2 --task T1 .
+cometflow change new tunnel-open-v2 --goal G2 --task T1 --path .
 ```
 
 > 硬约束：执行阶段不再重新解释 spec。改动必须先在 `specs/` 落地并重新冻结，

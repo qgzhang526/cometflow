@@ -55,7 +55,7 @@
     </div>
   </div>
 
-  <ModalCard v-if="review !== null" :title="review.action === 'approve' ? '批准 ' + review.name : '驳回 ' + review.name" @close="review = null">
+  <ModalCard v-if="review !== null" :title="review.action === 'approve' ? '批准 ' + review.name : '驳回 ' + review.name" @close="closeReview">
     <div class="form-grid">
       <label v-if="review.action === 'approve'">
         评审意见
@@ -65,7 +65,7 @@
       <label v-if="review.action === 'reject'">驳回原因（必填）<textarea v-model="review.reason" rows="3" /></label>
     </div>
     <template #footer>
-      <button @click="review = null">取消</button>
+      <button @click="closeReview">取消</button>
       <button class="primary" :disabled="busy" @click="confirmReview">确认</button>
     </template>
   </ModalCard>
@@ -80,11 +80,21 @@
       <button @click="rollback = null">关闭</button>
     </template>
   </ModalCard>
+
+  <ConfirmDialog
+    v-if="pendingClose !== null"
+    title="有未保存的内容"
+    :message="pendingClose"
+    confirm-text="放弃内容并关闭"
+    @cancel="pendingClose = null"
+    @confirm="discardReview"
+  />
 </template>
 
 <script setup lang="ts">
 import { onMounted, reactive, ref, watch } from 'vue';
 import ModalCard from '../../components/ModalCard.vue';
+import ConfirmDialog from '../../components/ConfirmDialog.vue';
 import StatusBadge from '../../components/StatusBadge.vue';
 import { errorMessage } from '../../api/client';
 import { refreshCounter } from '../../composables/useRefresh';
@@ -105,6 +115,29 @@ const busy = ref(false);
 const verifyingName = ref('');
 const includeEval = ref(false);
 const review = ref<{ name: string; action: 'approve' | 'reject'; note: string; commits: string; reason: string } | null>(null);
+/** 打开评审弹窗时的快照：评审意见/驳回原因没保存就关闭，先问一句。 */
+const reviewOriginal = ref('');
+/** 非 null 时显示站内的「有未保存内容」确认层。 */
+const pendingClose = ref<string | null>(null);
+
+function closeReview(): void {
+  const current = review.value;
+  const dirty = current !== null && reviewOriginal.value !== '' &&
+    JSON.stringify({ note: current.note, commits: current.commits, reason: current.reason }) !== reviewOriginal.value;
+  if (dirty) {
+    pendingClose.value = '这次评审有未保存的内容，关闭后不会保留。';
+    return;
+  }
+  review.value = null;
+  reviewOriginal.value = '';
+}
+
+/** 用户在确认层里点了「放弃改动并关闭」。 */
+function discardReview(): void {
+  pendingClose.value = null;
+  review.value = null;
+  reviewOriginal.value = '';
+}
 const rollback = ref<{ name: string; lines: string[] } | null>(null);
 const rollbackBusy = ref('');
 
@@ -189,6 +222,7 @@ async function submit(name: string): Promise<void> {
 
 function startReview(name: string, action: 'approve' | 'reject'): void {
   review.value = { name, action, note: '', commits: '', reason: '' };
+  reviewOriginal.value = JSON.stringify({ note: '', commits: '', reason: '' });
 }
 
 async function confirmReview(): Promise<void> {

@@ -48,6 +48,7 @@ cometflow agent list|check <agent>
 - [演示脚本：用 CometFlow 实现 todoscan](./docs/demo/todoscan-demo.md)
 - [命令对照说明：每条 CLI 在做什么](./docs/demo/todoscan-demo-cli-notes.md)
 - [演示脚本：用 CometFlow 设计 CBB 应急运维接入](./docs/demo/cbb-emergency-access-demo.md)
+- [45 分钟汇报方案：工作原理 + CBB 实操演示](./docs/demo/report-45min-plan.md)
 
 ## 开发
 

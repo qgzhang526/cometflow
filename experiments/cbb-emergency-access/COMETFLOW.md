@@ -35,6 +35,7 @@ CBB-应急运维接入（Emergency Access）：为被防火墙策略封锁了 SS
 | src/store.mjs | 存储层：实体表与 append-only 审计（见 models.md） |
 | tests | 判据执行器与夹具，不属于任何 capability 模块 |
 | package.json | 依赖清单与脚本；本项目零外部依赖，只允许用 Node 内置模块 |
+| metrics-baseline.json | 度量基线（`cometflow gate check --update-baseline` 生成），不是实现代码 |
 
 ## 调度顺序
 

@@ -114,6 +114,10 @@
 | `flow` | 目录 `specs/flows/` + 可选模板（前置/步骤/后置） |
 | `capability` | **init 不生成内容**；由 `plan generate` 的 spec-authoring 任务起草，或 `spec scaffold --capability <name>` 建骨架后由人类誊写（工标/固定接口规范场景直接照抄） |
 
+> 表里所有骨架（`capability` 与各 root kind）落盘时 front-matter 都带 `status: draft`：
+> 机器产的是占位内容（`<Name>` / `EXAMPLE` 这类），在被人工确认（`cometflow spec approve <spec-file>`）
+> 之前不算契约，不能参与 `plan freeze`；`spec verify` 会以 `spec-is-draft` warning 让它保持可见。
+
 ## CLI 形态
 
     cometflow init [path]                    # 非交互：推断 + 保守默认，记录 deferred

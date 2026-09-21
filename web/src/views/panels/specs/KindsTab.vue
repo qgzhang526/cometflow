@@ -1,7 +1,8 @@
 <template>
   <div>
     <p class="muted">
-      12-kind 由项目类型裁剪而来：present 是已生成的骨架，deferred 表示「需要时再补」，absent 表示本项目不需要。
+      12-kind 由项目类型裁剪而来：present 是已生成的骨架（骨架落盘时是草案，要在「Spec 文件」页签批准定稿），
+      deferred 表示「需要时再补」，absent 表示本项目不需要。
     </p>
     <table>
       <thead><tr><th>kind</th><th>状态</th><th>原因</th></tr></thead>

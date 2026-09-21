@@ -32,6 +32,10 @@
       要自己填、再在「Spec 文件」页签批准定稿。已存在的不会被覆盖（幂等）。
       capability 不由项目类型推导，所以只能在这里点名，或由 <code>plan generate</code> 的 spec-authoring 任务起草。
     </p>
+    <p class="muted">
+      上面勾选补出来的 root kind 骨架同样是<strong>草案</strong>：机器产的是占位内容，确认后到「Spec 文件」页签
+      点「批准定稿」才算契约（草案不能参与 <code>plan freeze</code>）。
+    </p>
     <p v-if="invalidNames.length > 0" class="finding warning">
       名称不合法，不会写盘：<b>{{ invalidNames.join(', ') }}</b>
       —— 只能以字母/数字/中文开头，其余可用字母、数字、<code>_</code>、<code>-</code>、<code>.</code>
